@@ -142,8 +142,11 @@ func TestWatcherFileCreationDeletion(t *testing.T) {
 	})
 
 	events := []ChangeEvent{}
+	var eventsMutex sync.Mutex
 	err := watcher.Watch(testFile, func(event ChangeEvent) {
+		eventsMutex.Lock()
 		events = append(events, event)
+		eventsMutex.Unlock()
 	})
 	if err != nil {
 		t.Fatalf("Failed to watch file: %v", err)
@@ -154,33 +157,73 @@ func TestWatcherFileCreationDeletion(t *testing.T) {
 	}
 	defer watcher.Stop()
 
+	// Give initial setup time
+	time.Sleep(150 * time.Millisecond)
+
 	// Create the file
 	if err := os.WriteFile(testFile, []byte(`{"created": true}`), 0644); err != nil {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
 
-	time.Sleep(200 * time.Millisecond)
+	// Wait for create event with retry
+	maxWait := 10
+	for i := 0; i < maxWait; i++ {
+		eventsMutex.Lock()
+		hasCreate := false
+		for _, e := range events {
+			if e.IsCreate {
+				hasCreate = true
+				break
+			}
+		}
+		eventsMutex.Unlock()
+		if hasCreate {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 
 	// Delete the file
 	if err := os.Remove(testFile); err != nil {
 		t.Fatalf("Failed to delete test file: %v", err)
 	}
 
-	time.Sleep(200 * time.Millisecond)
+	// Wait for delete event with retry
+	for i := 0; i < maxWait; i++ {
+		eventsMutex.Lock()
+		hasDelete := false
+		for _, e := range events {
+			if e.IsDelete {
+				hasDelete = true
+				break
+			}
+		}
+		eventsMutex.Unlock()
+		if hasDelete {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 
-	// Check events
-	if len(events) < 2 {
-		t.Fatalf("Expected at least 2 events (create, delete), got %d", len(events))
+	// Check events with mutex protection
+	eventsMutex.Lock()
+	eventCount := len(events)
+	eventsCopy := make([]ChangeEvent, len(events))
+	copy(eventsCopy, events)
+	eventsMutex.Unlock()
+
+	if eventCount < 2 {
+		t.Fatalf("Expected at least 2 events (create, delete), got %d", eventCount)
 	}
 
 	// Find create and delete events
 	var createEvent, deleteEvent *ChangeEvent
-	for i := range events {
-		if events[i].IsCreate {
-			createEvent = &events[i]
+	for i := range eventsCopy {
+		if eventsCopy[i].IsCreate {
+			createEvent = &eventsCopy[i]
 		}
-		if events[i].IsDelete {
-			deleteEvent = &events[i]
+		if eventsCopy[i].IsDelete {
+			deleteEvent = &eventsCopy[i]
 		}
 	}
 

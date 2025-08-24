@@ -129,7 +129,7 @@ func TestSimpleFileWatcher(t *testing.T) {
 	defer watcher.Stop()
 
 	watcher.Start()
-	
+
 	// Give initial time for setup (important in CI)
 	time.Sleep(150 * time.Millisecond)
 

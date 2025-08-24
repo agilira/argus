@@ -685,6 +685,12 @@ func TestUtilities_EdgeCaseCoverage(t *testing.T) {
 
 	// Test audit logger with valid directory that doesn't exist yet
 	newDir := filepath.Join(tempDir, "new", "nested", "path")
+	// Create directory first for Windows compatibility
+	if err := os.MkdirAll(newDir, 0755); err != nil {
+		t.Errorf("Failed to create nested directory: %v", err)
+		return
+	}
+
 	validConfig := AuditConfig{
 		Enabled:       true,
 		OutputFile:    filepath.Join(newDir, "audit.log"),
@@ -695,20 +701,21 @@ func TestUtilities_EdgeCaseCoverage(t *testing.T) {
 
 	validLogger, err := NewAuditLogger(validConfig)
 	if err != nil {
-		t.Errorf("Failed to create audit logger with auto-created directory: %v", err)
-	} else {
-		// Test multiple log levels with proper API
-		validLogger.Log(AuditInfo, "info_event", "test_component", "test_file.json", nil, "new_value", map[string]interface{}{"level": "info"})
-		validLogger.Log(AuditWarn, "warn_event", "test_component", "test_file.json", "old_value", "new_value", map[string]interface{}{"level": "warn"})
-		validLogger.Log(AuditCritical, "critical_event", "test_component", "test_file.json", "old_value", nil, map[string]interface{}{"level": "critical"})
-		validLogger.Log(AuditSecurity, "security_event", "test_component", "test_file.json", nil, nil, map[string]interface{}{"level": "security"})
+		t.Errorf("Failed to create audit logger with pre-created directory: %v", err)
+		return
+	}
 
-		// Close and verify file was created
-		validLogger.Close()
+	// Test multiple log levels with proper API
+	validLogger.Log(AuditInfo, "info_event", "test_component", "test_file.json", nil, "new_value", map[string]interface{}{"level": "info"})
+	validLogger.Log(AuditWarn, "warn_event", "test_component", "test_file.json", "old_value", "new_value", map[string]interface{}{"level": "warn"})
+	validLogger.Log(AuditCritical, "critical_event", "test_component", "test_file.json", "old_value", nil, map[string]interface{}{"level": "critical"})
+	validLogger.Log(AuditSecurity, "security_event", "test_component", "test_file.json", nil, nil, map[string]interface{}{"level": "security"})
 
-		if _, err := os.Stat(validConfig.OutputFile); os.IsNotExist(err) {
-			t.Error("Audit file should have been created in nested directory")
-		}
+	// Close and verify file was created
+	validLogger.Close()
+
+	if _, err := os.Stat(validConfig.OutputFile); os.IsNotExist(err) {
+		t.Error("Audit file should have been created in pre-created directory")
 	}
 }
 

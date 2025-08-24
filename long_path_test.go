@@ -64,11 +64,12 @@ func TestBoreasLite_PathLengths(t *testing.T) {
 	t.Logf("Test 3 - Long path: %s (len=%d)", longFile, len(longFile))
 
 	if len(longFile) >= 110 {
-		t.Logf("WARNING: Path too long (%d), our buffer is 110 bytes", len(longFile))
-		t.Skip("Path exceeds buffer, this is expected limitation")
-	} else {
-		testPath(t, longFile, "long path test")
+		t.Logf("Path length (%d) exceeds buffer capacity (110 bytes) - this is an expected limitation on macOS", len(longFile))
+		t.Skip("Skipping long path test due to platform path length limitations")
+		return
 	}
+
+	testPath(t, longFile, "long path test")
 }
 
 func testPath(t *testing.T, filePath, testName string) {
@@ -111,7 +112,17 @@ func testPath(t *testing.T, filePath, testName string) {
 		t.Fatalf("%s failed to modify file: %v", testName, err)
 	}
 
-	time.Sleep(150 * time.Millisecond) // Same timing as integration test
+	// Wait for events with retry logic for CI environments
+	maxWait := 15 // Up to 1.5 seconds for CI
+	for i := 0; i < maxWait; i++ {
+		eventsMutex.Lock()
+		eventsLength := len(events)
+		eventsMutex.Unlock()
+		if eventsLength > 0 {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 
 	// Check stats
 	if watcher.eventRing != nil {

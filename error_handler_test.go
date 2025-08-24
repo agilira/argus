@@ -9,6 +9,7 @@ package argus
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -50,7 +51,16 @@ func TestErrorHandler_FileReadError(t *testing.T) {
 	if err := os.WriteFile(configPath, []byte(`{"test": true}`), 0000); err != nil {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
-	defer os.Chmod(configPath, 0644) // Restore for cleanup
+	defer func() {
+		os.Chmod(configPath, 0644) // Restore for cleanup
+		os.Remove(configPath)
+	}()
+
+	// On Windows, file permissions work differently
+	// Delete the file to simulate read error instead
+	if runtime.GOOS == "windows" {
+		os.Remove(configPath)
+	}
 
 	// Wait for error to be captured
 	time.Sleep(300 * time.Millisecond)
@@ -63,7 +73,8 @@ func TestErrorHandler_FileReadError(t *testing.T) {
 	}
 
 	if capturedError == nil {
-		t.Fatal("Expected error to be captured by ErrorHandler")
+		t.Error("Expected error to be captured by ErrorHandler")
+		return
 	}
 
 	if capturedPath != configPath {
