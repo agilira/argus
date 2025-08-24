@@ -495,10 +495,16 @@ func TestUtilities_ConcurrentAccess(t *testing.T) {
 		CacheTTL:     50 * time.Millisecond,
 	}
 
+	// Track received configs safely
+	var configMutex sync.Mutex
+	receivedConfigs := make([]map[string]interface{}, 0)
+
 	for i := 0; i < numWatchers; i++ {
 		watcher, err := UniversalConfigWatcherWithConfig(configFile, func(config map[string]interface{}) {
-			// Each watcher gets the same config updates
-			t.Logf("Watcher received config: %+v", config)
+			// Thread-safe config tracking without t.Logf in goroutine
+			configMutex.Lock()
+			receivedConfigs = append(receivedConfigs, config)
+			configMutex.Unlock()
 		}, fastConfig)
 		if err != nil {
 			t.Fatalf("Failed to create watcher %d: %v", i, err)
@@ -527,11 +533,24 @@ func TestUtilities_ConcurrentAccess(t *testing.T) {
 		time.Sleep(100 * time.Millisecond) // Allow propagation
 	}
 
+	// Wait a bit more for all events to propagate
+	time.Sleep(200 * time.Millisecond)
+
 	// All watchers should still be running
 	for i, watcher := range watchers {
 		if !watcher.IsRunning() {
 			t.Errorf("Watcher %d should still be running", i)
 		}
+	}
+
+	// Check received configs safely (outside of any goroutines)
+	configMutex.Lock()
+	totalConfigs := len(receivedConfigs)
+	configMutex.Unlock()
+
+	t.Logf("Total configs received by all watchers: %d", totalConfigs)
+	if totalConfigs == 0 {
+		t.Error("Expected at least some config updates to be received")
 	}
 }
 
