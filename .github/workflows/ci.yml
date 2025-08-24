@@ -1,0 +1,86 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  CGO_ENABLED: 1
+
+jobs:
+  test:
+    name: Test Suite
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.21'
+        cache: true
+
+    - name: Install Dependencies
+      run: |
+        go install honnef.co/go/tools/cmd/staticcheck@latest
+        go install github.com/mgechev/revive@latest
+        go install github.com/securego/gosec/v2/cmd/gosec@latest
+
+    - name: Go Format Check
+      run: |
+        if [ "$(gofmt -l . | wc -l)" -gt 0 ]; then
+          echo "Code not formatted:"
+          gofmt -l .
+          exit 1
+        fi
+
+    - name: Go Vet
+      run: go vet ./...
+
+    - name: Staticcheck
+      run: staticcheck ./...
+
+    - name: Revive (Golint replacement)
+      run: revive -config revive.toml ./... || true
+
+    - name: Security Scan (gosec)
+      continue-on-error: true
+      run: |
+        echo "🔍 Running security scan..."
+        gosec -conf .gosec.json ./... || true
+        echo "✅ Security scan completed"
+
+    - name: Test with Race Detection
+      run: go test -race -timeout 5m -v ./...
+
+    - name: Test Coverage
+      run: |
+        go test -coverprofile=coverage.out ./...
+        go tool cover -func=coverage.out
+
+  build:
+    name: Build Matrix
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        go-version: ['1.21']  # Reduced to save minutes
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: ${{ matrix.go-version }}
+        cache: true
+
+    - name: Build
+      run: go build -v ./...
+
+    - name: Short Test (no race, faster)
+      run: go test -short -timeout 30s ./...

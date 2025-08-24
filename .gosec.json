@@ -1,0 +1,16 @@
+{
+  "excludes": [
+    "G104",
+    "G306", 
+    "G301"
+  ],
+  "exclude-generated": true,
+  "exclude-dirs": [
+    "examples",
+    "vendor",
+    ".git"
+  ],
+  "severity": "medium",
+  "confidence": "medium",
+  "fmt": "text"
+}
