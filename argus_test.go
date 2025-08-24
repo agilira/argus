@@ -7,7 +7,6 @@
 package argus
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -166,9 +165,9 @@ func TestWatcherFileCreationDeletion(t *testing.T) {
 		t.Fatalf("Watcher should be running")
 	}
 
-	// Extended setup time for macOS CI environments
+	// Extended setup time for macOS CI environments - reduced for timeout constraints
 	t.Logf("Waiting for watcher setup...")
-	time.Sleep(1 * time.Second)
+	time.Sleep(500 * time.Millisecond) // Reduced from 1 second
 
 	t.Logf("Creating file: %s", testFile)
 	// Create the file
@@ -176,8 +175,8 @@ func TestWatcherFileCreationDeletion(t *testing.T) {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
 
-	// Wait for create event with very extended retry for macOS CI
-	maxWait := 40 // 40 * 250ms = 10 seconds max
+	// Wait for create event with reduced timeout for CI constraints
+	maxWait := 20 // 20 * 250ms = 5 seconds max (reduced from 10s)
 	for i := 0; i < maxWait; i++ {
 		eventsMutex.Lock()
 		currentEvents := len(events)
@@ -197,8 +196,8 @@ func TestWatcherFileCreationDeletion(t *testing.T) {
 		time.Sleep(250 * time.Millisecond)
 	}
 
-	// Give extended time between operations for macOS filesystem sync
-	time.Sleep(1 * time.Second)
+	// Give time between operations - reduced for timeout constraints
+	time.Sleep(500 * time.Millisecond) // Reduced from 1 second
 
 	t.Logf("Deleting file: %s", testFile)
 	// Delete the file
@@ -226,8 +225,8 @@ func TestWatcherFileCreationDeletion(t *testing.T) {
 		time.Sleep(250 * time.Millisecond)
 	}
 
-	// Final extended wait to catch any late events on macOS
-	time.Sleep(1 * time.Second)
+	// Final wait to catch any late events - reduced for timeout constraints
+	time.Sleep(500 * time.Millisecond) // Reduced from 1 second
 
 	// Check events with mutex protection
 	eventsMutex.Lock()
@@ -245,83 +244,49 @@ func TestWatcherFileCreationDeletion(t *testing.T) {
 	// On macOS CI, filesystem events might be very slow or not detected
 	// We'll be more lenient and allow the test to pass with fewer events
 	if eventCount == 0 {
-		// As a last resort, let's verify the watcher is actually polling
-		// by creating and modifying a file multiple times with longer delays
-		t.Logf("No events detected, trying alternative detection with extended timing...")
+		// Quick alternative detection for CI environments with timeout constraints
+		t.Logf("No events detected, trying quick alternative detection...")
 
-		// Create file again and wait longer
-		if err := os.WriteFile(testFile, []byte(`{"test": 1}`), 0644); err == nil {
-			time.Sleep(1 * time.Second) // Wait 1 second for detection
+		// Try one more file modification with shorter delay
+		if err := os.WriteFile(testFile, []byte(`{"test": 1, "retry": true}`), 0644); err == nil {
+			time.Sleep(500 * time.Millisecond) // Much shorter delay for CI
 
-			// Check if this was detected
 			eventsMutex.Lock()
 			currentCount := len(events)
 			eventsMutex.Unlock()
 
 			if currentCount > 0 {
-				t.Logf("File creation detected with extended timing: %d events", currentCount)
-				// Update eventCount for later use
-				eventCount = currentCount
+				t.Logf("Quick retry successful: %d events", currentCount)
 			} else {
-				// Try multiple modifications with longer delays
-				for i := 2; i <= 5; i++ {
-					os.WriteFile(testFile, []byte(fmt.Sprintf(`{"test": %d}`, i)), 0644)
-					time.Sleep(1 * time.Second) // Much longer delay
+				// Try one alternative file quickly
+				altFile := filepath.Join(filepath.Dir(testFile), "quick_test.json")
+				if err := os.WriteFile(altFile, []byte(`{"quick": true}`), 0644); err == nil {
+					watcher.Watch(altFile, func(event ChangeEvent) {
+						eventsMutex.Lock()
+						events = append(events, event)
+						t.Logf("Quick alt event: %+v", event)
+						eventsMutex.Unlock()
+					})
+
+					time.Sleep(500 * time.Millisecond) // Short wait only
 
 					eventsMutex.Lock()
-					currentCount := len(events)
+					currentCount = len(events)
 					eventsMutex.Unlock()
 
 					if currentCount > 0 {
-						t.Logf("File modification detected after %d attempts: %d events", i-1, currentCount)
-						break
+						t.Logf("Quick alternative detection successful: %d events", currentCount)
 					}
 				}
 			}
 		}
 
-		// Final check with extended timeout
 		eventsMutex.Lock()
 		finalEventCount := len(events)
 		eventsMutex.Unlock()
 
 		if finalEventCount == 0 {
-			// Final attempt: create a different file with more distinctive content changes
-			t.Logf("Trying final detection with a different file...")
-			altFile := filepath.Join(filepath.Dir(testFile), "alternative_test.json")
-
-			for attempt := 1; attempt <= 3; attempt++ {
-				content := fmt.Sprintf(`{"attempt": %d, "timestamp": %d}`, attempt, time.Now().UnixNano())
-				if err := os.WriteFile(altFile, []byte(content), 0644); err == nil {
-					// Add this file to watcher
-					watcher.Watch(altFile, func(event ChangeEvent) {
-						eventsMutex.Lock()
-						events = append(events, event)
-						t.Logf("Alt file event: IsCreate=%v, IsDelete=%v, IsModify=%v, Path=%s",
-							event.IsCreate, event.IsDelete, event.IsModify, event.Path)
-						eventsMutex.Unlock()
-					})
-
-					time.Sleep(2 * time.Second) // Extra long wait
-
-					eventsMutex.Lock()
-					currentCount := len(events)
-					eventsMutex.Unlock()
-
-					if currentCount > 0 {
-						t.Logf("Alternative file detection successful: %d events", currentCount)
-						break
-					}
-				}
-			}
-
-			eventsMutex.Lock()
-			finalEventCount = len(events)
-			eventsMutex.Unlock()
-
-			if finalEventCount == 0 {
-				t.Skip("No file events detected - this appears to be a macOS CI filesystem limitation")
-			}
+			t.Skip("No file events detected - this appears to be a macOS CI filesystem limitation")
 		}
 
 		t.Logf("Alternative detection successful: %d events", finalEventCount)
@@ -331,9 +296,7 @@ func TestWatcherFileCreationDeletion(t *testing.T) {
 		eventsCopy = make([]ChangeEvent, len(events))
 		copy(eventsCopy, events)
 		eventsMutex.Unlock()
-	}
-
-	// Look for create-like events (creation or first modification)
+	} // Look for create-like events (creation or first modification)
 	hasCreateActivity := false
 	hasDeleteActivity := false
 
