@@ -129,12 +129,18 @@ func TestSimpleFileWatcher(t *testing.T) {
 	defer watcher.Stop()
 
 	watcher.Start()
+	
+	// Give initial time for setup (important in CI)
+	time.Sleep(150 * time.Millisecond)
 
 	// Update the file
 	os.WriteFile(tmpfile.Name(), []byte("updated content"), 0644)
 
-	// Wait longer for the change to be detected (our polling is every 50ms)
-	time.Sleep(200 * time.Millisecond)
+	// Wait with retry logic for CI environments
+	maxWait := 10 // 10 attempts of 100ms = 1 second max
+	for i := 0; i < maxWait && callCount == 0; i++ {
+		time.Sleep(100 * time.Millisecond)
+	}
 
 	if callCount == 0 {
 		t.Error("Expected at least one callback call")
