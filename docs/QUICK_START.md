@@ -158,7 +158,7 @@ import (
     "fmt"
     "log"
     "time"
-    "github.com/agilira/iris/argus"
+    "github.com/agilira/argus"
 )
 
 func main() {
@@ -225,7 +225,7 @@ import (
     "log"
     "os"
     "time"
-    "github.com/agilira/iris/argus"
+    "github.com/agilira/argus"
 )
 
 func main() {
@@ -313,7 +313,7 @@ package main
 
 import (
     "time"
-    "github.com/agilira/iris/argus"
+    "github.com/agilira/argus"
 )
 
 func main() {

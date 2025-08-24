@@ -400,24 +400,6 @@ go func() {
 }()
 ```
 
-### Integration with Iris Logger
-
-For seamless integration with Iris logger:
-
-```go
-import "github.com/agilira/iris"
-
-// Watch logger configuration
-watcher.Watch("logger.json", func(event argus.ChangeEvent) {
-    if event.IsModify {
-        config, err := iris.LoadConfig(event.Path)
-        if err == nil {
-            iris.ApplyConfig(config)
-        }
-    }
-})
-```
-
 ## Performance Characteristics
 
 ### Overhead Analysis

@@ -6,7 +6,7 @@ Argus is a high-performance, OS-independent dynamic configuration framework for 
 
 [![Security](https://img.shields.io/badge/security-gosec%20verified-brightgreen.svg)](https://github.com/securecodewarrior/gosec)
 [![Go Report Card](https://img.shields.io/badge/go%20report-A%2B-brightgreen.svg)](https://goreportcard.com/report/github.com/agilira/iris/argus)
-[![Test Coverage](https://img.shields.io/badge/coverage-93%25-brightgreen.svg)](.)
+[![Test Coverage](https://img.shields.io/badge/coverage-92%25-brightgreen.svg)](.)
 [![Xantos Powered](https://img.shields.io/badge/-Xantos%20Powered-8A2BE2?style=for-the-badge)](https://github.com/agilira)
 
 ## Architecture
@@ -19,7 +19,7 @@ Argus provides intelligent configuration management through polling-based optimi
 - **Zero Allocations**: Pre-allocated buffers eliminate GC pressure in hot paths
 - **Audit System**: Tamper-resistant logging with sub-microsecond performance impact
 - **Performance**: 12.11ns polling overhead with intelligent caching strategies
-- **Massive scalability** - monitor hundreds to thousands of files simultaneously
+- **Built to Scale** - monitor hundreds to thousands of files simultaneously
 
 ```
 Configuration Flow Architecture:
@@ -84,7 +84,7 @@ go get github.com/agilira/argus
 ## Quick Start
 
 ```go
-import "github.com/agilira/iris/argus"
+import "github.com/agilira/argus"
 
 // Watch any configuration format - auto-detected
 watcher, err := argus.UniversalConfigWatcher("config.yaml", 

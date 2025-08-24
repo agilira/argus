@@ -50,7 +50,7 @@ package main
 
 import (
     "time"
-    "github.com/agilira/iris/argus"
+    "github.com/agilira/argus"
 )
 
 func main() {

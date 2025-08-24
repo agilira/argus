@@ -166,7 +166,6 @@ Argus includes comprehensive testing across multiple dimensions:
 - **Performance Tests** (`*_bench_test.go`): Latency and throughput measurements
 - **Audit Tests** (`audit_test.go`): Security and compliance validation
 - **Parser Tests** (`parsers.go` tests): Universal parser validation across formats
-- **Optimization Tests** (`optimization_strategy_test.go`): Strategy selection and adaptation
 - **BoreasLite Tests** (`boreaslite_test.go`): Ring buffer performance and correctness
 - **Utility Tests** (`utilities_test.go`): Configuration parsing and format detection
 
@@ -263,15 +262,6 @@ config := argus.Config{
 - **Vertical Scaling**: Single instance handling hundreds of files efficiently
 - **Cloud Native**: Container-optimized with minimal resource requirements
 - **Edge Deployment**: Lightweight footprint for edge computing scenarios
-
-## Future Architecture Considerations
-
-- **Real-Time Notifications**: Integration with filesystem notification APIs (inotify, kqueue) as optimization hints
-- **Multi-Source Configuration**: Priority-based merging of configuration sources and environment variable interpolation
-- **Enhanced Format Support**: Plugin system for additional configuration formats
-- **Machine Learning**: Predictive optimization based on usage patterns
-- **Zero-Downtime Updates**: Hot reloading of watcher configuration
-- **Observability**: Deep integration with OpenTelemetry and distributed tracing
 
 ## Compliance and Standards
 
