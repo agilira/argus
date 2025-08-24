@@ -3,7 +3,7 @@
 
 Argus is a high-performance, OS-independent dynamic configuration framework for Go, engineered for applications that demand real-time configuration updates, universal format support, and production-grade reliability without service restarts.
 
-
+[![CI/CD Pipeline](https://github.com/agilira/argus/actions/workflows/ci.yml/badge.svg)](https://github.com/agilira/argus/actions/workflows/ci.yml)
 [![Security](https://img.shields.io/badge/security-gosec%20verified-brightgreen.svg)](https://github.com/securecodewarrior/gosec)
 [![Go Report Card](https://img.shields.io/badge/go%20report-A%2B-brightgreen.svg)](https://goreportcard.com/report/github.com/agilira/iris/argus)
 [![Test Coverage](https://img.shields.io/badge/coverage-92%25-brightgreen.svg)](.)
