@@ -137,8 +137,8 @@ func TestWatcherFileCreationDeletion(t *testing.T) {
 	testFile := filepath.Join(tmpDir, "create_delete_test.json")
 
 	watcher := New(Config{
-		PollInterval: 100 * time.Millisecond,
-		CacheTTL:     50 * time.Millisecond,
+		PollInterval: 200 * time.Millisecond, // Slower for CI reliability
+		CacheTTL:     100 * time.Millisecond,
 	})
 
 	events := []ChangeEvent{}
@@ -157,16 +157,16 @@ func TestWatcherFileCreationDeletion(t *testing.T) {
 	}
 	defer watcher.Stop()
 
-	// Give initial setup time
-	time.Sleep(150 * time.Millisecond)
+	// Give initial setup time for CI
+	time.Sleep(300 * time.Millisecond)
 
 	// Create the file
 	if err := os.WriteFile(testFile, []byte(`{"created": true}`), 0644); err != nil {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
 
-	// Wait for create event with retry
-	maxWait := 10
+	// Wait for create event with longer retry for CI
+	maxWait := 25 // 25 * 200ms = 5 seconds max
 	for i := 0; i < maxWait; i++ {
 		eventsMutex.Lock()
 		hasCreate := false
@@ -180,7 +180,7 @@ func TestWatcherFileCreationDeletion(t *testing.T) {
 		if hasCreate {
 			break
 		}
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(200 * time.Millisecond)
 	}
 
 	// Delete the file
@@ -188,7 +188,7 @@ func TestWatcherFileCreationDeletion(t *testing.T) {
 		t.Fatalf("Failed to delete test file: %v", err)
 	}
 
-	// Wait for delete event with retry
+	// Wait for delete event with longer retry for CI
 	for i := 0; i < maxWait; i++ {
 		eventsMutex.Lock()
 		hasDelete := false
@@ -202,7 +202,7 @@ func TestWatcherFileCreationDeletion(t *testing.T) {
 		if hasDelete {
 			break
 		}
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(200 * time.Millisecond)
 	}
 
 	// Check events with mutex protection

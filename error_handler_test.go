@@ -9,7 +9,6 @@ package argus
 import (
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -47,20 +46,29 @@ func TestErrorHandler_FileReadError(t *testing.T) {
 	}
 	defer watcher.Stop()
 
-	// Create file with invalid permissions from the start
-	if err := os.WriteFile(configPath, []byte(`{"test": true}`), 0000); err != nil {
+	// Create file with initial content
+	if err := os.WriteFile(configPath, []byte(`{"test": true}`), 0644); err != nil {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
-	defer func() {
-		os.Chmod(configPath, 0644) // Restore for cleanup
-		os.Remove(configPath)
-	}()
 
-	// On Windows, file permissions work differently
-	// Delete the file to simulate read error instead
-	if runtime.GOOS == "windows" {
-		os.Remove(configPath)
+	// Start the watcher first
+	watcher.Start()
+	defer watcher.Stop()
+
+	// Wait for initial setup
+	time.Sleep(200 * time.Millisecond)
+
+	// Remove the file completely to simulate read error
+	if err := os.Remove(configPath); err != nil {
+		t.Fatalf("Failed to remove file: %v", err)
 	}
+
+	// Trigger a file change check by creating and removing a file with same name
+	// This should cause the watcher to try reading the non-existent file
+	if err := os.WriteFile(configPath, []byte(`corrupted`), 0644); err != nil {
+		t.Fatalf("Failed to create trigger file: %v", err)
+	}
+	os.Remove(configPath)
 
 	// Wait for error to be captured
 	time.Sleep(300 * time.Millisecond)

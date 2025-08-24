@@ -9,6 +9,7 @@ package argus
 import (
 	"encoding/json"
 	"os"
+	"sync"
 	"testing"
 	"time"
 )
@@ -30,7 +31,8 @@ func TestGenericConfigWatcher(t *testing.T) {
 	tmpfile.Write(data)
 	tmpfile.Close()
 
-	// Track callback calls
+	// Track callback calls with mutex protection
+	var mu sync.Mutex
 	callCount := 0
 	var lastConfig map[string]interface{}
 
@@ -38,6 +40,8 @@ func TestGenericConfigWatcher(t *testing.T) {
 	watcher := New(Config{PollInterval: 50 * time.Millisecond})
 
 	configCallback := func(config map[string]interface{}) {
+		mu.Lock()
+		defer mu.Unlock()
 		callCount++
 		lastConfig = config
 	}
@@ -78,16 +82,21 @@ func TestGenericConfigWatcher(t *testing.T) {
 	// Wait longer for the change to be detected (our polling is every 50ms)
 	time.Sleep(200 * time.Millisecond)
 
-	if callCount == 0 {
+	mu.Lock()
+	currentCallCount := callCount
+	currentLastConfig := lastConfig
+	mu.Unlock()
+
+	if currentCallCount == 0 {
 		t.Error("Expected at least one callback call")
 	}
 
-	if lastConfig != nil {
-		if lastConfig["level"] != "debug" {
-			t.Errorf("Expected level to be 'debug', got %v", lastConfig["level"])
+	if currentLastConfig != nil {
+		if currentLastConfig["level"] != "debug" {
+			t.Errorf("Expected level to be 'debug', got %v", currentLastConfig["level"])
 		}
-		if lastConfig["port"] != float64(9000) { // JSON unmarshals numbers as float64
-			t.Errorf("Expected port to be 9000, got %v", lastConfig["port"])
+		if currentLastConfig["port"] != float64(9000) { // JSON unmarshals numbers as float64
+			t.Errorf("Expected port to be 9000, got %v", currentLastConfig["port"])
 		}
 	}
 }
@@ -103,7 +112,8 @@ func TestSimpleFileWatcher(t *testing.T) {
 	tmpfile.WriteString("initial content")
 	tmpfile.Close()
 
-	// Track callback calls
+	// Track callback calls with mutex protection
+	var mu sync.Mutex
 	callCount := 0
 	var lastPath string
 
@@ -111,6 +121,8 @@ func TestSimpleFileWatcher(t *testing.T) {
 	watcher := New(Config{PollInterval: 50 * time.Millisecond})
 
 	pathCallback := func(path string) {
+		mu.Lock()
+		defer mu.Unlock()
 		callCount++
 		lastPath = path
 	}
@@ -138,15 +150,27 @@ func TestSimpleFileWatcher(t *testing.T) {
 
 	// Wait with retry logic for CI environments
 	maxWait := 10 // 10 attempts of 100ms = 1 second max
-	for i := 0; i < maxWait && callCount == 0; i++ {
+	for i := 0; i < maxWait; i++ {
+		mu.Lock()
+		currentCallCount := callCount
+		mu.Unlock()
+
+		if currentCallCount > 0 {
+			break
+		}
 		time.Sleep(100 * time.Millisecond)
 	}
 
-	if callCount == 0 {
+	mu.Lock()
+	finalCallCount := callCount
+	finalLastPath := lastPath
+	mu.Unlock()
+
+	if finalCallCount == 0 {
 		t.Error("Expected at least one callback call")
 	}
 
-	if lastPath != tmpfile.Name() {
-		t.Errorf("Expected path to be %s, got %s", tmpfile.Name(), lastPath)
+	if finalLastPath != tmpfile.Name() {
+		t.Errorf("Expected path to be %s, got %s", tmpfile.Name(), finalLastPath)
 	}
 }
