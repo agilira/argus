@@ -81,3 +81,19 @@ test_config.*
 # Temporary test directories
 argus_test_*
 argus_universal_test_*
+
+# Dev specific files and folders -- for now
+chaos_test.go
+deadlock_stress_test.go
+extreme_deadlock_test.go
+features_verification_test.go
+production_test.go
+rigorous_test.go
+ROADMAP.md
+stress_test.go
+ultimate_deadlock_test.go
+validation_strategy.md
+realistic_benchmark_test.go
+cmd/
+tests/
+production_overhead_test.go

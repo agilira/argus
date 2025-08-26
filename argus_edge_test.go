@@ -1,4 +1,4 @@
-// coverage_boost_test.go - Test aggiuntivi per raggiungere esattamente il 93% di coverage
+//argus_edge_test.go - Edge test cases for Argus
 //
 // Copyright (c) 2025 AGILira
 // Series: an AGILira fragment

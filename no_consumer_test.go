@@ -1,0 +1,57 @@
+package argus
+
+import (
+	"os"
+	"path/filepath"
+	"sync/atomic"
+	"testing"
+	"time"
+)
+
+// Test specifico per identificare l'overhead del consumer
+func BenchmarkArgus_NoConsumer(b *testing.B) {
+	tempDir, err := os.MkdirTemp("", "no_consumer_test")
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	configFile := filepath.Join(tempDir, "logger.json")
+	initialConfig := `{"level": "info", "output": "stdout", "format": "json"}`
+
+	if err := os.WriteFile(configFile, []byte(initialConfig), 0644); err != nil {
+		b.Fatal(err)
+	}
+
+	var logCount atomic.Int64
+
+	// Setup Argus SENZA avviare il consumer
+	config := Config{
+		PollInterval:         100 * time.Millisecond,
+		OptimizationStrategy: OptimizationSingleEvent,
+	}
+
+	watcher := New(*config.WithDefaults())
+	defer watcher.Stop()
+
+	watcher.Watch(configFile, func(event ChangeEvent) {
+		// Callback vuoto
+	})
+
+	// NO watcher.Start() - nessun consumer in background
+	time.Sleep(10 * time.Millisecond)
+
+	logEntry := func(level string, message string) {
+		logCount.Add(1)
+		_ = level + ": " + message
+	}
+
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		logEntry("INFO", "Request processed")
+	}
+
+	b.StopTimer()
+	b.Logf("Logged %d entries", logCount.Load())
+}

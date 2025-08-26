@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-// Benchmark specifico per misurare l'overhead su singole operazioni di logging
+// Benchmark specific to measure overhead per log entry
 func BenchmarkArgus_PerLogEntryOverhead(b *testing.B) {
 	tempDir, err := os.MkdirTemp("", "per_entry_overhead")
 	if err != nil {
@@ -37,14 +37,14 @@ func BenchmarkArgus_PerLogEntryOverhead(b *testing.B) {
 }
 
 func benchmarkSingleLogEntryBaseline(b *testing.B) {
-	// Simula una singola operazione di log (come in Iris)
+	// Simulates a single logging operation (as in Iris)
 	message := "User request processed successfully"
 	level := "INFO"
 
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		// Simula il costo minimo di un log entry
+		// Simulates the minimal cost of a log entry
 		_ = level + ": " + message
 	}
 }
@@ -52,7 +52,7 @@ func benchmarkSingleLogEntryBaseline(b *testing.B) {
 func benchmarkSingleLogEntryWithArgus(b *testing.B, configFile string) {
 	// Setup Argus in background
 	config := Config{
-		PollInterval:         100 * time.Millisecond, // Poll tipico production
+		PollInterval:         100 * time.Millisecond, // Typical production poll
 		OptimizationStrategy: OptimizationSingleEvent,
 	}
 
@@ -65,16 +65,16 @@ func benchmarkSingleLogEntryWithArgus(b *testing.B, configFile string) {
 	})
 
 	watcher.Start()
-	time.Sleep(50 * time.Millisecond) // Stabilizzazione
+	time.Sleep(50 * time.Millisecond) // Stabilization
 
-	// Simula la stessa operazione di log ma con Argus attivo
+	// Simulates the same logging operation but with Argus active
 	message := "User request processed successfully"
 	level := "INFO"
 
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		// Stessa operazione del baseline
+		// Same operation as baseline
 		_ = level + ": " + message
 	}
 
@@ -82,7 +82,7 @@ func benchmarkSingleLogEntryWithArgus(b *testing.B, configFile string) {
 	b.Logf("Config reloads during test: %d", configReloads.Load())
 }
 
-// Benchmark per calcolare l'overhead esatto per richiesta HTTP
+// Benchmark to calculate HTTP request overhead
 func BenchmarkArgus_HTTPRequestOverhead(b *testing.B) {
 	tempDir, err := os.MkdirTemp("", "http_overhead")
 	if err != nil {
@@ -105,7 +105,7 @@ func BenchmarkArgus_HTTPRequestOverhead(b *testing.B) {
 }
 
 func benchmarkHTTPRequestBaseline(b *testing.B) {
-	// Simula una richiesta HTTP tipica con logging (come in Iris)
+	// Simulation of a typical HTTP request with logging (as in Iris)
 	var requestCount atomic.Int64
 
 	processHTTPRequest := func() {
@@ -131,9 +131,9 @@ func benchmarkHTTPRequestBaseline(b *testing.B) {
 }
 
 func benchmarkHTTPRequestWithArgus(b *testing.B, configFile string) {
-	// Setup Argus (come verrebbe fatto in Iris)
+	// Setup Argus (as it would be done in Iris)
 	config := Config{
-		PollInterval:         200 * time.Millisecond, // Polling meno aggressivo per production
+		PollInterval:         200 * time.Millisecond, // Less aggressive polling for production
 		OptimizationStrategy: OptimizationSingleEvent,
 	}
 
@@ -143,18 +143,18 @@ func benchmarkHTTPRequestWithArgus(b *testing.B, configFile string) {
 	var configReloads atomic.Int64
 	watcher.Watch(configFile, func(event ChangeEvent) {
 		configReloads.Add(1)
-		// Simula il costo di riconfigurare il logger in Iris
-		time.Sleep(100 * time.Microsecond) // 0.1ms tipico per reload config
+		// Simulates the cost of reconfiguring the logger in Iris
+		time.Sleep(100 * time.Microsecond) // 0.1ms typical for reload config
 	})
 
 	watcher.Start()
-	time.Sleep(100 * time.Millisecond) // Stabilizzazione
+	time.Sleep(100 * time.Millisecond) // Stabilization
 
 	var requestCount atomic.Int64
 
 	processHTTPRequest := func() {
 		requestCount.Add(1)
-		// Stessa logica del baseline - Argus lavora in background
+		// Same logic as baseline - Argus works in the background
 		_ = "GET /api/users"
 		_ = "Request processed"
 		_ = "Response sent"
@@ -171,7 +171,7 @@ func benchmarkHTTPRequestWithArgus(b *testing.B, configFile string) {
 	b.Logf("Config reloads: %d", configReloads.Load())
 }
 
-// Benchmark per calcolare l'overhead in throughput reale
+// Benchmark for calculating overhead
 func BenchmarkArgus_ThroughputImpact(b *testing.B) {
 	tempDir, err := os.MkdirTemp("", "throughput_impact")
 	if err != nil {
@@ -209,7 +209,7 @@ func benchmarkThroughputBaseline(b *testing.B, targetRPS int) {
 	for i := 0; i < b.N; i++ {
 		start := time.Now()
 
-		// Simula 1 secondo di richieste al targetRPS
+		// Simulation of 1 second of requests at targetRPS
 		for j := 0; j < targetRPS; j++ {
 			processed.Add(1)
 			// Simula minimal request processing
@@ -229,7 +229,7 @@ func benchmarkThroughputBaseline(b *testing.B, targetRPS int) {
 func benchmarkThroughputWithArgus(b *testing.B, configFile string, targetRPS int) {
 	// Setup Argus
 	config := Config{
-		PollInterval:         100 * time.Millisecond, // 10 volte al secondo
+		PollInterval:         100 * time.Millisecond, // 10 times per second
 		OptimizationStrategy: OptimizationSingleEvent,
 	}
 
@@ -242,7 +242,7 @@ func benchmarkThroughputWithArgus(b *testing.B, configFile string, targetRPS int
 	})
 
 	watcher.Start()
-	time.Sleep(50 * time.Millisecond) // Stabilizzazione
+	time.Sleep(50 * time.Millisecond) // Stabilization
 
 	var processed atomic.Int64
 
@@ -251,7 +251,7 @@ func benchmarkThroughputWithArgus(b *testing.B, configFile string, targetRPS int
 	for i := 0; i < b.N; i++ {
 		start := time.Now()
 
-		// Stessa logica del baseline
+		// Same logic as baseline
 		for j := 0; j < targetRPS; j++ {
 			processed.Add(1)
 			_ = "request processed"

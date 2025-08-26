@@ -1,6 +1,6 @@
-// argus: Ultra-lightweight configuration
+// argus: Ultra-lightweight configuration watcher with BoreasLite ultra-fast ring buffer
 //
-// Core Philosophy:
+// Philosophy:
 // - Minimal dependencies (AGILira ecosystem only: go-errors, go-timecache)
 // - Polling-based approach for maximum OS portability
 // - Intelligent caching to minimize os.Stat() syscalls (like go-timecache)
@@ -48,10 +48,12 @@ import (
 
 // Error codes for Argus operations
 const (
-	ErrCodeInvalidConfig  = "ARGUS_INVALID_CONFIG"
-	ErrCodeFileNotFound   = "ARGUS_FILE_NOT_FOUND"
-	ErrCodeWatcherStopped = "ARGUS_WATCHER_STOPPED"
-	ErrCodeWatcherBusy    = "ARGUS_WATCHER_BUSY"
+	ErrCodeInvalidConfig     = "ARGUS_INVALID_CONFIG"
+	ErrCodeFileNotFound      = "ARGUS_FILE_NOT_FOUND"
+	ErrCodeWatcherStopped    = "ARGUS_WATCHER_STOPPED"
+	ErrCodeWatcherBusy       = "ARGUS_WATCHER_BUSY"
+	ErrCodeRemoteConfigError = "ARGUS_REMOTE_CONFIG_ERROR"
+	ErrCodeConfigNotFound    = "ARGUS_CONFIG_NOT_FOUND"
 )
 
 // ChangeEvent represents a file change notification
@@ -225,6 +227,13 @@ func New(config Config) *Watcher {
 // processFileEvent processes events from the BoreasLite ring buffer
 // This method is called by BoreasLite for each file change event
 func (w *Watcher) processFileEvent(fileEvent *FileChangeEvent) {
+	// CRITICAL: Panic recovery to prevent callback panics from crashing the watcher
+	defer func() {
+		if r := recover(); r != nil {
+			w.auditLogger.LogFileWatch("callback_panic", string(fileEvent.Path[:]))
+		}
+	}()
+
 	// Convert BoreasLite event back to standard ChangeEvent
 	event := ConvertFileEventToChangeEvent(*fileEvent)
 

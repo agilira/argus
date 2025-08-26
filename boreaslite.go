@@ -507,12 +507,16 @@ func (b *BoreasLite) runAutoProcessor() {
 				continue
 			}
 		} else {
+			// CRITICAL FIX: Yield CPU to prevent busy spinning 100% CPU usage
+			time.Sleep(100 * time.Microsecond)
 			spins = 0
 		}
 	}
 
-	// Final drain
-	for b.ProcessBatch() > 0 {
+	// Final drain (with timeout to prevent infinite loops)
+	drainAttempts := 0
+	for b.ProcessBatch() > 0 && drainAttempts < 1000 {
+		drainAttempts++
 	}
 }
 
