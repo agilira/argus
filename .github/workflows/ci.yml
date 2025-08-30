@@ -67,7 +67,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]  # Restored Windows with cross-platform fixes
         go-version: ['1.21']  # Reduced to save minutes
     steps:
     - name: Checkout

@@ -14,10 +14,12 @@
 package argus
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -260,14 +262,39 @@ func ValidateEnvironmentConfig() error {
 	return config.Validate()
 }
 
+// loadConfigFromJSON loads and parses a JSON configuration file with cross-platform path handling
+func loadConfigFromJSON(configPath string) (*Config, error) {
+	// Read the file content
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read config file '%s': %w", configPath, err)
+	}
+
+	// Handle cross-platform JSON parsing - normalize Windows path separators
+	jsonStr := string(data)
+
+	// On Windows, JSON paths with backslashes need to be properly escaped
+	// We normalize by ensuring all backslashes are properly escaped for JSON
+	if strings.Contains(jsonStr, "\\") && !strings.Contains(jsonStr, "\\\\") {
+		// This is a heuristic - if we see single backslashes but no double backslashes,
+		// we likely have Windows paths that need escaping
+		jsonStr = strings.ReplaceAll(jsonStr, "\\", "\\\\")
+	}
+
+	// Load base config with defaults first
+	config := (&Config{}).WithDefaults()
+
+	// Parse JSON into the config
+	if err := json.Unmarshal([]byte(jsonStr), config); err != nil {
+		return nil, fmt.Errorf("failed to parse JSON config: %w", err)
+	}
+
+	return config, nil
+}
+
 // ValidateConfigFile validates a configuration that would be loaded from a file
 // This method performs validation without actually starting file watching
 func ValidateConfigFile(configPath string) error {
-	// Load base configuration with defaults
-	config := (&Config{}).WithDefaults()
-
-	// For file-based validation, we mainly validate the structure
-	// The actual file content validation happens during parsing
 	if configPath == "" {
 		return fmt.Errorf("ARGUS_INVALID_CONFIG_PATH: configuration file path cannot be empty")
 	}
@@ -280,6 +307,13 @@ func ValidateConfigFile(configPath string) error {
 		return fmt.Errorf("ARGUS_CONFIG_FILE_ERROR: cannot access configuration file '%s': %v", configPath, err)
 	}
 
+	// Load and parse the actual config file
+	config, err := loadConfigFromJSON(configPath)
+	if err != nil {
+		return fmt.Errorf("ARGUS_CONFIG_PARSE_ERROR: %w", err)
+	}
+
+	// Validate the loaded configuration
 	return config.Validate()
 }
 

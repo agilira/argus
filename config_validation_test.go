@@ -471,7 +471,7 @@ func TestValidateConfigFile(t *testing.T) {
 		{
 			name:       "valid config file",
 			configPath: validConfigFile,
-			wantErr:    true, // Will fail due to audit path but that's expected for now
+			wantErr:    false, // Should now pass with proper JSON parsing and valid audit path
 		},
 		{
 			name:       "empty config path",
