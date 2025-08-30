@@ -1,0 +1,39 @@
+name: PR Quick Check
+
+on:
+  pull_request:
+    branches: [ main ]
+
+env:
+  CGO_ENABLED: 1
+
+jobs:
+  quick-test:
+    name: Quick Validation
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.23'
+        cache: true
+
+    - name: Quick Quality Check
+      run: |
+        # Format check
+        test -z "$(gofmt -l .)"
+        
+        # Vet
+        go vet ./...
+        
+        # Basic test
+        go test -short ./...
+
+    - name: Install Security Tools
+      run: go install github.com/securego/gosec/v2/cmd/gosec@latest
+
+    - name: Security Scan
+      run: gosec --exclude=G104,G306,G301 ./...
