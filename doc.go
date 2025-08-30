@@ -2,7 +2,7 @@
 // for Go applications, combining ultra-fast file monitoring, universal format parsing,
 // and zero-reflection configuration binding in a single, cohesive system.
 //
-// # Philosophy: Dynamic Configuration Done Right
+// # Philosophy: Dynamic Configuration for the Modern Era
 //
 // Argus is built on the principle that configuration should be dynamic, type-safe,
 // and ultra-performant. It transforms static configuration files into reactive,

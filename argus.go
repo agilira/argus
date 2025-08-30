@@ -141,12 +141,13 @@ type Config struct {
 	BoreasLiteCapacity int64
 }
 
-// fileStat represents cached file statistics
+// fileStat represents cached file statistics for efficient os.Stat() caching.
+// Uses value types and timecache for zero-allocation performance optimization.
 type fileStat struct {
-	modTime  time.Time
-	size     int64
-	exists   bool
-	cachedAt int64 // Use timecache nano timestamp for zero-allocation timing
+	modTime  time.Time // Last modification time from os.Stat()
+	size     int64     // File size in bytes
+	exists   bool      // Whether the file exists
+	cachedAt int64     // Use timecache nano timestamp for zero-allocation timing
 }
 
 // isExpired checks if the cached stat is expired using timecache for zero-allocation timing
@@ -155,11 +156,12 @@ func (fs *fileStat) isExpired(ttl time.Duration) bool {
 	return (now - fs.cachedAt) > int64(ttl)
 }
 
-// watchedFile represents a file under observation
+// watchedFile represents a file under observation with its callback and cached state.
+// Optimized for minimal memory footprint and fast access during polling.
 type watchedFile struct {
-	path     string
-	callback UpdateCallback
-	lastStat fileStat
+	path     string         // Absolute file path being watched
+	callback UpdateCallback // User-provided callback for file changes
+	lastStat fileStat       // Cached file statistics for change detection
 }
 
 // Watcher monitors configuration files for changes
@@ -572,7 +574,8 @@ func (w *Watcher) ClearCache() {
 	w.statCache.Store(&emptyCache)
 }
 
-// CacheStats returns statistics about the internal cache
+// CacheStats returns statistics about the internal cache for monitoring and debugging.
+// Provides insights into cache efficiency and performance characteristics.
 type CacheStats struct {
 	Entries   int           // Number of cached entries
 	OldestAge time.Duration // Age of oldest cache entry

@@ -10,6 +10,7 @@ import "time"
 
 // IdleStrategy defines how the watcher should behave when no file changes
 // are detected. This allows for power management and CPU optimization.
+// Currently serves as a design interface for future power management features.
 type IdleStrategy interface {
 	// Wait is called between polling cycles when no changes are detected
 	Wait()
@@ -18,7 +19,8 @@ type IdleStrategy interface {
 	Reset()
 }
 
-// SleepStrategy implements IdleStrategy using simple sleep
+// SleepStrategy implements IdleStrategy using simple sleep-based waiting.
+// This is the default strategy that relies on polling intervals for timing.
 type SleepStrategy struct{}
 
 // NewSleepStrategy creates a new sleep-based idle strategy
@@ -38,7 +40,16 @@ func (s *SleepStrategy) Reset() {
 	_ = s // Prevent unused receiver warning
 }
 
-// WithDefaults applies sensible defaults to the configuration
+// WithDefaults applies sensible defaults to the configuration and validates settings.
+// Returns a new Config instance with all required fields populated.
+// Ensures proper relationships between settings (e.g., CacheTTL <= PollInterval).
+//
+// Default values:
+//   - PollInterval: 5 seconds
+//   - CacheTTL: PollInterval / 2
+//   - MaxWatchedFiles: 100
+//   - BoreasLiteCapacity: Strategy-dependent (64-256)
+//   - Audit: Enabled with secure defaults
 func (c *Config) WithDefaults() *Config {
 	config := *c
 

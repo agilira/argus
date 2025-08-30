@@ -12,7 +12,8 @@ import (
 	"os"
 )
 
-// copyMap creates a deep copy of a map for audit trail
+// copyMap creates a deep copy of a map for audit trail purposes.
+// Used to preserve configuration state for before/after comparisons in audit logs.
 func copyMap(original map[string]interface{}) map[string]interface{} {
 	if original == nil {
 		return nil
@@ -41,7 +42,17 @@ func UniversalConfigWatcher(configPath string, callback func(config map[string]i
 	return UniversalConfigWatcherWithConfig(configPath, callback, Config{})
 }
 
-// UniversalConfigWatcherWithConfig creates a watcher for ANY configuration format with custom config
+// UniversalConfigWatcherWithConfig creates a watcher for ANY configuration format with custom config.
+// Provides fine-grained control over watcher behavior while maintaining universal format support.
+//
+// Parameters:
+//   - configPath: Path to configuration file (format auto-detected from extension)
+//   - callback: Function called when configuration changes
+//   - config: Custom Argus configuration for performance tuning
+//
+// Returns:
+//   - *Watcher: Configured and started watcher
+//   - error: Any initialization or file access errors
 func UniversalConfigWatcherWithConfig(configPath string, callback func(config map[string]interface{}), config Config) (*Watcher, error) {
 	// Detect format from file extension
 	format := DetectFormat(configPath)
@@ -133,14 +144,24 @@ func UniversalConfigWatcherWithConfig(configPath string, callback func(config ma
 	return watcher, nil
 }
 
-// GenericConfigWatcher creates a watcher for JSON configuration (backward compatibility)
-// DEPRECATED: Use UniversalConfigWatcher for better format support
+// GenericConfigWatcher creates a watcher for JSON configuration (backward compatibility).
+// DEPRECATED: Use UniversalConfigWatcher for better format support and future-proofing.
+// This function is maintained for existing codebases but new code should use UniversalConfigWatcher.
 func GenericConfigWatcher(configPath string, callback func(config map[string]interface{})) (*Watcher, error) {
 	return UniversalConfigWatcher(configPath, callback)
 }
 
-// SimpleFileWatcher creates a basic file watcher with minimal configuration
-// Useful for simple use cases where you just want to know when a file changes
+// SimpleFileWatcher creates a basic file watcher with minimal configuration.
+// Useful for simple use cases where you just want to know when a file changes,
+// without the complexity of configuration parsing or format detection.
+//
+// Parameters:
+//   - filePath: Path to file to watch
+//   - callback: Function called with file path when changes occur
+//
+// Returns:
+//   - *Watcher: Configured watcher (not automatically started)
+//   - error: Any initialization errors
 func SimpleFileWatcher(filePath string, callback func(path string)) (*Watcher, error) {
 	watcher := New(Config{})
 

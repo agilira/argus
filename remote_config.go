@@ -33,7 +33,16 @@ import (
 	"github.com/agilira/go-errors"
 )
 
-// RemoteConfigProvider defines the interface for remote configuration sources
+// RemoteConfigProvider defines the interface for remote configuration sources.
+// Implementations provide access to distributed configuration systems like Redis,
+// Consul, etcd, or HTTP APIs. Providers are registered globally and selected
+// automatically based on URL scheme.
+//
+// Example implementations:
+//   - Redis: redis://localhost:6379/config
+//   - Consul: consul://localhost:8500/config/myapp
+//   - etcd: etcd://localhost:2379/config/myapp
+//   - HTTP: https://config.mycompany.com/api/config
 type RemoteConfigProvider interface {
 	// Name returns a human-readable name for this provider (for debugging)
 	Name() string
@@ -57,7 +66,9 @@ type RemoteConfigProvider interface {
 	HealthCheck(ctx context.Context, configURL string) error
 }
 
-// RemoteConfigOptions provides options for remote configuration loading
+// RemoteConfigOptions provides options for remote configuration loading.
+// Controls timeouts, retries, authentication, and watching behavior.
+// Use DefaultRemoteConfigOptions() for sensible defaults.
 type RemoteConfigOptions struct {
 	// Timeout for remote operations
 	Timeout time.Duration
@@ -84,7 +95,8 @@ type RemoteConfigOptions struct {
 	Auth map[string]interface{}
 }
 
-// DefaultRemoteConfigOptions provides sensible defaults
+// DefaultRemoteConfigOptions provides sensible defaults for remote configuration.
+// Returns a new options instance with production-ready timeout and retry settings.
 func DefaultRemoteConfigOptions() *RemoteConfigOptions {
 	return &RemoteConfigOptions{
 		Timeout:       30 * time.Second,
@@ -104,8 +116,16 @@ var (
 	remoteMutex     sync.RWMutex
 )
 
-// RegisterRemoteProvider registers a custom remote configuration provider
-// Providers are tried in registration order
+// RegisterRemoteProvider registers a custom remote configuration provider.
+// Providers are tried in registration order. Duplicate schemes are rejected.
+//
+// Example:
+//
+//	argus.RegisterRemoteProvider(&MyCustomProvider{})
+//
+// Or via import-based auto-registration:
+//
+//	import _ "github.com/agilira/argus-redis"  // Auto-registers in init()
 func RegisterRemoteProvider(provider RemoteConfigProvider) error {
 	if provider == nil {
 		return errors.New(ErrCodeInvalidConfig, "remote provider cannot be nil")
@@ -131,7 +151,8 @@ func RegisterRemoteProvider(provider RemoteConfigProvider) error {
 	return nil
 }
 
-// GetRemoteProvider returns the provider for the given scheme
+// GetRemoteProvider returns the provider for the given URL scheme.
+// Used internally to find the appropriate provider for a remote config URL.
 func GetRemoteProvider(scheme string) (RemoteConfigProvider, error) {
 	remoteMutex.RLock()
 	defer remoteMutex.RUnlock()
@@ -146,7 +167,9 @@ func GetRemoteProvider(scheme string) (RemoteConfigProvider, error) {
 		fmt.Sprintf("no remote provider registered for scheme '%s'", scheme))
 }
 
-// ListRemoteProviders returns a list of all registered remote providers
+// ListRemoteProviders returns a list of all registered remote providers.
+// Returns a copy to prevent external modification of the provider registry.
+// Useful for debugging and discovering available remote configuration sources.
 func ListRemoteProviders() []RemoteConfigProvider {
 	remoteMutex.RLock()
 	defer remoteMutex.RUnlock()
@@ -157,12 +180,19 @@ func ListRemoteProviders() []RemoteConfigProvider {
 	return providers
 }
 
-// LoadRemoteConfig loads configuration from a remote source
+// LoadRemoteConfig loads configuration from a remote source using default context.
+// Automatically detects provider based on URL scheme and handles retries.
+//
+// Example:
+//
+//	config, err := argus.LoadRemoteConfig("redis://localhost:6379/config")
+//	config, err := argus.LoadRemoteConfig("consul://localhost:8500/config/myapp")
 func LoadRemoteConfig(configURL string, opts ...*RemoteConfigOptions) (map[string]interface{}, error) {
 	return LoadRemoteConfigWithContext(context.Background(), configURL, opts...)
 }
 
-// LoadRemoteConfigWithContext loads configuration from a remote source with context
+// LoadRemoteConfigWithContext loads configuration from a remote source with custom context.
+// Provides full control over timeouts and cancellation for remote configuration loading.
 func LoadRemoteConfigWithContext(ctx context.Context, configURL string, opts ...*RemoteConfigOptions) (map[string]interface{}, error) {
 	// Validate and setup
 	provider, options, err := setupRemoteConfig(configURL, opts...)

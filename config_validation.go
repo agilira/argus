@@ -40,7 +40,9 @@ var (
 	ErrBoreasCapacityInvalid  = errors.New("ARGUS_INVALID_BOREAS_CAPACITY: BoreasLite capacity must be power of 2")
 )
 
-// ValidationResult contains the result of configuration validation with detailed feedback
+// ValidationResult contains the result of configuration validation with detailed feedback.
+// Provides comprehensive validation information including errors, warnings, and
+// performance recommendations for production deployments.
 type ValidationResult struct {
 	Valid    bool     `json:"valid"`
 	Errors   []string `json:"errors,omitempty"`

@@ -112,8 +112,12 @@ func NewBoreasLite(capacity int64, strategy OptimizationStrategy, processor func
 	return b
 }
 
-// AdaptStrategy dynamically adjusts the optimization strategy based on file count
-// This is called when OptimizationAuto is used and file count changes
+// AdaptStrategy dynamically adjusts the optimization strategy based on file count.
+// This is called when OptimizationAuto is used and file count changes.
+// Automatically selects the optimal batch size for current workload:
+//   - 1-3 files: SingleEvent (ultra-low latency)
+//   - 4-20 files: SmallBatch (balanced performance)
+//   - 21+ files: LargeBatch (high throughput)
 func (b *BoreasLite) AdaptStrategy(fileCount int) {
 	if b.strategy != OptimizationAuto {
 		return // Fixed strategy, no adaptation
@@ -168,8 +172,20 @@ func (b *BoreasLite) WriteFileEvent(event *FileChangeEvent) bool {
 	return true
 }
 
-// WriteFileChange is a convenience method for creating events from parameters
-// Slightly slower than WriteFileEvent but more convenient
+// WriteFileChange is a convenience method for creating events from parameters.
+// Slightly slower than WriteFileEvent but more convenient for direct parameter usage.
+// Automatically handles path length limits and flag setting.
+//
+// Parameters:
+//   - path: File path (automatically truncated if > 109 characters)
+//   - modTime: File modification time
+//   - size: File size in bytes
+//   - isCreate: True if this is a file creation event
+//   - isDelete: True if this is a file deletion event
+//   - isModify: True if this is a file modification event
+//
+// Returns:
+//   - bool: true if event was successfully queued, false if buffer is full
 func (b *BoreasLite) WriteFileChange(path string, modTime time.Time, size int64, isCreate, isDelete, isModify bool) bool {
 	event := FileChangeEvent{
 		ModTime: modTime.UnixNano(),
@@ -520,12 +536,24 @@ func (b *BoreasLite) runAutoProcessor() {
 	}
 }
 
-// Stop stops the processor (immediate, no graceful shutdown needed for file watching)
+// Stop stops the processor immediately without graceful shutdown.
+// Optimized for file watching use cases where immediate termination is acceptable.
+// Sets the running flag to false, causing all processor loops to exit.
 func (b *BoreasLite) Stop() {
 	b.running.Store(false)
 }
 
-// Stats returns minimal statistics for monitoring
+// Stats returns minimal statistics for monitoring ring buffer performance.
+// Provides real-time metrics for debugging and performance analysis.
+//
+// Returns a map containing:
+//   - writer_position: Current writer sequence number
+//   - reader_position: Current reader sequence number
+//   - buffer_size: Ring buffer capacity
+//   - items_buffered: Number of events waiting to be processed
+//   - items_processed: Total events processed since startup
+//   - items_dropped: Total events dropped due to buffer overflow
+//   - running: 1 if processor is running, 0 if stopped
 func (b *BoreasLite) Stats() map[string]int64 {
 	writerPos := b.writerCursor.Load()
 	readerPos := b.readerCursor.Load()
@@ -541,7 +569,9 @@ func (b *BoreasLite) Stats() map[string]int64 {
 	}
 }
 
-// ConvertChangeEventToFileEvent converts standard ChangeEvent to FileChangeEvent
+// ConvertChangeEventToFileEvent converts standard ChangeEvent to optimized FileChangeEvent.
+// Used for interfacing between Argus's public API and BoreasLite's optimized internal format.
+// Handles path truncation and flag conversion automatically.
 func ConvertChangeEventToFileEvent(event ChangeEvent) FileChangeEvent {
 	fileEvent := FileChangeEvent{
 		ModTime: event.ModTime.UnixNano(),
@@ -572,7 +602,9 @@ func ConvertChangeEventToFileEvent(event ChangeEvent) FileChangeEvent {
 	return fileEvent
 }
 
-// ConvertFileEventToChangeEvent converts FileChangeEvent back to ChangeEvent
+// ConvertFileEventToChangeEvent converts FileChangeEvent back to standard ChangeEvent.
+// Used when delivering events to user callbacks, converting from BoreasLite's
+// optimized internal format back to the public API format.
 func ConvertFileEventToChangeEvent(fileEvent FileChangeEvent) ChangeEvent {
 	return ChangeEvent{
 		Path:     string(fileEvent.Path[:fileEvent.PathLen]),
@@ -584,7 +616,8 @@ func ConvertFileEventToChangeEvent(fileEvent FileChangeEvent) ChangeEvent {
 	}
 }
 
-// Helper functions
+// minInt64 returns the smaller of two int64 values.
+// Helper function for batch size calculations and bounds checking.
 func minInt64(a, b int64) int64 {
 	if a < b {
 		return a
@@ -592,6 +625,8 @@ func minInt64(a, b int64) int64 {
 	return b
 }
 
+// boolToInt64 converts a boolean to int64 for statistics reporting.
+// Used in Stats() method to provide numeric representation of boolean states.
 func boolToInt64(b bool) int64 {
 	if b {
 		return 1

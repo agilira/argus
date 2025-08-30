@@ -13,7 +13,7 @@ The integration provides a unified configuration management solution that combin
 
 ## Key Features
 
-### 🚀 Ultra-Fast Performance
+### Ultra-Fast Performance
 - **30.61 ns/op** for string config access
 - **30.98 ns/op** for integer config access  
 - **3565 ns/op** for complete ConfigManager creation

@@ -29,7 +29,8 @@ import (
 	"sync"
 )
 
-// ConfigFormat represents supported configuration file formats
+// ConfigFormat represents supported configuration file formats for auto-detection.
+// Used by the format detection system to determine appropriate parser selection.
 type ConfigFormat int
 
 const (
@@ -82,8 +83,17 @@ var (
 	parserMutex   sync.RWMutex
 )
 
-// RegisterParser registers a custom parser for production use
-// Custom parsers are tried before built-in parsers
+// RegisterParser registers a custom parser for production use cases.
+// Custom parsers are tried before built-in parsers, allowing for full
+// specification compliance or advanced features not available in built-in parsers.
+//
+// Example:
+//
+//	argus.RegisterParser(&MyAdvancedYAMLParser{})
+//
+// Or via import-based registration:
+//
+//	import _ "github.com/your-org/argus-yaml-pro"
 func RegisterParser(parser ConfigParser) {
 	parserMutex.Lock()
 	defer parserMutex.Unlock()
@@ -97,7 +107,8 @@ var configMapPool = sync.Pool{
 	},
 }
 
-// getConfigMap gets a map from the pool and clears it
+// getConfigMap gets a map from the pool and clears it for reuse.
+// Part of the memory optimization system to reduce allocations during parsing.
 func getConfigMap() map[string]interface{} {
 	config := configMapPool.Get().(map[string]interface{})
 	// Clear the map for reuse
@@ -107,12 +118,13 @@ func getConfigMap() map[string]interface{} {
 	return config
 }
 
-// putConfigMap returns a map to the pool
+// putConfigMap returns a map to the pool for reuse.
+// Should be called when a map is no longer needed to prevent memory leaks.
 func putConfigMap(config map[string]interface{}) {
 	configMapPool.Put(config)
 }
 
-// String returns the string representation of the config format
+// String returns the string representation of the config format for debugging and logging.
 func (cf ConfigFormat) String() string {
 	switch cf {
 	case FormatJSON:
@@ -216,8 +228,17 @@ func DetectFormat(filePath string) ConfigFormat {
 	return FormatUnknown
 }
 
-// ParseConfig parses configuration data based on the detected format
-// HYPER-OPTIMIZED: Fast path for no custom parsers, reduced lock contention
+// ParseConfig parses configuration data based on the detected format.
+// Tries custom parsers first, then falls back to built-in parsers.
+// HYPER-OPTIMIZED: Fast path for no custom parsers, reduced lock contention.
+//
+// Parameters:
+//   - data: Raw configuration file bytes
+//   - format: Detected configuration format
+//
+// Returns:
+//   - map[string]interface{}: Parsed configuration data
+//   - error: Any parsing errors
 func ParseConfig(data []byte, format ConfigFormat) (map[string]interface{}, error) {
 	// Fast path: Check if we have any custom parsers without locking
 	// This is safe because customParsers is only appended to, never modified
@@ -241,7 +262,8 @@ func ParseConfig(data []byte, format ConfigFormat) (map[string]interface{}, erro
 	return parseBuiltin(data, format)
 }
 
-// parseBuiltin handles built-in parsing without any locks
+// parseBuiltin handles built-in parsing without any locks for maximum performance.
+// Used as fallback when no custom parsers are available or applicable.
 func parseBuiltin(data []byte, format ConfigFormat) (map[string]interface{}, error) {
 	switch format {
 	case FormatJSON:
@@ -261,7 +283,9 @@ func parseBuiltin(data []byte, format ConfigFormat) (map[string]interface{}, err
 	}
 }
 
-// parseValue attempts to parse a string value into the appropriate type
+// parseValue attempts to parse a string value into the appropriate type.
+// Supports automatic type detection for booleans, integers, floats, and strings.
+// Used by simple parsers to provide basic type conversion without schemas.
 func parseValue(value string) interface{} {
 	// Try boolean
 	if strings.ToLower(value) == "true" {

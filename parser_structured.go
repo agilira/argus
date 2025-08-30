@@ -17,7 +17,9 @@ import (
 	"strings"
 )
 
-// parseJSON parses JSON configuration with pooled map to reduce allocations
+// parseJSON parses JSON configuration with pooled map to reduce allocations.
+// Uses the standard library JSON parser for full RFC 7159 compliance.
+// Returns the config map to the caller (caller responsible for memory management).
 func parseJSON(data []byte) (map[string]interface{}, error) {
 	config := getConfigMap()
 	if err := json.Unmarshal(data, &config); err != nil {
@@ -29,7 +31,10 @@ func parseJSON(data []byte) (map[string]interface{}, error) {
 	return config, nil
 }
 
-// parseYAML parses YAML configuration (simple implementation) with pooled map
+// parseYAML parses YAML configuration using a simple line-based implementation.
+// Handles basic key-value pairs for 80% use cases. For complex YAML features,
+// use a plugin parser with full YAML specification compliance.
+// Does not support multi-line values, arrays, or nested structures.
 func parseYAML(data []byte) (map[string]interface{}, error) {
 	config := getConfigMap()
 	lines := strings.Split(string(data), "\n")
@@ -55,7 +60,10 @@ func parseYAML(data []byte) (map[string]interface{}, error) {
 	return config, nil
 }
 
-// parseTOML parses TOML configuration (simple implementation) with pooled map
+// parseTOML parses TOML configuration using a simple line-based implementation.
+// Handles basic key-value pairs for standard use cases. For advanced TOML features
+// like tables, arrays, or datetime handling, use a plugin parser.
+// Supports quoted string values and basic type inference.
 func parseTOML(data []byte) (map[string]interface{}, error) {
 	config := getConfigMap()
 	lines := strings.Split(string(data), "\n")

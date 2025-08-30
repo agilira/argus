@@ -21,7 +21,16 @@ import (
 	flashflags "github.com/agilira/flash-flags"
 )
 
-// ConfigManager combines all configuration sources in a unified interface
+// ConfigManager combines all configuration sources in a unified interface.
+// Integrates FlashFlags for command-line parsing with Argus file watching
+// and provides a fluent API for configuration management.
+//
+// Key features:
+//   - Ultra-fast command-line parsing via FlashFlags
+//   - Real-time configuration file watching
+//   - Multi-source configuration (flags, env vars, files, defaults)
+//   - Type-safe configuration access
+//   - Automatic environment variable mapping
 type ConfigManager struct {
 	// FlashFlags for ultra-fast command-line parsing
 	flags *flashflags.FlagSet
@@ -38,7 +47,15 @@ type ConfigManager struct {
 	values map[string]interface{}
 }
 
-// NewConfigManager creates a unified configuration manager
+// NewConfigManager creates a unified configuration manager with FlashFlags integration.
+// The appName is used for environment variable prefixing and help text generation.
+//
+// Example:
+//
+//	config := argus.NewConfigManager("myapp").
+//	    SetDescription("My Application").
+//	    SetVersion("1.0.0").
+//	    StringFlag("port", "8080", "Server port")
 func NewConfigManager(appName string) *ConfigManager {
 	return &ConfigManager{
 		flags:   flashflags.New(appName),

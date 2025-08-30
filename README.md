@@ -146,6 +146,8 @@ err := argus.BindFromConfig(config).
 
 **Performance**: 1,609,530 operations/second with only 1 allocation per bind operation
 
+**[Configuration Binding Guide →](./docs/CONFIG_BINDING.md)** - Complete technical documentation and examples
+
 **[Full API Reference →](./docs/API.md)** - Complete API documentation with all types and methods
 
 ## Use Cases
@@ -202,6 +204,7 @@ config := argus.AuditConfig{
 
 **Quick Links:**
 - **[Quick Start Guide](./docs/QUICK_START.md)** - Get running in 2 minutes
+- **[Configuration Binding](./docs/CONFIG_BINDING.md)** - Ultra-fast zero-reflection binding system
 - **[API Reference](./docs/API.md)** - Complete API documentation  
 - **[Architecture Guide](./docs/ARCHITECTURE.md)** - Deep dive into dynamic configuration design
 - **[Audit System](./docs/AUDIT.md)** - Comprehensive audit and compliance guide
