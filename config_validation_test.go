@@ -440,8 +440,26 @@ func TestValidateConfigFile(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
+	// Create an audit directory for cross-platform compatibility
+	auditDir := filepath.Join(tempDir, "audit")
+	if err := os.MkdirAll(auditDir, 0755); err != nil {
+		t.Fatalf("Failed to create audit dir: %v", err)
+	}
+
+	auditPath := filepath.Join(auditDir, "test.jsonl")
+	// Escape backslashes for JSON on Windows
+	auditPathJSON := strings.ReplaceAll(auditPath, "\\", "\\\\")
+
 	validConfigFile := filepath.Join(tempDir, "valid_config.json")
-	if err := os.WriteFile(validConfigFile, []byte(`{"poll_interval": "1s"}`), 0644); err != nil {
+	configContent := fmt.Sprintf(`{
+		"poll_interval": "1s",
+		"audit": {
+			"enabled": true,
+			"output_file": "%s"
+		}
+	}`, auditPathJSON)
+
+	if err := os.WriteFile(validConfigFile, []byte(configContent), 0644); err != nil {
 		t.Fatalf("Failed to create test config file: %v", err)
 	}
 

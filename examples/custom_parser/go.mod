@@ -1,5 +1,7 @@
 module custom_parser_example
 
+require github.com/agilira/flash-flags v1.0.0 // indirect
+
 go 1.24.5
 
 replace github.com/agilira/argus => ../..

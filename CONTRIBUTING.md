@@ -63,7 +63,7 @@ If you have an idea for a new feature or an improvement to an existing one, plea
 - **Passing Tests**: Ensure that the full test suite passes.
 - **Documentation**: If your changes affect public APIs or behavior, update the relevant documentation (in-code comments, `README.md`, or files in the `docs/` directory).
 
-Thank you for helping make Argus a better!
+Thank you for helping make Argus better!
 
 ---
 
