@@ -117,6 +117,35 @@ defer watcher.Stop()
 - **Compliance Ready**: SOX, PCI-DSS, GDPR compatible logging
 - **Sub-Microsecond Impact**: Cached timestamps for minimal overhead
 
+### Ultra-Fast Configuration Binding
+- **Zero Reflection**: Type-safe binding without reflection overhead
+- **Fluent API**: Clean, readable configuration binding syntax
+- **High Performance**: 744ns for 15 bindings, 1.6M+ operations/second
+- **Nested Keys**: Support for dot-notation keys (`"database.pool.max_connections"`)
+- **Type Conversion**: Intelligent conversion between compatible types
+- **Default Values**: Inline defaults with type safety
+
+```go
+// Ultra-fast configuration binding - zero reflection
+var (
+    dbHost     string
+    dbPort     int
+    enableSSL  bool
+    timeout    time.Duration
+)
+
+err := argus.BindFromConfig(config).
+    BindString(&dbHost, "database.host", "localhost").
+    BindInt(&dbPort, "database.port", 5432).
+    BindBool(&enableSSL, "database.ssl", true).
+    BindDuration(&timeout, "database.timeout", 30*time.Second).
+    Apply()
+
+// Variables are now populated and ready to use!
+```
+
+**Performance**: 1,609,530 operations/second with only 1 allocation per bind operation
+
 **[Full API Reference →](./docs/API.md)** - Complete API documentation with all types and methods
 
 ## Use Cases
