@@ -267,7 +267,7 @@ func ValidateEnvironmentConfig() error {
 // loadConfigFromJSON loads and parses a JSON configuration file with cross-platform path handling
 func loadConfigFromJSON(configPath string) (*Config, error) {
 	// Read the file content
-	data, err := os.ReadFile(configPath)
+	data, err := os.ReadFile(configPath) // #nosec G304 - configPath is validated by caller, intentional config file loading
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file '%s': %w", configPath, err)
 	}

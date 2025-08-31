@@ -32,19 +32,19 @@ func BenchmarkBoreasLite_SingleEvent(b *testing.B) {
 
 	b.ResetTimer()
 
-	// Simula scenario reale: scrivi 1 evento, processa immediatamente
+	// Simulate real scenario: write 1 event, process immediately
 	for i := 0; i < b.N; i++ {
-		// Scrivi singolo evento (come 1-file scenario)
+		// Write single event (like 1-file scenario)
 		if !boreas.WriteFileEvent(&event) {
 			b.Fatal("Failed to write event")
 		}
 
-		// Processa manualmente per il benchmark
+		// Process manually for benchmark
 		boreas.ProcessBatch()
 	}
 }
 
-// Benchmark per confrontare la velocità di processing batch vs single
+// Benchmark to compare batch vs single processing speed
 func BenchmarkBoreasLite_ProcessingStrategy(b *testing.B) {
 	var processed int64
 	processor := func(*FileChangeEvent) {

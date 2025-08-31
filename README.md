@@ -81,10 +81,10 @@ graph TD
     H --> G
     C --> I[Audit System<br/>Tamper Detection]
     
-    classDef primary fill:#2563eb,stroke:#1d4ed8,color:#fff
-    classDef secondary fill:#059669,stroke:#047857,color:#fff
-    classDef audit fill:#dc2626,stroke:#b91c1c,color:#fff
-    classDef performance fill:#7c3aed,stroke:#6d28d9,color:#fff
+    classDef primary fill:#e1f5fe,stroke:#01579b,stroke-width:2px
+    classDef secondary fill:#e8f5e8,stroke:#1b5e20,stroke-width:2px
+    classDef audit fill:#fce4ec,stroke:#880e4f,stroke-width:2px
+    classDef performance fill:#fff3e0,stroke:#e65100,stroke-width:2px
     
     class A,G primary
     class B,D,H secondary

@@ -333,3 +333,247 @@ func TestInvalidEnvironmentValues(t *testing.T) {
 		t.Error("Expected error for invalid optimization strategy")
 	}
 }
+
+// TestEnvConfigLoadRemoteConfigEdgeCases tests edge cases in loadRemoteConfig
+func TestEnvConfigLoadRemoteConfigEdgeCases(t *testing.T) {
+	// Clear all remote-related env vars
+	remoteVars := []string{
+		"ARGUS_REMOTE_URL",
+		"ARGUS_REMOTE_INTERVAL",
+		"ARGUS_REMOTE_TIMEOUT",
+		"ARGUS_REMOTE_HEADERS",
+	}
+	for _, v := range remoteVars {
+		os.Unsetenv(v)
+	}
+
+	// Test with all remote vars unset (should not fail)
+	envConfig := &EnvConfig{}
+	err := loadRemoteConfig(envConfig)
+	if err != nil {
+		t.Errorf("loadRemoteConfig should not fail with no env vars set: %v", err)
+	}
+
+	// Test with invalid duration format
+	os.Setenv("ARGUS_REMOTE_INTERVAL", "invalid-duration")
+	defer os.Unsetenv("ARGUS_REMOTE_INTERVAL")
+
+	envConfig = &EnvConfig{}
+	err = loadRemoteConfig(envConfig)
+	if err != nil {
+		t.Errorf("loadRemoteConfig should handle invalid duration gracefully: %v", err)
+	}
+
+	// Test with invalid timeout format
+	os.Setenv("ARGUS_REMOTE_TIMEOUT", "not-a-duration")
+	defer os.Unsetenv("ARGUS_REMOTE_TIMEOUT")
+
+	envConfig = &EnvConfig{}
+	err = loadRemoteConfig(envConfig)
+	if err != nil {
+		t.Errorf("loadRemoteConfig should handle invalid timeout gracefully: %v", err)
+	}
+
+	// Test with valid values
+	os.Setenv("ARGUS_REMOTE_URL", "http://example.com/config")
+	os.Setenv("ARGUS_REMOTE_INTERVAL", "30s")
+	os.Setenv("ARGUS_REMOTE_TIMEOUT", "10s")
+	os.Setenv("ARGUS_REMOTE_HEADERS", "Authorization: Bearer token")
+
+	envConfig = &EnvConfig{}
+	err = loadRemoteConfig(envConfig)
+	if err != nil {
+		t.Errorf("loadRemoteConfig should succeed with valid values: %v", err)
+	}
+
+	if envConfig.RemoteURL != "http://example.com/config" {
+		t.Errorf("Expected RemoteURL to be set, got %s", envConfig.RemoteURL)
+	}
+	if envConfig.RemoteInterval != 30*time.Second {
+		t.Errorf("Expected RemoteInterval to be 30s, got %v", envConfig.RemoteInterval)
+	}
+	if envConfig.RemoteTimeout != 10*time.Second {
+		t.Errorf("Expected RemoteTimeout to be 10s, got %v", envConfig.RemoteTimeout)
+	}
+	if envConfig.RemoteHeaders != "Authorization: Bearer token" {
+		t.Errorf("Expected RemoteHeaders to be set, got %s", envConfig.RemoteHeaders)
+	}
+}
+
+// TestEnvConfigLoadValidationConfigEdgeCases tests edge cases in loadValidationConfig
+func TestEnvConfigLoadValidationConfigEdgeCases(t *testing.T) {
+	// Clear all validation-related env vars
+	validationVars := []string{
+		"ARGUS_VALIDATION_ENABLED",
+		"ARGUS_VALIDATION_SCHEMA",
+		"ARGUS_VALIDATION_STRICT",
+	}
+	for _, v := range validationVars {
+		os.Unsetenv(v)
+	}
+
+	// Test with all validation vars unset
+	envConfig := &EnvConfig{}
+	err := loadValidationConfig(envConfig)
+	if err != nil {
+		t.Errorf("loadValidationConfig should not fail with no env vars set: %v", err)
+	}
+
+	// Test with invalid boolean values
+	os.Setenv("ARGUS_VALIDATION_ENABLED", "maybe")
+	defer os.Unsetenv("ARGUS_VALIDATION_ENABLED")
+
+	envConfig = &EnvConfig{}
+	err = loadValidationConfig(envConfig)
+	if err != nil {
+		t.Errorf("loadValidationConfig should handle invalid boolean gracefully: %v", err)
+	}
+
+	// Test with valid values
+	os.Setenv("ARGUS_VALIDATION_ENABLED", "true")
+	os.Setenv("ARGUS_VALIDATION_SCHEMA", "/path/to/schema.json")
+	os.Setenv("ARGUS_VALIDATION_STRICT", "false")
+
+	envConfig = &EnvConfig{}
+	err = loadValidationConfig(envConfig)
+	if err != nil {
+		t.Errorf("loadValidationConfig should succeed with valid values: %v", err)
+	}
+
+	if !envConfig.ValidationEnabled {
+		t.Error("Expected ValidationEnabled to be true")
+	}
+	if envConfig.ValidationSchema != "/path/to/schema.json" {
+		t.Errorf("Expected ValidationSchema to be set, got %s", envConfig.ValidationSchema)
+	}
+	if envConfig.ValidationStrict {
+		t.Error("Expected ValidationStrict to be false")
+	}
+}
+
+// TestLoadConfigMultiSourceEdgeCases tests edge cases in LoadConfigMultiSource
+func TestLoadConfigMultiSourceEdgeCases(t *testing.T) {
+	// Test with non-existent file
+	config, err := LoadConfigMultiSource("/non/existent/file.json")
+	if err != nil {
+		t.Errorf("LoadConfigMultiSource should handle non-existent file gracefully: %v", err)
+	}
+	if config == nil {
+		t.Error("LoadConfigMultiSource should return config even with non-existent file")
+	}
+
+	// Test with empty file path
+	config, err = LoadConfigMultiSource("")
+	if err != nil {
+		t.Errorf("LoadConfigMultiSource should handle empty file path: %v", err)
+	}
+	if config == nil {
+		t.Error("LoadConfigMultiSource should return config with empty file path")
+	}
+
+	// Test with invalid environment variables that cause LoadConfigFromEnv to fail
+	// Set an invalid poll interval
+	os.Setenv("ARGUS_POLL_INTERVAL", "invalid-duration")
+	defer os.Unsetenv("ARGUS_POLL_INTERVAL")
+
+	config, err = LoadConfigMultiSource("")
+	if err == nil {
+		t.Error("LoadConfigMultiSource should return error when LoadConfigFromEnv fails")
+	}
+	if config == nil {
+		t.Error("LoadConfigMultiSource should return partial config even when LoadConfigFromEnv fails")
+	}
+}
+
+// TestLoadEnvVarsErrorHandling tests error handling in loadEnvVars
+func TestLoadEnvVarsErrorHandling(t *testing.T) {
+	// Clear all env vars first
+	allVars := []string{
+		"ARGUS_POLL_INTERVAL", "ARGUS_CACHE_TTL", "ARGUS_MAX_WATCHED_FILES",
+		"ARGUS_OPTIMIZATION_STRATEGY", "ARGUS_BOREAS_CAPACITY",
+		"ARGUS_AUDIT_ENABLED", "ARGUS_AUDIT_OUTPUT_FILE", "ARGUS_AUDIT_MIN_LEVEL",
+		"ARGUS_AUDIT_BUFFER_SIZE", "ARGUS_AUDIT_FLUSH_INTERVAL",
+		"ARGUS_REMOTE_URL", "ARGUS_REMOTE_INTERVAL", "ARGUS_REMOTE_TIMEOUT", "ARGUS_REMOTE_HEADERS",
+		"ARGUS_VALIDATION_ENABLED", "ARGUS_VALIDATION_SCHEMA", "ARGUS_VALIDATION_STRICT",
+	}
+	for _, v := range allVars {
+		os.Unsetenv(v)
+	}
+
+	// Test with invalid poll interval (should cause loadCoreConfig to fail)
+	os.Setenv("ARGUS_POLL_INTERVAL", "not-a-duration")
+	defer os.Unsetenv("ARGUS_POLL_INTERVAL")
+
+	envConfig := &EnvConfig{}
+	err := loadEnvVars(envConfig)
+	if err == nil {
+		t.Error("loadEnvVars should return error when loadCoreConfig fails")
+	}
+
+	// Test with valid configuration
+	os.Setenv("ARGUS_POLL_INTERVAL", "10s")
+	os.Setenv("ARGUS_CACHE_TTL", "5s")
+	os.Setenv("ARGUS_MAX_WATCHED_FILES", "50")
+
+	envConfig = &EnvConfig{}
+	err = loadEnvVars(envConfig)
+	if err != nil {
+		t.Errorf("loadEnvVars should succeed with valid config: %v", err)
+	}
+
+	if envConfig.PollInterval != 10*time.Second {
+		t.Errorf("Expected PollInterval to be 10s, got %v", envConfig.PollInterval)
+	}
+	if envConfig.CacheTTL != 5*time.Second {
+		t.Errorf("Expected CacheTTL to be 5s, got %v", envConfig.CacheTTL)
+	}
+	if envConfig.MaxWatchedFiles != 50 {
+		t.Errorf("Expected MaxWatchedFiles to be 50, got %d", envConfig.MaxWatchedFiles)
+	}
+}
+
+// TestConvertEnvToConfigErrorHandling tests error handling in convertEnvToConfig
+func TestConvertEnvToConfigErrorHandling(t *testing.T) {
+	// Test with invalid optimization strategy (should cause convertPerformanceConfig to fail)
+	envConfig := &EnvConfig{
+		OptimizationStrategy: "invalid-strategy",
+	}
+
+	config := &Config{}
+	err := convertEnvToConfig(envConfig, config)
+	if err == nil {
+		t.Error("convertEnvToConfig should return error for invalid optimization strategy")
+	}
+
+	// Test with valid configuration
+	envConfig = &EnvConfig{
+		PollInterval:         10 * time.Second,
+		CacheTTL:             5 * time.Second,
+		MaxWatchedFiles:      50,
+		OptimizationStrategy: "auto",
+		BoreasLiteCapacity:   256,
+	}
+
+	config = &Config{}
+	err = convertEnvToConfig(envConfig, config)
+	if err != nil {
+		t.Errorf("convertEnvToConfig should succeed with valid config: %v", err)
+	}
+
+	// Verify conversions
+	if config.PollInterval != 10*time.Second {
+		t.Errorf("Expected PollInterval to be 10s, got %v", config.PollInterval)
+	}
+	if config.CacheTTL != 5*time.Second {
+		t.Errorf("Expected CacheTTL to be 5s, got %v", config.CacheTTL)
+	}
+	if config.MaxWatchedFiles != 50 {
+		t.Errorf("Expected MaxWatchedFiles to be 50, got %d", config.MaxWatchedFiles)
+	}
+	if config.OptimizationStrategy != OptimizationAuto {
+		t.Errorf("Expected OptimizationStrategy to be OptimizationAuto, got %v", config.OptimizationStrategy)
+	}
+	if config.BoreasLiteCapacity != 256 {
+		t.Errorf("Expected BoreasLiteCapacity to be 256, got %d", config.BoreasLiteCapacity)
+	}
+}

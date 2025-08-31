@@ -40,32 +40,182 @@ Four distinct optimization strategies adapt to different workload patterns:
 
 Structured audit logging with tamper detection, event buffering, and compliance-ready output. Supports four audit levels with configurable buffering and background flushing.
 
-## Data Flow Architecture
+## Detailed Architecture Diagram
 
+> **Diagram Legend:**
+> - **Solid arrows (→)**: Primary data flow and direct function calls
+> - **Dashed arrows (-.)**: Optional/conditional connections (strategies, remote config, error paths)
+> - **Color coding**: Functional layers with semantic meaning
+> - **Performance metrics**: Actual benchmarks from production testing
+
+```mermaid
+graph TB
+    subgraph "External Systems"
+        K8S[ConfigMaps<br/>Secrets]
+        Vault[HashiCorp Vault<br/>Remote Config]
+        Redis[Redis<br/>Cache Layer]
+        Files[Local Files<br/>JSON/YAML/TOML<br/>HCL/INI/Properties]
+    end
+
+    subgraph "Entry Points"
+        UW[UniversalConfigWatcher<br/>Auto-Detection]
+        FW[FileWatcher<br/>Manual Setup]
+        CB[ConfigBinder<br/>Type-Safe Binding]
+    end
+
+    subgraph "Core Processing Pipeline"
+        FD[Format Detection<br/>Extension + Content Analysis]
+        UP[Universal Parser<br/>6 Format Support<br/>Plugin System]
+
+        FM[File Monitor<br/>Polling Engine<br/>Stat Cache<br/>12.11ns overhead]
+
+        BL[BoreasLite MPSC<br/>Ring Buffer<br/>4 Optimization Strategies<br/>24.91ns processing]
+
+        EP[Event Processor<br/>Batch Optimization<br/>Callback Routing]
+    end
+
+    subgraph "Optimization Strategies"
+        SE[SingleEvent<br/>1-2 files<br/>Ultra-low latency]
+        SB[SmallBatch<br/>3-20 files<br/>Balanced perf]
+        LB[LargeBatch<br/>20+ files<br/>High throughput]
+        AUTO[Auto Strategy<br/>Adaptive learning<br/>Runtime optimization]
+    end
+
+    subgraph "Configuration Binding System"
+        ZRB[Zero-Reflection Binding<br/>unsafe.Pointer optimization<br/>Type-safe API]
+        TS[Type System<br/>String/Int/Int64/Bool<br/>Duration/Float64]
+        DEF[Default Values<br/>Optional parameters<br/>Validation]
+    end
+
+    subgraph "Security & Audit"
+        AL[Audit Logger<br/>Structured logging<br/>4 severity levels]
+        TD[Tamper Detection<br/>SHA-256 checksums<br/>Immutable trails]
+        BUF[Buffer System<br/>Configurable size<br/>Background flush]
+        COMP[Compliance<br/>SOX/GDPR/PCI-DSS<br/>Security events]
+    end
+
+    subgraph "Performance Layer"
+        LF[Lock-Free Operations<br/>Atomic counters<br/>Immutable structures]
+        ZAL[Zero-Allocation Paths<br/>Pre-allocated buffers<br/>Pool reuse]
+        CACHE[Intelligent Caching<br/>timecache integration<br/>Configurable TTL]
+        POOL[Resource Pooling<br/>Buffer pools<br/>Connection reuse]
+    end
+
+    subgraph "Integration Layer"
+        API[Fluent API<br/>Method chaining<br/>Builder pattern]
+        EXT[Extensibility<br/>Plugin system<br/>Custom parsers]
+        MON[Monitoring<br/>Metrics export<br/>Health checks]
+        ERR[Error Handling<br/>Graceful degradation<br/>Recovery strategies]
+    end
+
+    subgraph "Application Layer"
+        CBACK[User Callbacks<br/>Change handlers<br/>Async processing]
+        CONF[Configuration Objects<br/>Type-safe structs<br/>Validation]
+        APP[Application Logic<br/>Config updates<br/>Service restart]
+    end
+
+    %% Connections
+    K8S --> FD
+    Vault --> FD
+    Redis --> FD
+    Files --> FD
+
+    FD --> UP
+    UP --> CONF
+
+    FM --> BL
+    BL --> EP
+    EP --> CBACK
+
+    BL -.-> SE
+    BL -.-> SB
+    BL -.-> LB
+    BL -.-> AUTO
+
+    CB --> ZRB
+    ZRB --> TS
+    TS --> DEF
+    DEF --> CONF
+
+    FM --> AL
+    EP --> AL
+    AL --> TD
+    AL --> BUF
+    BUF --> COMP
+
+    FM --> LF
+    BL --> ZAL
+    FM --> CACHE
+    UP --> POOL
+
+    UW --> FM
+    FW --> FM
+    CB --> CONF
+
+    API --> UW
+    API --> FW
+    API --> CB
+
+    EXT --> UP
+    MON --> FM
+    ERR --> EP
+
+    CBACK --> APP
+    CONF --> APP
+
+    %% Additional precision connections
+    UW --> FD
+    UW --> UP
+    UW --> AL
+    FM --> EP
+
+    %% Remote configuration integration
+    Vault -.-> UP
+    Redis -.-> UP
+
+    %% Audit connections for all components
+    UP --> AL
+    CB --> AL
+    BL --> AL
+
+    %% Error handling connections
+    FD -.-> ERR
+    UP -.-> ERR
+    FM -.-> ERR
+    BL -.-> ERR
+
+    %% Styling with soft colors
+    classDef external fill:#e8f4f8,stroke:#0ea5e9,stroke-width:2px
+    classDef entry fill:#f0f9ff,stroke:#0369a1,stroke-width:2px
+    classDef core fill:#ecfdf5,stroke:#059669,stroke-width:2px
+    classDef optimization fill:#fef3c7,stroke:#d97706,stroke-width:2px
+    classDef binding fill:#f3e8ff,stroke:#7c3aed,stroke-width:2px
+    classDef security fill:#fef2f2,stroke:#dc2626,stroke-width:2px
+    classDef performance fill:#ecfeff,stroke:#0891b2,stroke-width:2px
+    classDef integration fill:#f9fafb,stroke:#374151,stroke-width:2px
+    classDef application fill:#f8fafc,stroke:#1e293b,stroke-width:2px
+
+    class K8S,Vault,Redis,Files external
+    class UW,FW,CB entry
+    class FD,UP,FM,BL,EP core
+    class SE,SB,LB,AUTO optimization
+    class ZRB,TS,DEF binding
+    class AL,TD,BUF,COMP security
+    class LF,ZAL,CACHE,POOL performance
+    class API,EXT,MON,ERR integration
+    class CBACK,CONF,APP application
 ```
-Configuration Files (JSON/YAML/TOML/HCL/INI/Properties)
-        │
-        ▼
-Format Auto-Detection & Parsing
-        │
-        ▼
-Polling-Based File Monitoring (12.11ns overhead)
-        │
-        ▼
-Optimization Engine (4 strategies)
-        │
-        ▼
-Change Detection & Event Generation
-        │
-        ▼
-Audit System (optional, <0.5µs impact)
-        │
-        ▼
-User-Defined Change Handlers
-        │
-        ▼
-Application Configuration Update
-```
+
+## Data Flow Summary
+
+The detailed architecture diagram above fully illustrates the data flow through all Argus components. The system is designed for:
+
+1. **Multi-Source Input**: Configurations from local files, Kubernetes ConfigMaps, HashiCorp Vault, and Redis
+2. **Optimized Processing**: Automatic format detection (2.79ns) → Universal parsing → Polling-based monitoring (12.11ns)
+3. **Event Processing**: BoreasLite ring buffer (24.91ns) with 4 adaptive optimization strategies
+4. **Integrated Security**: Audit system with tamper detection (<0.5µs impact) and SOX/GDPR/PCI-DSS compliance
+5. **Type Safety**: Zero-reflection binding with unsafe.Pointer optimization
+6. **Performance**: Lock-free operations, zero-allocations, intelligent caching
 
 ## Concurrency Model
 

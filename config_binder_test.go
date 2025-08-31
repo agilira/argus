@@ -6,6 +6,7 @@
 package argus
 
 import (
+	"fmt"
 	"testing"
 	"time"
 )
@@ -451,4 +452,224 @@ func TestConfigBinder_RealWorldExample(t *testing.T) {
 	t.Logf("   Server: %s:%d", serverHost, serverPort)
 	t.Logf("   Database: %s:%d/%s", dbHost, dbPort, dbName)
 	t.Logf("   Cache: enabled=%t, ttl=%v, size=%d", cacheEnabled, cacheTTL, cacheSize)
+}
+
+// TestConfigBinder_ErrorConditions tests error handling paths for higher coverage
+func TestConfigBinder_ErrorConditions(t *testing.T) {
+	// Test BindInt64 with existing error
+	var target int64
+	cb := NewConfigBinder(map[string]interface{}{})
+	cb.err = fmt.Errorf("pre-existing error")
+
+	result := cb.BindInt64(&target, "test", 42)
+	if result != cb {
+		t.Error("BindInt64 should return self even with error")
+	}
+	if len(cb.bindings) != 0 {
+		t.Error("BindInt64 should not add bindings when error exists")
+	}
+
+	// Test BindFloat64 with existing error
+	var targetFloat float64
+	result = cb.BindFloat64(&targetFloat, "test", 3.14)
+	if result != cb {
+		t.Error("BindFloat64 should return self even with error")
+	}
+	if len(cb.bindings) != 0 { // Should still be 0 from previous
+		t.Error("BindFloat64 should not add bindings when error exists")
+	}
+
+	// Test Apply with existing error
+	err := cb.Apply()
+	if err == nil {
+		t.Error("Apply should return pre-existing error")
+	}
+	if err.Error() != "pre-existing error" {
+		t.Errorf("Expected pre-existing error, got %v", err)
+	}
+}
+
+// TestConfigBinder_TypeConversionEdgeCases tests edge cases in type conversion
+func TestConfigBinder_TypeConversionEdgeCases(t *testing.T) {
+	cb := NewConfigBinder(map[string]interface{}{
+		"int_invalid":      "not-a-number",
+		"duration_invalid": "not-a-duration",
+		"nested_invalid": map[string]interface{}{
+			"intermediate": "not-a-map",
+			"value":        "test",
+		},
+	})
+
+	// Test toInt with invalid string
+	val, exists := cb.getValue("int_invalid")
+	if !exists {
+		t.Fatal("int_invalid should exist")
+	}
+	_, err := cb.toInt(val)
+	if err == nil {
+		t.Error("toInt should fail with invalid string")
+	}
+
+	// Test toDuration with invalid string
+	val, exists = cb.getValue("duration_invalid")
+	if !exists {
+		t.Fatal("duration_invalid should exist")
+	}
+	_, err = cb.toDuration(val)
+	if err == nil {
+		t.Error("toDuration should fail with invalid string")
+	}
+
+	// Test toInt with unsupported type
+	_, err = cb.toInt(make(chan int))
+	if err == nil {
+		t.Error("toInt should fail with unsupported type")
+	}
+
+	// Test toDuration with unsupported type
+	_, err = cb.toDuration(make(chan int))
+	if err == nil {
+		t.Error("toDuration should fail with unsupported type")
+	}
+
+	// Test getValue with invalid nested structure
+	_, exists = cb.getValue("nested_invalid.intermediate.value")
+	if exists {
+		t.Error("getValue should return false for invalid nested structure")
+	}
+}
+
+// TestConfigBinder_GetValueEdgeCases tests getValue edge cases
+func TestConfigBinder_GetValueEdgeCases(t *testing.T) {
+	config := map[string]interface{}{
+		"simple": "value",
+		"nested": map[string]interface{}{
+			"deep": map[string]interface{}{
+				"key": "deep-value",
+			},
+		},
+		"invalid": map[string]interface{}{
+			"intermediate": "not-a-map",
+		},
+	}
+
+	cb := NewConfigBinder(config)
+
+	// Test simple key
+	val, exists := cb.getValue("simple")
+	if !exists || val != "value" {
+		t.Errorf("Expected simple key to return 'value', got %v, exists=%v", val, exists)
+	}
+
+	// Test deep nested key
+	val, exists = cb.getValue("nested.deep.key")
+	if !exists || val != "deep-value" {
+		t.Errorf("Expected deep nested key to return 'deep-value', got %v, exists=%v", val, exists)
+	}
+
+	// Test non-existent key
+	_, exists = cb.getValue("nonexistent")
+	if exists {
+		t.Error("Non-existent key should return exists=false")
+	}
+
+	// Test partial nested path that doesn't exist
+	_, exists = cb.getValue("nested.missing.key")
+	if exists {
+		t.Error("Partial missing nested path should return exists=false")
+	}
+
+	// Test invalid intermediate type
+	_, exists = cb.getValue("invalid.intermediate.key")
+	if exists {
+		t.Error("Invalid intermediate type should return exists=false")
+	}
+}
+
+// TestConfigBinder_TypeConversionToInt tests toInt function specifically
+func TestConfigBinder_TypeConversionToInt(t *testing.T) {
+	cb := NewConfigBinder(map[string]interface{}{})
+
+	// Test int to int conversion
+	result, err := cb.toInt(42)
+	if err != nil || result != 42 {
+		t.Errorf("toInt(42) failed: got %d, %v", result, err)
+	}
+
+	// Test int64 to int conversion
+	result, err = cb.toInt(int64(123))
+	if err != nil || result != 123 {
+		t.Errorf("toInt(int64(123)) failed: got %d, %v", result, err)
+	}
+
+	// Test float64 to int conversion
+	result, err = cb.toInt(45.67)
+	if err != nil || result != 45 {
+		t.Errorf("toInt(45.67) failed: got %d, %v", result, err)
+	}
+
+	// Test string to int conversion
+	result, err = cb.toInt("789")
+	if err != nil || result != 789 {
+		t.Errorf("toInt(\"789\") failed: got %d, %v", result, err)
+	}
+
+	// Test invalid string to int conversion
+	_, err = cb.toInt("not-a-number")
+	if err == nil {
+		t.Error("toInt(\"not-a-number\") should fail")
+	}
+
+	// Test unsupported type to int conversion
+	_, err = cb.toInt(true)
+	if err == nil {
+		t.Error("toInt(true) should fail")
+	}
+
+	// Test nil to int conversion
+	_, err = cb.toInt(nil)
+	if err == nil {
+		t.Error("toInt(nil) should fail")
+	}
+}
+
+// TestConfigBinder_TypeConversionToInt64 tests toInt64 function specifically
+func TestConfigBinder_TypeConversionToInt64(t *testing.T) {
+	cb := NewConfigBinder(map[string]interface{}{})
+
+	// Test int64 to int64 conversion
+	result, err := cb.toInt64(int64(42))
+	if err != nil || result != 42 {
+		t.Errorf("toInt64(42) failed: got %d, %v", result, err)
+	}
+
+	// Test int to int64 conversion
+	result, err = cb.toInt64(123)
+	if err != nil || result != 123 {
+		t.Errorf("toInt64(123) failed: got %d, %v", result, err)
+	}
+
+	// Test float64 to int64 conversion
+	result, err = cb.toInt64(45.67)
+	if err != nil || result != 45 {
+		t.Errorf("toInt64(45.67) failed: got %d, %v", result, err)
+	}
+
+	// Test string to int64 conversion
+	result, err = cb.toInt64("789")
+	if err != nil || result != 789 {
+		t.Errorf("toInt64(\"789\") failed: got %d, %v", result, err)
+	}
+
+	// Test invalid string to int64 conversion
+	_, err = cb.toInt64("not-a-number")
+	if err == nil {
+		t.Error("toInt64(\"not-a-number\") should fail")
+	}
+
+	// Test unsupported type to int64 conversion
+	_, err = cb.toInt64(true)
+	if err == nil {
+		t.Error("toInt64(true) should fail")
+	}
 }

@@ -65,7 +65,7 @@ func (cb *ConfigBinder) BindString(target *string, key string, defaultValue ...s
 	}
 
 	cb.bindings = append(cb.bindings, binding{
-		target:   unsafe.Pointer(target),
+		target:   unsafe.Pointer(target), // #nosec G103 - intentional unsafe.Pointer usage for zero-reflection binding
 		key:      key,
 		defValue: defVal,
 		kind:     bindString,
@@ -86,7 +86,7 @@ func (cb *ConfigBinder) BindInt(target *int, key string, defaultValue ...int) *C
 	}
 
 	cb.bindings = append(cb.bindings, binding{
-		target:   unsafe.Pointer(target),
+		target:   unsafe.Pointer(target), // #nosec G103 - intentional unsafe.Pointer usage for zero-reflection binding
 		key:      key,
 		defValue: defVal,
 		kind:     bindInt,
@@ -107,7 +107,7 @@ func (cb *ConfigBinder) BindInt64(target *int64, key string, defaultValue ...int
 	}
 
 	cb.bindings = append(cb.bindings, binding{
-		target:   unsafe.Pointer(target),
+		target:   unsafe.Pointer(target), // #nosec G103 - intentional unsafe.Pointer usage for zero-reflection binding
 		key:      key,
 		defValue: defVal,
 		kind:     bindInt64,
@@ -128,7 +128,7 @@ func (cb *ConfigBinder) BindBool(target *bool, key string, defaultValue ...bool)
 	}
 
 	cb.bindings = append(cb.bindings, binding{
-		target:   unsafe.Pointer(target),
+		target:   unsafe.Pointer(target), // #nosec G103 - intentional unsafe.Pointer usage for zero-reflection binding
 		key:      key,
 		defValue: defVal,
 		kind:     bindBool,
@@ -149,7 +149,7 @@ func (cb *ConfigBinder) BindFloat64(target *float64, key string, defaultValue ..
 	}
 
 	cb.bindings = append(cb.bindings, binding{
-		target:   unsafe.Pointer(target),
+		target:   unsafe.Pointer(target), // #nosec G103 - intentional unsafe.Pointer usage for zero-reflection binding
 		key:      key,
 		defValue: defVal,
 		kind:     bindFloat64,
@@ -170,7 +170,7 @@ func (cb *ConfigBinder) BindDuration(target *time.Duration, key string, defaultV
 	}
 
 	cb.bindings = append(cb.bindings, binding{
-		target:   unsafe.Pointer(target),
+		target:   unsafe.Pointer(target), // #nosec G103 - intentional unsafe.Pointer usage for zero-reflection binding
 		key:      key,
 		defValue: defVal,
 		kind:     bindDuration,
