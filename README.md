@@ -52,6 +52,16 @@ JSON Parsing (small):          1,712 ns/op     (616 B/op, 16 allocs/op)
 JSON Parsing (large):          7,793 ns/op     (3,064 B/op, 86 allocs/op)
 Event Processing:              24.91 ns/op     (BoreasLite single event)
 Memory Footprint:              8KB fixed       + configurable buffers
+
+**Scalability (Setup Performance):**
+```
+File Count    Setup Time    Strategy Used
+   50 files    11.38 μs/file  SmallBatch
+  100 files     6.50 μs/file  LargeBatch  
+  500 files    25.82 μs/file  LargeBatch
+ 1000 files    35.55 μs/file  LargeBatch
+```
+*Detection rate: 100% across all scales*
 ```
 
 ## Architecture
