@@ -56,10 +56,11 @@ Memory Footprint:              8KB fixed       + configurable buffers
 **Scalability (Setup Performance):**
 ```
 File Count    Setup Time    Strategy Used
-   50 files    11.38 μs/file  SmallBatch
-  100 files     6.50 μs/file  LargeBatch  
-  500 files    25.82 μs/file  LargeBatch
- 1000 files    35.55 μs/file  LargeBatch
+   50 files    11.92 μs/file  SmallBatch
+  100 files    18.05 μs/file  LargeBatch  
+  250 files    12.28 μs/file  LargeBatch
+  500 files    23.95 μs/file  LargeBatch
+ 1000 files    38.90 μs/file  LargeBatch
 ```
 *Detection rate: 100% across all scales*
 ```
