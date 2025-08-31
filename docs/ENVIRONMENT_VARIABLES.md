@@ -425,13 +425,15 @@ func main() {
 
 ## Migration from Other Libraries
 
-### From Viper
+### Migration Example
 
 ```go
-// Before (Viper)
-viper.SetEnvPrefix("APP")
-viper.AutomaticEnv()
-pollInterval := viper.GetDuration("poll_interval")
+// Legacy approach
+```go
+// Legacy approach
+cfg.SetEnvPrefix("APP")
+cfg.AutomaticEnv()
+pollInterval := cfg.GetDuration("poll_interval")
 
 // After (Argus)
 config, err := argus.LoadConfigFromEnv()

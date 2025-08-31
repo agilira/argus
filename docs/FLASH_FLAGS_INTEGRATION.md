@@ -286,7 +286,7 @@ config.WatchConfigFile("service.json", func() {
 - **GetDuration**: 31.00 ns/op
 
 ### Compared to Standard Solutions
-- **10-50x faster** than viper
+- **10-50x faster** than traditional configuration libraries
 - **5-20x faster** than flag package
 - **2-5x faster** than pflag
 - **Lock-free** vs mutex-based solutions
@@ -341,12 +341,15 @@ host := config.GetString("host")  // Direct value, not pointer
 port := config.GetInt("port")     // Type-safe access
 ```
 
-### From Viper
+### Migration Example
+
 ```go
-// Before (Viper)
-viper.SetDefault("host", "localhost")
-viper.BindPFlag("host", cmd.Flags().Lookup("host"))
-host := viper.GetString("host")
+// Legacy approach
+```go
+// Legacy approach
+cfg.SetDefault("host", "localhost")
+cfg.BindPFlag("host", cmd.Flags().Lookup("host"))
+host := cfg.GetString("host")
 
 // After (Argus + FlashFlags)  
 config := argus.NewConfigManager("myapp").

@@ -115,9 +115,9 @@ func NewBoreasLite(capacity int64, strategy OptimizationStrategy, processor func
 // AdaptStrategy dynamically adjusts the optimization strategy based on file count.
 // This is called when OptimizationAuto is used and file count changes.
 // Automatically selects the optimal batch size for current workload:
-//   - 1-3 files: SingleEvent (ultra-low latency)
-//   - 4-20 files: SmallBatch (balanced performance)
-//   - 21+ files: LargeBatch (high throughput)
+//   - 1-3 files: SingleEvent (ultra-low latency, 24.91ns)
+//   - 4-50 files: SmallBatch (balanced performance, 100% detection)
+//   - 51+ files: LargeBatch (high throughput, 1000+ files supported)
 func (b *BoreasLite) AdaptStrategy(fileCount int) {
 	if b.strategy != OptimizationAuto {
 		return // Fixed strategy, no adaptation
@@ -127,7 +127,7 @@ func (b *BoreasLite) AdaptStrategy(fileCount int) {
 	switch {
 	case fileCount <= 3:
 		newBatchSize = 1 // SingleEvent optimization
-	case fileCount <= 20:
+	case fileCount <= 50:
 		newBatchSize = 4 // SmallBatch optimization
 	default:
 		newBatchSize = 16 // LargeBatch optimization

@@ -19,7 +19,7 @@ import (
 )
 
 // EnvConfig represents configuration loaded from environment variables
-// This provides Viper-compatible environment variable support
+// This provides environment variable support with automatic type detection
 type EnvConfig struct {
 	// Core Configuration
 	PollInterval    time.Duration `env:"ARGUS_POLL_INTERVAL"`
@@ -50,7 +50,7 @@ type EnvConfig struct {
 }
 
 // LoadConfigFromEnv loads Argus configuration from environment variables
-// This provides a Viper-compatible interface for container deployments
+// This provides an intuitive interface for container deployments
 func LoadConfigFromEnv() (*Config, error) {
 	config := &Config{}
 	envConfig := &EnvConfig{}
@@ -76,7 +76,7 @@ func LoadConfigFromEnv() (*Config, error) {
 // 2. File configuration
 // 3. Default values (lowest priority)
 //
-// This provides Viper-compatible multi-source configuration loading
+// This provides multi-source configuration loading with precedence
 func LoadConfigMultiSource(configFile string) (*Config, error) {
 	// Start with file-based configuration
 	config := &Config{}
