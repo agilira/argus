@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -79,9 +80,12 @@ type AuditConfig struct {
 
 // DefaultAuditConfig returns secure default audit configuration
 func DefaultAuditConfig() AuditConfig {
+	// Use cross-platform temporary directory for default audit file
+	auditFile := filepath.Join(os.TempDir(), "argus", "audit.jsonl")
+
 	return AuditConfig{
 		Enabled:       true,
-		OutputFile:    "/var/log/argus/audit.jsonl",
+		OutputFile:    auditFile,
 		MinLevel:      AuditInfo,
 		BufferSize:    1000,
 		FlushInterval: 5 * time.Second,

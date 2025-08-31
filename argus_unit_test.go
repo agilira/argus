@@ -628,9 +628,20 @@ func TestConfigValidationValidateConfigFile(t *testing.T) {
 		t.Error("Expected error for invalid JSON file")
 	}
 
-	// Test with valid JSON file
+	// Test with valid JSON file (cross-platform)
 	validFile := filepath.Join(tmpDir, "valid.json")
-	validJSON := `{"poll_interval": "1s", "cache_ttl": "500ms"}`
+	auditFile := filepath.Join(tmpDir, "audit.jsonl")
+	validJSON := fmt.Sprintf(`{
+		"poll_interval": "1s",
+		"cache_ttl": "500ms",
+		"audit": {
+			"enabled": true,
+			"output_file": "%s",
+			"min_level": 0,
+			"buffer_size": 100,
+			"flush_interval": 1000000000
+		}
+	}`, auditFile)
 	if err := os.WriteFile(validFile, []byte(validJSON), 0644); err != nil {
 		t.Fatalf("Failed to create valid JSON file: %v", err)
 	}

@@ -190,7 +190,7 @@ gosec --exclude=G104,G306,G301 ./...  # Manual verification
 ### Audit Configuration
 ```go
 // Production audit setup with SHA-256 tamper detection
-config := argus.DefaultAuditConfig()  // /var/log/argus/audit.jsonl
+config := argus.DefaultAuditConfig()  // Cross-platform temp directory
 
 // Cross-platform configuration
 config := argus.AuditConfig{
@@ -199,8 +199,6 @@ config := argus.AuditConfig{
     MinLevel:   argus.AuditInfo,
 }
 ```
-
-> **Platform Notes**: Default path assumes Linux/Unix. Customize `OutputFile` for Windows or restricted environments.
 
 ## Documentation
 
