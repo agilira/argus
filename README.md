@@ -7,7 +7,8 @@ Argus is a high-performance, OS-independent dynamic configuration framework for 
 [![Security](https://img.shields.io/badge/security-gosec-brightgreen.svg)](https://github.com/agilira/argus/actions/workflows/ci.yml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/agilira/argus)](https://goreportcard.com/report/github.com/agilira/argus)
 [![Test Coverage](https://codecov.io/gh/agilira/argus/branch/main/graph/badge.svg)](https://codecov.io/gh/agilira/argus)
-[![Xantos Powered](https://img.shields.io/badge/-Xantos%20Powered-8A2BE2?style=for-the-badge)](https://github.com/agilira)
+![Xantos Powered](https://img.shields.io/badge/Xantos%20Powered-8A2BE2?style=flat)
+
 
 
 ### Key Features
