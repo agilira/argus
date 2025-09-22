@@ -60,8 +60,15 @@ func main() {
 	}
 
 	data, _ := json.MarshalIndent(config, "", "  ")
-	os.WriteFile("service_config.json", data, 0644)
-	defer os.Remove("service_config.json")
+	if err := os.WriteFile("service_config.json", data, 0600); err != nil {
+		log.Printf("Warning: Failed to write config file: %v", err)
+		return
+	}
+	defer func() {
+		if err := os.Remove("service_config.json"); err != nil {
+			log.Printf("Warning: Failed to remove config file: %v", err)
+		}
+	}()
 
 	fmt.Printf("📝 Created service_config.json:\n%s\n\n", string(data))
 

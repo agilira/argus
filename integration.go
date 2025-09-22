@@ -1,6 +1,6 @@
 // integration.go: Unified Integration Layer for Argus + FlashFlags
 //
-// Copyright (c) 2025 AGILira
+// Copyright (c) 2025 AGILira - A. Giordano
 // Series: AGILira fragment
 // SPDX-License-Identifier: MPL-2.0
 
@@ -19,6 +19,7 @@ import (
 	"time"
 
 	flashflags "github.com/agilira/flash-flags"
+	"github.com/agilira/go-errors"
 )
 
 // ConfigManager combines all configuration sources in a unified interface.
@@ -124,13 +125,13 @@ func (cm *ConfigManager) Parse(args []string) error {
 	// Check for help flags first to prevent double output
 	for _, arg := range args {
 		if arg == "--help" || arg == "-h" {
-			return fmt.Errorf("help requested")
+			return errors.New(ErrCodeInvalidConfig, "help requested")
 		}
 	}
 
 	// Parse command-line flags using FlashFlags directly
 	if err := cm.flags.Parse(args); err != nil {
-		return fmt.Errorf("failed to parse command-line flags: %w", err)
+		return errors.Wrap(err, ErrCodeInvalidConfig, "failed to parse command-line flags")
 	}
 
 	// Load environment variables

@@ -1,6 +1,6 @@
 // realistic_benchmark_test.go: Testing Argus Realistic Benchmarking
 //
-// Copyright (c) 2025 AGILira
+// Copyright (c) 2025 AGILira - A. Giordano
 // Series: an AGILira fragment
 // SPDX-License-Identifier: MPL-2.0
 
@@ -12,9 +12,11 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/agilira/go-timecache"
 )
 
-// Benchmark realistico: confronta architetture complete di file watching
+// Benchmark: confronts complete realistic scenarios
 func BenchmarkRealWorldArchitectures(b *testing.B) {
 	tempDir, err := os.MkdirTemp("", "realistic_bench")
 	if err != nil {
@@ -22,7 +24,7 @@ func BenchmarkRealWorldArchitectures(b *testing.B) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	// Crea file di test
+	// Create test file
 	testFile := filepath.Join(tempDir, "config.json")
 	initialContent := `{"test": "value", "counter": 0}`
 	if err := os.WriteFile(testFile, []byte(initialContent), 0644); err != nil {
@@ -46,19 +48,19 @@ func BenchmarkRealWorldArchitectures(b *testing.B) {
 	})
 }
 
-// Traditional polling approach (come facevano i vecchi file watchers)
+// Traditional polling approach
 func benchmarkTraditionalPolling(b *testing.B, testFile string) {
 	var eventCount atomic.Int64
 	callback := func(_ string) {
 		eventCount.Add(1)
 	}
 
-	// Simula polling tradizionale
+	// Simulate traditional polling by checking file mod time
 	lastStat, _ := os.Stat(testFile)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		// Simula il ciclo completo di polling tradizionale
+		// Simulate the complete cycle of traditional polling
 		stat, err := os.Stat(testFile)
 		if err == nil && !stat.ModTime().Equal(lastStat.ModTime()) {
 			callback(testFile)
@@ -67,7 +69,7 @@ func benchmarkTraditionalPolling(b *testing.B, testFile string) {
 	}
 }
 
-// BoreasLite con strategia SingleEvent (scenario realistico)
+// BoreasLite with single event strategy (realistic scenario)
 func benchmarkBoreasLiteSingle(b *testing.B, testFile string) {
 	var eventCount atomic.Int64
 	processor := func(event *FileChangeEvent) {
@@ -77,9 +79,9 @@ func benchmarkBoreasLiteSingle(b *testing.B, testFile string) {
 	boreas := NewBoreasLite(64, OptimizationSingleEvent, processor)
 	defer boreas.Stop()
 
-	// Event realistico
+	// Realistic event
 	event := FileChangeEvent{
-		ModTime: time.Now().UnixNano(),
+		ModTime: timecache.CachedTimeNano(),
 		Size:    1024,
 		Flags:   FileEventModify,
 		PathLen: uint8(len(testFile)),
@@ -88,13 +90,13 @@ func benchmarkBoreasLiteSingle(b *testing.B, testFile string) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		// Simula il ciclo completo: write + process
+		// Simulate the complete cycle: write + process
 		boreas.WriteFileEvent(&event)
 		boreas.ProcessBatch()
 	}
 }
 
-// BoreasLite con strategia SmallBatch (scenario realistico)
+// BoreasLite with small batch strategy (realistic scenario)
 func benchmarkBoreasLiteSmall(b *testing.B, testFile string) {
 	var eventCount atomic.Int64
 	processor := func(event *FileChangeEvent) {
@@ -104,9 +106,9 @@ func benchmarkBoreasLiteSmall(b *testing.B, testFile string) {
 	boreas := NewBoreasLite(128, OptimizationSmallBatch, processor)
 	defer boreas.Stop()
 
-	// Event realistico
+	// Realistic event
 	event := FileChangeEvent{
-		ModTime: time.Now().UnixNano(),
+		ModTime: timecache.CachedTimeNano(),
 		Size:    1024,
 		Flags:   FileEventModify,
 		PathLen: uint8(len(testFile)),
@@ -115,17 +117,17 @@ func benchmarkBoreasLiteSmall(b *testing.B, testFile string) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		// Simula il ciclo completo: write + process
+		// Simulate the complete cycle: write + process
 		boreas.WriteFileEvent(&event)
 		boreas.ProcessBatch()
 	}
 }
 
-// DirectCallback - MA con context realistico per confronto teorico
+// DirectCallback - Benchmark with realistic context for theoretical comparison
 func benchmarkDirectCallbackTheoretical(b *testing.B) {
 	var eventCount atomic.Int64
 	callback := func(event ChangeEvent) {
-		// Simula processing realistico del callback
+		// Simulate realistic processing of the callback
 		eventCount.Add(1)
 		_ = event.Path
 		_ = event.ModTime
@@ -134,20 +136,20 @@ func benchmarkDirectCallbackTheoretical(b *testing.B) {
 
 	event := ChangeEvent{
 		Path:     "config.json",
-		ModTime:  time.Now(),
+		ModTime:  timecache.CachedTime(),
 		Size:     1024,
 		IsModify: true,
 	}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		// ATTENZIONE: Questo è SOLO il costo del callback
-		// NON include file system polling, detection, conversion
+		// NOTE: This benchmark ONLY simulates the callback invocation
+		// DOES NOT include file system polling, detection, conversion
 		callback(event)
 	}
 }
 
-// Benchmark end-to-end realistico con file system reale
+// Benchmark end-to-end realistic with real file system
 func BenchmarkEndToEnd_RealFileSystem(b *testing.B) {
 	tempDir, err := os.MkdirTemp("", "e2e_bench")
 	if err != nil {
@@ -176,11 +178,11 @@ func benchmarkTraditionalFileWatcher(b *testing.B, testFile string) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		// Modifica file
+		// Modify file
 		content := []byte(`{"benchmark": true, "iteration": ` + string(rune(i)) + `}`)
 		os.WriteFile(testFile, content, 0644)
 
-		// Polling tradizionale
+		// Traditional polling
 		stat, err := os.Stat(testFile)
 		if err == nil && !stat.ModTime().Equal(lastStat.ModTime()) {
 			eventCount.Add(1)
@@ -208,14 +210,14 @@ func benchmarkArgusComplete(b *testing.B, testFile string) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		// Modifica file reale
+		// Modify real file
 		content := []byte(`{"benchmark": true, "iteration": ` + string(rune(i)) + `}`)
 		os.WriteFile(testFile, content, 0644)
 
-		// Piccola pausa per permettere il detection
+		// Small pause to allow detection
 		time.Sleep(2 * time.Millisecond)
 	}
 
-	// Aspetta che tutti gli eventi siano processati
+	// Wait for all events to be processed
 	time.Sleep(10 * time.Millisecond)
 }

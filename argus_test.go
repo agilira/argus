@@ -1,6 +1,6 @@
 // argus_test.go - Comprehensive test suite for Argus Dynamic Configuration Framework
 //
-// Copyright (c) 2025 AGILira
+// Copyright (c) 2025 AGILira - A. Giordano
 // Series: an AGILira fragment
 // SPDX-License-Identifier: MPL-2.0
 
@@ -51,7 +51,7 @@ func TestWatcherBasicFunctionality(t *testing.T) {
 	if err := watcher.Start(); err != nil {
 		t.Fatalf("Failed to start watcher: %v", err)
 	}
-	defer watcher.Stop()
+	defer func() { _ = watcher.Stop() }() // Ignore cleanup errors in tests
 
 	// Wait a bit to ensure initial scan
 	time.Sleep(150 * time.Millisecond)
@@ -158,7 +158,7 @@ func TestWatcherFileCreationDeletion(t *testing.T) {
 	if err := watcher.Start(); err != nil {
 		t.Fatalf("Failed to start watcher: %v", err)
 	}
-	defer watcher.Stop()
+	defer func() { _ = watcher.Stop() }() // Ignore cleanup errors in tests
 
 	// Ensure watcher is running
 	if !watcher.IsRunning() {
@@ -261,7 +261,7 @@ func TestWatcherFileCreationDeletion(t *testing.T) {
 				// Try one alternative file quickly
 				altFile := filepath.Join(filepath.Dir(testFile), "quick_test.json")
 				if err := os.WriteFile(altFile, []byte(`{"quick": true}`), 0644); err == nil {
-					watcher.Watch(altFile, func(event ChangeEvent) {
+					_ = watcher.Watch(altFile, func(event ChangeEvent) { // Ignore watch error in test
 						eventsMutex.Lock()
 						events = append(events, event)
 						t.Logf("Quick alt event: %+v", event)
@@ -366,7 +366,7 @@ func TestWatcherMultipleFiles(t *testing.T) {
 	if err := watcher.Start(); err != nil {
 		t.Fatalf("Failed to start watcher: %v", err)
 	}
-	defer watcher.Stop()
+	defer func() { _ = watcher.Stop() }() // Ignore cleanup errors in tests
 
 	time.Sleep(150 * time.Millisecond) // Initial scan
 
@@ -468,7 +468,7 @@ func TestUniversalFormats(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }() // Ignore cleanup errors in tests
 
 	// Test configurations for each format
 	testConfigs := map[string]string{
@@ -525,7 +525,7 @@ feature.enabled=true`,
 			if err != nil {
 				t.Fatalf("Failed to create watcher for %s: %v", filename, err)
 			}
-			defer watcher.Stop()
+			defer func() { _ = watcher.Stop() }() // Ignore cleanup errors in tests
 
 			// Wait for initial callback or timeout
 			select {

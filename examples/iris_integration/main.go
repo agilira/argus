@@ -180,7 +180,9 @@ func main() {
 	configPath := "/tmp/iris_config.json"
 	config := IrisConfig{Level: "info"}
 	configData, _ := json.MarshalIndent(config, "", "  ")
-	os.WriteFile(configPath, configData, 0644)
+	if err := os.WriteFile(configPath, configData, 0600); err != nil {
+		log.Printf("Warning: Failed to write config file: %v", err)
+	}
 
 	// Create mock components
 	atomicLevel := &MockAtomicLevel{}
@@ -201,7 +203,9 @@ func main() {
 	// Change to debug level
 	config.Level = "debug"
 	configData, _ = json.MarshalIndent(config, "", "  ")
-	os.WriteFile(configPath, configData, 0644)
+	if err := os.WriteFile(configPath, configData, 0600); err != nil {
+		log.Printf("Warning: Failed to write config file: %v", err)
+	}
 	watcher.SimulateChange(configPath)
 
 	time.Sleep(100 * time.Millisecond)
@@ -209,7 +213,9 @@ func main() {
 	// Change to error level
 	config.Level = "error"
 	configData, _ = json.MarshalIndent(config, "", "  ")
-	os.WriteFile(configPath, configData, 0644)
+	if err := os.WriteFile(configPath, configData, 0600); err != nil {
+		log.Printf("Warning: Failed to write config file: %v", err)
+	}
 	watcher.SimulateChange(configPath)
 
 	time.Sleep(100 * time.Millisecond)
@@ -217,12 +223,16 @@ func main() {
 	// Change to invalid level (should default to info)
 	config.Level = "invalid"
 	configData, _ = json.MarshalIndent(config, "", "  ")
-	os.WriteFile(configPath, configData, 0644)
+	if err := os.WriteFile(configPath, configData, 0600); err != nil {
+		log.Printf("Warning: Failed to write config file: %v", err)
+	}
 	watcher.SimulateChange(configPath)
 
 	// Clean up
 	watcher.Stop()
-	os.Remove(configPath)
+	if err := os.Remove(configPath); err != nil {
+		log.Printf("Warning: Failed to remove config file: %v", err)
+	}
 
 	fmt.Println("\n✅ Demo completed!")
 	fmt.Println("\nTo use with real iris logger:")

@@ -1,6 +1,6 @@
 // path_limits_test.go: Testing Argus Path Length Limits
 //
-// Copyright (c) 2025 AGILira
+// Copyright (c) 2025 AGILira - A. Giordano
 // Series: an AGILira fragment
 // SPDX-License-Identifier: MPL-2.0
 
@@ -26,9 +26,9 @@ func TestBoreasLite_PathLimits(t *testing.T) {
 
 	// Start watching BEFORE creating the file (like integration test)
 	config := Config{
-		PollInterval:         50 * time.Millisecond, // Polling più frequente per test
+		PollInterval:         50 * time.Millisecond, // Polling more frequently for test
 		CacheTTL:             25 * time.Millisecond,
-		OptimizationStrategy: OptimizationSingleEvent, // Strategia per test singolo file
+		OptimizationStrategy: OptimizationSingleEvent, // Strategy for single file test
 	}
 	watcher := New(*config.WithDefaults())
 	defer watcher.Stop()

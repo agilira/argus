@@ -1,15 +1,16 @@
 // utilities.go: Testing Argus Utilities
 //
-// Copyright (c) 2025 AGILira
+// Copyright (c) 2025 AGILira - A. Giordano
 // Series: an AGILira fragment
 // SPDX-License-Identifier: MPL-2.0
 
 package argus
 
 import (
-	"fmt"
 	"log"
 	"os"
+
+	"github.com/agilira/go-errors"
 )
 
 // copyMap creates a deep copy of a map for audit trail purposes.
@@ -57,22 +58,45 @@ func UniversalConfigWatcherWithConfig(configPath string, callback func(config ma
 	// Detect format from file extension
 	format := DetectFormat(configPath)
 	if format == FormatUnknown {
-		return nil, fmt.Errorf("unsupported config format for file: %s", configPath)
+		return nil, errors.New(ErrCodeConfigNotFound, "unsupported config format for file: "+configPath)
 	}
 
+	// Configure watcher
+	watcher := setupUniversalWatcher(config)
+
+	// Track current config for audit trail
+	var currentConfig map[string]interface{}
+
+	// Create watch callback
+	watchCallback := createUniversalWatchCallback(format, callback, watcher, &currentConfig)
+
+	// Setup file watching
+	if err := watcher.Watch(configPath, watchCallback); err != nil {
+		return nil, errors.Wrap(err, ErrCodeInvalidConfig, "failed to watch config file")
+	}
+
+	// Initialize and start watcher
+	if err := initializeUniversalWatcher(watcher, configPath, format, callback, &currentConfig); err != nil {
+		return nil, err
+	}
+
+	return watcher, nil
+}
+
+// setupUniversalWatcher configures a new watcher with defaults
+func setupUniversalWatcher(config Config) *Watcher {
 	// Set default error handler if none provided
 	if config.ErrorHandler == nil {
 		config.ErrorHandler = func(err error, path string) {
 			log.Printf("Argus: error in file %s: %v", path, err)
 		}
 	}
+	return New(config)
+}
 
-	watcher := New(config)
-
-	// Track current config for audit trail
-	var currentConfig map[string]interface{}
-
-	watchCallback := func(event ChangeEvent) {
+// createUniversalWatchCallback creates the file change callback
+func createUniversalWatchCallback(format ConfigFormat, callback func(config map[string]interface{}), watcher *Watcher, currentConfig *map[string]interface{}) func(ChangeEvent) {
+	return func(event ChangeEvent) {
 		if event.IsDelete {
 			// AUDIT: Log file deletion
 			if auditor := watcher.auditLogger; auditor != nil {
@@ -81,55 +105,56 @@ func UniversalConfigWatcherWithConfig(configPath string, callback func(config ma
 			return
 		}
 
-		data, err := os.ReadFile(event.Path)
+		newConfig, err := readAndParseConfig(event.Path, format)
 		if err != nil {
 			if watcher.config.ErrorHandler != nil {
-				watcher.config.ErrorHandler(fmt.Errorf("failed to read config file: %w", err), event.Path)
-			}
-			return
-		}
-
-		newConfig, err := ParseConfig(data, format)
-		if err != nil {
-			if watcher.config.ErrorHandler != nil {
-				watcher.config.ErrorHandler(fmt.Errorf("failed to parse %s config: %w", format, err), event.Path)
+				watcher.config.ErrorHandler(err, event.Path)
 			}
 			return
 		}
 
 		// AUDIT: Log configuration change with before/after values
 		if auditor := watcher.auditLogger; auditor != nil {
-			auditor.LogConfigChange(event.Path, currentConfig, newConfig)
+			auditor.LogConfigChange(event.Path, *currentConfig, newConfig)
 		}
 
 		// Update current config for next comparison
-		currentConfig = copyMap(newConfig)
+		*currentConfig = copyMap(newConfig)
 
 		callback(newConfig)
 	}
+}
 
-	if err := watcher.Watch(configPath, watchCallback); err != nil {
-		return nil, fmt.Errorf("failed to watch config file: %w", err)
+// readAndParseConfig reads and parses a config file
+func readAndParseConfig(path string, format ConfigFormat) (map[string]interface{}, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, errors.Wrap(err, ErrCodeFileNotFound, "failed to read config file")
 	}
 
+	newConfig, err := ParseConfig(data, format)
+	if err != nil {
+		return nil, errors.Wrap(err, ErrCodeInvalidConfig, "failed to parse "+format.String()+" config")
+	}
+
+	return newConfig, nil
+}
+
+// initializeUniversalWatcher loads initial config and starts watching
+func initializeUniversalWatcher(watcher *Watcher, configPath string, format ConfigFormat, callback func(config map[string]interface{}), currentConfig *map[string]interface{}) error {
 	// Load initial configuration and start watcher
 	if _, err := os.Stat(configPath); err == nil {
-		data, err := os.ReadFile(configPath) // #nosec G304 -- configPath is user-provided intentionally
+		initialConfig, err := readAndParseConfig(configPath, format) // #nosec G304 -- configPath is user-provided intentionally
 		if err != nil {
-			return nil, fmt.Errorf("failed to read initial config file: %w", err)
-		}
-
-		initialConfig, err := ParseConfig(data, format)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse initial %s config: %w", format, err)
+			return errors.Wrap(err, ErrCodeInvalidConfig, "failed to read initial config")
 		}
 
 		// Set current config for audit trail
-		currentConfig = copyMap(initialConfig)
+		*currentConfig = copyMap(initialConfig)
 
 		// Auto-start the watcher (convenience feature)
 		if err := watcher.Start(); err != nil {
-			return nil, fmt.Errorf("failed to start watcher: %w", err)
+			return errors.Wrap(err, ErrCodeWatcherBusy, "failed to start watcher")
 		}
 
 		// Call callback with initial config
@@ -137,11 +162,11 @@ func UniversalConfigWatcherWithConfig(configPath string, callback func(config ma
 	} else {
 		// File doesn't exist yet, start watcher anyway
 		if err := watcher.Start(); err != nil {
-			return nil, fmt.Errorf("failed to start watcher: %w", err)
+			return errors.Wrap(err, ErrCodeWatcherBusy, "failed to start watcher")
 		}
 	}
 
-	return watcher, nil
+	return nil
 }
 
 // GenericConfigWatcher creates a watcher for JSON configuration (backward compatibility).
@@ -172,7 +197,7 @@ func SimpleFileWatcher(filePath string, callback func(path string)) (*Watcher, e
 	}
 
 	if err := watcher.Watch(filePath, watchCallback); err != nil {
-		return nil, fmt.Errorf("failed to watch file: %w", err)
+		return nil, errors.Wrap(err, ErrCodeInvalidConfig, "failed to watch file")
 	}
 
 	return watcher, nil

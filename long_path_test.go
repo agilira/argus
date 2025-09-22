@@ -1,6 +1,6 @@
 // long_path_test.go: Testing Argus Long Path Handling
 //
-// Copyright (c) 2025 AGILira
+// Copyright (c) 2025 AGILira - A. Giordano
 // Series: an AGILira fragment
 // SPDX-License-Identifier: MPL-2.0
 

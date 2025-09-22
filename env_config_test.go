@@ -1,6 +1,6 @@
 // env_config_test.go: Tests for Environment Variables Support
 //
-// Copyright (c) 2025 AGILira
+// Copyright (c) 2025 AGILira - A. Giordano
 // Series: AGILira fragment
 // SPDX-License-Identifier: MPL-2.0
 

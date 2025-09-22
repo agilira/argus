@@ -3,7 +3,7 @@
 // This test verifies that environment variables support is fully integrated
 // into Argus and working correctly with the existing watcher system.
 //
-// Copyright (c) 2025 AGILira
+// Copyright (c) 2025 AGILira - A. Giordano
 // Series: AGILira System Libraries
 // SPDX-License-Identifier: MPL-2.0
 
@@ -29,12 +29,12 @@ func TestFullEnvironmentIntegration(t *testing.T) {
 
 	// Set environment variables
 	envVars := map[string]string{
-		"ARGUS_POLL_INTERVAL":         "100ms", // Fast for testing
+		"ARGUS_POLL_INTERVAL":         "100ms", // Minimum allowed for security
 		"ARGUS_MAX_WATCHED_FILES":     "5",
 		"ARGUS_OPTIMIZATION_STRATEGY": "singleevent",
 		"ARGUS_AUDIT_ENABLED":         "true",
 		"ARGUS_AUDIT_MIN_LEVEL":       "info",
-		"ARGUS_CACHE_TTL":             "50ms",
+		"ARGUS_CACHE_TTL":             "1s", // Changed from 50ms to meet security requirement (min 1s)
 	}
 
 	// Set environment variables

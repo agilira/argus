@@ -1,6 +1,6 @@
-// clean_overhead_test.go: Benchmark pulito per misurare l'overhead minimo di Argus
+// clean_overhead_test.go: Benchmark to measure Argus minimal overhead
 //
-// Copyright (c) 2025 AGILira
+// Copyright (c) 2025 AGILira - A. Giordano
 // Series: an AGILira fragment
 // SPDX-License-Identifier: MPL-2.0
 
@@ -36,9 +36,9 @@ func BenchmarkClean_MinimalOverhead(b *testing.B) {
 	})
 }
 
-// Baseline puro senza atomics condivisi
+// Baseline without atomics or contention
 func benchmarkPureBaseline(b *testing.B) {
-	// Simulazione logging senza contention
+	// Logging without contention or shared atomics
 	logMessage := func() {
 		// Equivalent operation without shared atomics
 		_ = "INFO: Request processed"
@@ -53,7 +53,7 @@ func benchmarkPureBaseline(b *testing.B) {
 
 // With Argus but without contention
 func benchmarkWithArgusClean(b *testing.B, configFile string) {
-	// Setup Argus con configurazione ottimale
+	// Setup Argus with optimal configuration
 	config := Config{
 		PollInterval:         100 * time.Millisecond,
 		OptimizationStrategy: OptimizationSingleEvent,

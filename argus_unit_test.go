@@ -6,7 +6,7 @@
 // - Unit tests: Test single functions
 // - Edge cases: Cover paths of code not tested
 //
-// Copyright (c) 2025 AGILira
+// Copyright (c) 2025 AGILira - A. Giordano
 // Series: an AGILira fragment
 // SPDX-License-Identifier: MPL-2.0
 
@@ -66,7 +66,7 @@ func TestPollFilesWorkerPool(t *testing.T) {
 	if err := watcher.Start(); err != nil {
 		t.Fatalf("Failed to start watcher: %v", err)
 	}
-	defer watcher.Stop()
+	defer func() { _ = watcher.Stop() }() // Ignore cleanup errors in tests
 
 	// Wait for initial scan
 	time.Sleep(100 * time.Millisecond)
@@ -789,7 +789,7 @@ func TestUtilitiesUniversalConfigWatcherWithConfig(t *testing.T) {
 	if watcher == nil {
 		t.Error("Watcher should not be nil")
 	}
-	watcher.Stop()
+	_ = watcher.Stop() // Ignore cleanup error in test
 
 	// Test with non-existent file - may succeed as watcher handles non-existent files
 	_, err = UniversalConfigWatcherWithConfig("/non/existent/file.json", func(config map[string]interface{}) {}, Config{})
@@ -815,7 +815,7 @@ func TestUtilitiesSimpleFileWatcher(t *testing.T) {
 	if watcher == nil {
 		t.Error("Watcher should not be nil")
 	}
-	watcher.Stop()
+	_ = watcher.Stop() // Ignore cleanup error in test
 
 	// Test with non-existent file - may succeed as watcher handles non-existent files
 	_, err = SimpleFileWatcher("/non/existent/file.txt", func(path string) {})
@@ -900,7 +900,7 @@ func TestWatcherErrorHandler(t *testing.T) {
 	if err := watcher.Start(); err != nil {
 		t.Fatalf("Failed to start watcher: %v", err)
 	}
-	defer watcher.Stop()
+	defer func() { _ = watcher.Stop() }() // Ignore cleanup errors in tests
 
 	// Wait for potential error handler calls
 	time.Sleep(200 * time.Millisecond)
@@ -1562,7 +1562,7 @@ func TestAuditAdvanced(t *testing.T) {
 	if logger == nil {
 		t.Error("NewAuditLogger should not return nil")
 	}
-	defer logger.Close()
+	defer func() { _ = logger.Close() }() // Ignore cleanup errors in tests
 
 	// Test Log with various levels
 	logger.Log(AuditInfo, "test_event", "argus", "/test/path", nil, nil, nil)
@@ -1582,7 +1582,7 @@ func TestAuditAdvanced(t *testing.T) {
 	logger.LogSecurityEvent("unauthorized_access", "access denied", map[string]interface{}{"user": "test"})
 
 	// Test Flush
-	logger.Flush()
+	_ = logger.Flush() // Ignore flush error in test
 
 	// Note: Close() is called by defer, so we don't call it again here
 }
@@ -1775,7 +1775,7 @@ func TestIntegrationAdvanced(t *testing.T) {
 	_ = err // Accept any result
 
 	// Test StopWatching
-	manager.StopWatching()
+	_ = manager.StopWatching() // Ignore stop error in test
 	// Should not panic
 
 	// Test PrintUsage
@@ -1838,7 +1838,7 @@ func TestIntegrationFinal(t *testing.T) {
 	_ = err // Accept any result
 
 	// Test StopWatching without proper setup
-	manager.StopWatching()
+	_ = manager.StopWatching() // Ignore stop error in test
 	// Should not panic
 }
 
@@ -2065,7 +2065,7 @@ func TestIntegrationFinal2(t *testing.T) {
 	_ = err // Accept any result
 
 	// Test StopWatching with various scenarios
-	manager.StopWatching()
+	_ = manager.StopWatching() // Ignore stop error in test
 	// Should not panic
 }
 
@@ -2374,7 +2374,7 @@ func TestIntegrationFinal4(t *testing.T) {
 
 	// Test RegisterRemoteProvider with various scenarios
 	provider := &mockRemoteProvider{}
-	RegisterRemoteProvider(provider)
+	_ = RegisterRemoteProvider(provider) // Ignore registration error in test
 
 	// Test GetRemoteProvider with various scenarios
 	retrievedProvider, err := GetRemoteProvider("test")
@@ -2597,7 +2597,7 @@ func TestAuditFinal(t *testing.T) {
 		logger.Log(AuditInfo, "event", "component", "", nil, nil, nil)
 
 		// Clean up
-		logger.Close()
+		_ = logger.Close() // Ignore cleanup error in test
 	}
 }
 
@@ -2882,7 +2882,7 @@ func TestAuditFinal2(t *testing.T) {
 		logger.Log(AuditInfo, "event", "component", "path", "old", "new", map[string]interface{}{"key": "value"})
 
 		// Clean up
-		logger.Close()
+		_ = logger.Close() // Ignore cleanup error in test
 	}
 }
 
@@ -3580,7 +3580,7 @@ func TestAuditHighCoverage(t *testing.T) {
 		logger.Log(AuditCritical, "flush_test3", "component", "path", nil, nil, nil)
 
 		// Test Close with edge cases to push from 87.5% to 100%
-		logger.Close()
+		_ = logger.Close() // Ignore cleanup error in test
 	}
 }
 
@@ -3903,7 +3903,7 @@ func TestAuditHighCoverage2(t *testing.T) {
 		}
 
 		// Test Close with edge cases to push from 87.5% to 100%
-		logger.Close()
+		_ = logger.Close() // Ignore cleanup error in test
 	}
 }
 
@@ -4050,7 +4050,7 @@ func TestAuditHighCoverage3(t *testing.T) {
 		}
 
 		// Test Close with edge cases to push from 87.5% to 100%
-		logger.Close()
+		_ = logger.Close() // Ignore cleanup error in test
 	}
 }
 
@@ -4248,7 +4248,7 @@ func TestAuditHighCoverage4(t *testing.T) {
 		}
 
 		// Test Close with edge cases to push from 87.5% to 100%
-		logger.Close()
+		_ = logger.Close() // Ignore cleanup error in test
 	}
 }
 
@@ -4464,7 +4464,7 @@ func TestAuditHighCoverage5(t *testing.T) {
 		}
 
 		// Test Close with edge cases to push from 87.5% to 100%
-		logger.Close()
+		_ = logger.Close() // Ignore cleanup error in test
 	}
 }
 
@@ -4698,7 +4698,7 @@ func TestAuditHighCoverage6(t *testing.T) {
 		}
 
 		// Test Close with edge cases to push from 87.5% to 100%
-		logger.Close()
+		_ = logger.Close() // Ignore cleanup error in test
 	}
 }
 
@@ -4950,7 +4950,7 @@ func TestAuditHighCoverage7(t *testing.T) {
 		}
 
 		// Test Close with edge cases to push from 87.5% to 100%
-		logger.Close()
+		_ = logger.Close() // Ignore cleanup error in test
 	}
 }
 
@@ -5209,7 +5209,7 @@ func TestAuditHighCoverage8(t *testing.T) {
 		logger3.Log(AuditSecurity, "test", "component", "path", nil, nil, nil)
 
 		// Test Close
-		logger3.Close()
+		_ = logger3.Close() // Ignore cleanup error in test
 	}
 }
 
@@ -5402,7 +5402,7 @@ func TestAuditHighCoverage9(t *testing.T) {
 		}
 
 		// Test Close with edge cases to push from 87.5% to 100%
-		logger.Close()
+		_ = logger.Close() // Ignore cleanup error in test
 	}
 }
 
@@ -5635,8 +5635,8 @@ func TestConfigBinderHighCoverage4(t *testing.T) {
 	}
 
 	var testStruct TestStruct
-	binder.Apply()
-	_ = testStruct // Accept any result
+	_ = binder.Apply() // Ignore apply error in test
+	_ = testStruct     // Accept any result
 }
 
 // TestConfigBinderHighCoverage5 tests more specific uncovered paths in config binder functions
@@ -5727,15 +5727,15 @@ func TestConfigValidationHighCoverage(t *testing.T) {
 	_ = result // Accept any result
 
 	// Test with environment variables set
-	os.Setenv("ARGUS_POLL_INTERVAL", "5ms")
-	os.Setenv("ARGUS_CACHE_TTL", "5ms")
-	os.Setenv("ARGUS_OPTIMIZATION_STRATEGY", "auto")
-	os.Setenv("ARGUS_BOREAS_CAPACITY", "5")
-	os.Setenv("ARGUS_MAX_WATCHED_FILES", "5")
-	os.Setenv("ARGUS_AUDIT_ENABLED", "true")
-	os.Setenv("ARGUS_AUDIT_OUTPUT_FILE", "/tmp/test_audit_validation.log")
-	os.Setenv("ARGUS_AUDIT_BUFFER_SIZE", "5")
-	os.Setenv("ARGUS_AUDIT_FLUSH_INTERVAL", "5ms")
+	_ = os.Setenv("ARGUS_POLL_INTERVAL", "5ms")
+	_ = os.Setenv("ARGUS_CACHE_TTL", "5ms")
+	_ = os.Setenv("ARGUS_OPTIMIZATION_STRATEGY", "auto")
+	_ = os.Setenv("ARGUS_BOREAS_CAPACITY", "5")
+	_ = os.Setenv("ARGUS_MAX_WATCHED_FILES", "5")
+	_ = os.Setenv("ARGUS_AUDIT_ENABLED", "true")
+	_ = os.Setenv("ARGUS_AUDIT_OUTPUT_FILE", "/tmp/test_audit_validation.log")
+	_ = os.Setenv("ARGUS_AUDIT_BUFFER_SIZE", "5")
+	_ = os.Setenv("ARGUS_AUDIT_FLUSH_INTERVAL", "5ms")
 
 	result = ValidateEnvironmentConfig()
 	_ = result // Accept any result

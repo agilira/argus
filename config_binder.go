@@ -4,7 +4,7 @@
 // that eliminates reflection overhead while providing excellent developer experience.
 // It follows the "bind pattern" approach for zero-allocation config binding.
 //
-// Copyright (c) 2025 AGILira
+// Copyright (c) 2025 AGILira - A. Giordano
 // Series: an AGILira fragment
 // SPDX-License-Identifier: MPL-2.0
 
@@ -16,6 +16,8 @@ import (
 	"strings"
 	"time"
 	"unsafe"
+
+	"github.com/agilira/go-errors"
 )
 
 // bindKind represents the type of binding for ultra-fast type switching
@@ -189,7 +191,7 @@ func (cb *ConfigBinder) Apply() error {
 	// Single loop - maximum performance
 	for _, b := range cb.bindings {
 		if err := cb.applyBinding(b); err != nil {
-			return fmt.Errorf("failed to bind key '%s': %w", b.key, err)
+			return errors.Wrap(err, ErrCodeInvalidConfig, "failed to bind key '"+b.key+"'")
 		}
 	}
 
@@ -240,7 +242,7 @@ func (cb *ConfigBinder) applyBinding(b binding) error {
 		}
 		*(*time.Duration)(b.target) = val
 	default:
-		return fmt.Errorf("unsupported binding kind: %d", b.kind)
+		return errors.New(ErrCodeInvalidConfig, fmt.Sprintf("unsupported binding kind: %d", b.kind))
 	}
 
 	return nil
@@ -304,7 +306,7 @@ func (cb *ConfigBinder) toInt(value interface{}) (int, error) {
 	case string:
 		return strconv.Atoi(v)
 	default:
-		return 0, fmt.Errorf("cannot convert %T to int", value)
+		return 0, errors.New(ErrCodeInvalidConfig, fmt.Sprintf("cannot convert %T to int", value))
 	}
 }
 
@@ -319,7 +321,7 @@ func (cb *ConfigBinder) toInt64(value interface{}) (int64, error) {
 	case string:
 		return strconv.ParseInt(v, 10, 64)
 	default:
-		return 0, fmt.Errorf("cannot convert %T to int64", value)
+		return 0, errors.New(ErrCodeInvalidConfig, fmt.Sprintf("cannot convert %T to int64", value))
 	}
 }
 
@@ -336,7 +338,7 @@ func (cb *ConfigBinder) toBool(value interface{}) (bool, error) {
 	case float64:
 		return v != 0, nil
 	default:
-		return false, fmt.Errorf("cannot convert %T to bool", value)
+		return false, errors.New(ErrCodeInvalidConfig, fmt.Sprintf("cannot convert %T to bool", value))
 	}
 }
 
@@ -353,7 +355,7 @@ func (cb *ConfigBinder) toFloat64(value interface{}) (float64, error) {
 	case string:
 		return strconv.ParseFloat(v, 64)
 	default:
-		return 0, fmt.Errorf("cannot convert %T to float64", value)
+		return 0, errors.New(ErrCodeInvalidConfig, fmt.Sprintf("cannot convert %T to float64", value))
 	}
 }
 
@@ -368,7 +370,7 @@ func (cb *ConfigBinder) toDuration(value interface{}) (time.Duration, error) {
 	case int:
 		return time.Duration(v), nil
 	default:
-		return 0, fmt.Errorf("cannot convert %T to time.Duration", value)
+		return 0, errors.New(ErrCodeInvalidConfig, fmt.Sprintf("cannot convert %T to time.Duration", value))
 	}
 }
 

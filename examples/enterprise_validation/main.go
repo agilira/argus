@@ -12,7 +12,9 @@ import (
 
 func main() {
 	fmt.Println("=== Argus 2.0 Enterprise Configuration Validation Demo ===")
-	fmt.Println() // Add empty line separately
+	fmt.Println("🔄 Features unified SQLite audit backend for cross-app correlation")
+	fmt.Println("📝 Use empty OutputFile for SQLite, .jsonl extension for JSONL")
+	fmt.Println()
 
 	// Create temporary directory for examples
 	tempDir, err := os.MkdirTemp("", "argus_validation_demo")
@@ -58,9 +60,9 @@ func main() {
 		BoreasLiteCapacity:   15,                              // INVALID: not power of 2
 		Audit: argus.AuditConfig{
 			Enabled:       true,
-			BufferSize:    -1,               // INVALID: negative
-			FlushInterval: -2 * time.Second, // INVALID: negative
-			OutputFile:    "",               // INVALID: empty
+			BufferSize:    -1,                       // INVALID: negative
+			FlushInterval: -2 * time.Second,         // INVALID: negative
+			OutputFile:    "invalid/path/audit.log", // INVALID: invalid path
 		},
 	}
 

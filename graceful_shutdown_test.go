@@ -1,6 +1,6 @@
 // graceful_shutdown_test.go: Tests for graceful shutdown and callback safety
 //
-// Copyright (c) 2025 AGILira
+// Copyright (c) 2025 AGILira - A. Giordano
 // Series: AGILira System Libraries
 // SPDX-License-Identifier: MPL-2.0
 

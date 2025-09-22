@@ -1,6 +1,7 @@
 // config_validation_test.go - Validation tests in main package
 //
-// Copyright (c) 2025 AGILira
+// Copyright (c) 2025 AGILira - A. Giordano
+// Series: an AGILira fragment
 // SPDX-License-Identifier: MPL-2.0
 
 package argus
@@ -378,7 +379,7 @@ func TestValidateEnvironmentConfig(t *testing.T) {
 			name: "valid environment config",
 			envVars: map[string]string{
 				"ARGUS_POLL_INTERVAL":     "1s",
-				"ARGUS_CACHE_TTL":         "500ms",
+				"ARGUS_CACHE_TTL":         "2s", // Changed from 500ms to meet security requirement (min 1s)
 				"ARGUS_MAX_WATCHED_FILES": "100",
 				"ARGUS_AUDIT_OUTPUT_FILE": filepath.Join(tempDir, "audit.log"),
 			},
@@ -387,13 +388,13 @@ func TestValidateEnvironmentConfig(t *testing.T) {
 		{
 			name: "invalid environment config - poll interval validation",
 			envVars: map[string]string{
-				"ARGUS_POLL_INTERVAL":     "-1s", // Gets overwritten by WithDefaults(), so test manually
-				"ARGUS_CACHE_TTL":         "500ms",
+				"ARGUS_POLL_INTERVAL":     "-1s",   // Invalid negative duration
+				"ARGUS_CACHE_TTL":         "500ms", // Invalid: below 1s security limit
 				"ARGUS_MAX_WATCHED_FILES": "100",
 				"ARGUS_AUDIT_OUTPUT_FILE": filepath.Join(tempDir, "audit.log"),
 				"ARGUS_AUDIT_ENABLED":     "false",
 			},
-			wantErr: false, // No error because WithDefaults() overwrites invalid values
+			wantErr: true, // Security validation now catches invalid values before WithDefaults()
 		},
 		{
 			name: "manual invalid config test",

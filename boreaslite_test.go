@@ -1,6 +1,6 @@
 // boreaslite_test.go - BoreasLite - Xantos Powered 3rd tier. - test suite
 //
-// Copyright (c) 2025 AGILira
+// Copyright (c) 2025 AGILira - A. Giordano
 // Series: an AGILira fragment
 // SPDX-License-Identifier: MPL-2.0
 
@@ -11,6 +11,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/agilira/go-timecache"
 )
 
 // Benchmark BoreasLite write performance
@@ -26,7 +28,7 @@ func BenchmarkBoreasLite_WriteFileEvent(b *testing.B) {
 	go boreas.RunProcessor()
 
 	event := FileChangeEvent{
-		ModTime: time.Now().UnixNano(),
+		ModTime: timecache.CachedTimeNano(),
 		Size:    1024,
 		Flags:   FileEventModify,
 		PathLen: 11,
@@ -50,7 +52,7 @@ func BenchmarkBoreasLite_WriteFileChange(b *testing.B) {
 
 	go boreas.RunProcessor()
 
-	modTime := time.Now()
+	modTime := timecache.CachedTime()
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -68,7 +70,7 @@ func BenchmarkArgus_DirectCallback(b *testing.B) {
 
 	event := ChangeEvent{
 		Path:     "config.json",
-		ModTime:  time.Now(),
+		ModTime:  timecache.CachedTime(),
 		Size:     1024,
 		IsModify: true,
 	}

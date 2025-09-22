@@ -236,14 +236,8 @@ func main() {
         PollInterval: 5 * time.Second,
         OptimizationStrategy: argus.OptimizationAuto,
         
-        // Enable audit trail for compliance
-        Audit: argus.AuditConfig{
-            Enabled:       true,
-            OutputFile:    "/var/log/app/config-audit.jsonl",
-            MinLevel:      argus.AuditCritical,
-            BufferSize:    1000,
-            FlushInterval: 10 * time.Second,
-        },
+        // Enable unified SQLite audit for cross-application correlation
+        Audit: argus.DefaultAuditConfig(),
         
         // Error handling
         ErrorHandler: func(err error, path string) {
@@ -322,9 +316,10 @@ func main() {
         PollInterval:         100 * time.Millisecond,  // Very fast polling
         OptimizationStrategy: argus.OptimizationSmallBatch,  // Optimized for frequent changes
         
-        // Minimal audit for performance
+        // Unified SQLite audit with performance optimization
         Audit: argus.AuditConfig{
             Enabled:       true,
+            OutputFile:    "",                   // Unified SQLite backend
             MinLevel:      argus.AuditCritical,  // Only critical events
             BufferSize:    5000,                 // Large buffer
             FlushInterval: 30 * time.Second,     // Less frequent flushes
@@ -382,12 +377,8 @@ config := argus.Config{
     PollInterval: 1 * time.Second,           // How often to check files
     OptimizationStrategy: argus.OptimizationAuto,  // Auto, SingleEvent, SmallBatch, LargeBatch
     
-    // Audit (optional)
-    Audit: argus.AuditConfig{
-        Enabled:    true,
-        OutputFile: "/var/log/config-audit.jsonl",
-        MinLevel:   argus.AuditCritical,
-    },
+    // Unified audit (optional but recommended)
+    Audit: argus.DefaultAuditConfig(), // Uses unified SQLite backend
     
     // Error handling (optional)
     ErrorHandler: func(err error, path string) {
@@ -405,10 +396,24 @@ config := argus.Config{
 | `OptimizationLargeBatch` | 10+ files | **Efficient** |
 | `OptimizationAuto` | **Recommended** | **Adaptive** |
 
+### Audit Backend Selection
+
+Argus automatically selects the optimal audit backend:
+
+```go
+// Unified SQLite (recommended for cross-app correlation)
+argus.DefaultAuditConfig()                    // Empty OutputFile
+argus.AuditConfig{OutputFile: ""}             // Explicitly empty
+argus.AuditConfig{OutputFile: "/var/log/audit.db"} // Non-JSONL extension
+
+// Legacy JSONL (for backward compatibility)  
+argus.AuditConfig{OutputFile: "/var/log/audit.jsonl"} // .jsonl extension
+```
+
 ### Audit Levels
 
-| Level | Use Case | Events |
-|-------|----------|--------|
+| Level | Environment | Events Captured |
+|-------|-------------|-----------------|
 | `AuditInfo` | Development | All events |
 | `AuditWarn` | Staging | Warnings + errors |
 | `AuditCritical` | **Production** | **Config changes** |

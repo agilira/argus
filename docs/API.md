@@ -370,17 +370,64 @@ watcher.Watch("config.json", func(event argus.ChangeEvent) {
 
 ### Audit and Compliance
 
-Built-in audit capabilities for security-sensitive environments:
+Argus provides enterprise-grade audit capabilities with unified SQLite backend for cross-application correlation.
+
+#### AuditConfig
+
+Configuration structure for the audit system:
 
 ```go
+type AuditConfig struct {
+    Enabled       bool          // Enable/disable audit logging
+    OutputFile    string        // Path to audit storage (empty = SQLite, .jsonl = JSONL)
+    MinLevel      AuditLevel    // Minimum audit level to log
+    BufferSize    int           // Number of events to buffer
+    FlushInterval time.Duration // How often to flush buffer
+    IncludeStack  bool          // Include stack traces (for debugging)
+}
+```
+
+#### Backend Selection
+
+Argus automatically selects the appropriate audit backend:
+
+```go
+// Unified SQLite backend (recommended)
+config := argus.Config{
+    Audit: argus.DefaultAuditConfig(), // Uses unified SQLite
+}
+
+// Or explicit SQLite configuration
 config := argus.Config{
     Audit: argus.AuditConfig{
         Enabled:    true,
-        LogLevel:   argus.AuditInfo,
-        OutputPath: "/var/log/argus-audit.log",
+        OutputFile: "",  // Empty = unified SQLite backend
+        MinLevel:   argus.AuditCritical,
+    },
+}
+
+// Legacy JSONL backend (backward compatibility)
+config := argus.Config{
+    Audit: argus.AuditConfig{
+        Enabled:    true,
+        OutputFile: "/var/log/argus-audit.jsonl", // .jsonl = JSONL backend
+        MinLevel:   argus.AuditInfo,
     },
 }
 ```
+
+#### AuditLevel Constants
+
+```go
+const (
+    AuditInfo     AuditLevel = iota // File watch events, system status
+    AuditWarn                       // Performance warnings, parsing issues  
+    AuditCritical                   // Configuration changes with before/after
+    AuditSecurity                   // Access violations, suspicious activity
+)
+```
+
+**See [Audit System Documentation](./AUDIT.md) for comprehensive usage examples and best practices.**
 
 ### Performance Monitoring
 

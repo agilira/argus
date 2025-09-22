@@ -1,4 +1,4 @@
-Copyright (c) 2025 AGILira.
+Copyright (c) 2025 AGILira - A. Giordano
 
 Mozilla Public License Version 2.0
 ==================================

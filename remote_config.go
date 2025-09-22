@@ -16,6 +16,10 @@
 //   config, err := argus.LoadRemoteConfig("consul://localhost:8500/config/myapp")
 //   config, err := argus.LoadRemoteConfig("etcd://localhost:2379/config/myapp")
 //   config, err := argus.LoadRemoteConfig("https://config.mycompany.com/api/config")
+//
+// Copyright (c) 2025 AGILira - A. Giordano
+// Series: an AGILira fragment
+// SPDX-License-Identifier: MPL-2.0
 
 // Package argus provides remote configuration loading with retry mechanisms and watching.
 // This file implements the remote provider system for distributed configuration management.
@@ -206,34 +210,52 @@ func LoadRemoteConfigWithContext(ctx context.Context, configURL string, opts ...
 
 // setupRemoteConfig validates URL and gets provider
 func setupRemoteConfig(configURL string, opts ...*RemoteConfigOptions) (RemoteConfigProvider, *RemoteConfigOptions, error) {
-	if configURL == "" {
-		return nil, nil, errors.New(ErrCodeInvalidConfig, "remote config URL cannot be empty")
-	}
-
-	parsedURL, err := url.Parse(configURL)
-	if err != nil {
-		return nil, nil, errors.Wrap(err, ErrCodeInvalidConfig, "invalid remote config URL")
-	}
-
-	if parsedURL.Scheme == "" {
-		return nil, nil, errors.New(ErrCodeInvalidConfig, "remote config URL must have a scheme")
-	}
-
-	provider, err := GetRemoteProvider(parsedURL.Scheme)
+	// Validate and parse URL
+	provider, err := validateAndGetProvider(configURL)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	if err := provider.Validate(configURL); err != nil {
-		return nil, nil, errors.Wrap(err, ErrCodeInvalidConfig, "remote config URL validation failed")
+	// Get options with defaults
+	options := getRemoteOptions(opts...)
+
+	return provider, options, nil
+}
+
+// validateAndGetProvider validates URL and gets appropriate provider
+func validateAndGetProvider(configURL string) (RemoteConfigProvider, error) {
+	if configURL == "" {
+		return nil, errors.New(ErrCodeInvalidConfig, "remote config URL cannot be empty")
 	}
 
+	parsedURL, err := url.Parse(configURL)
+	if err != nil {
+		return nil, errors.Wrap(err, ErrCodeInvalidConfig, "invalid remote config URL")
+	}
+
+	if parsedURL.Scheme == "" {
+		return nil, errors.New(ErrCodeInvalidConfig, "remote config URL must have a scheme")
+	}
+
+	provider, err := GetRemoteProvider(parsedURL.Scheme)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := provider.Validate(configURL); err != nil {
+		return nil, errors.Wrap(err, ErrCodeInvalidConfig, "remote config URL validation failed")
+	}
+
+	return provider, nil
+}
+
+// getRemoteOptions returns options with defaults applied
+func getRemoteOptions(opts ...*RemoteConfigOptions) *RemoteConfigOptions {
 	options := DefaultRemoteConfigOptions()
 	if len(opts) > 0 && opts[0] != nil {
 		options = opts[0]
 	}
-
-	return provider, options, nil
+	return options
 }
 
 // loadWithRetries loads config with retry logic

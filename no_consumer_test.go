@@ -1,3 +1,9 @@
+// no_consumer_test.go: Testing Argus consumer overhead
+//
+// Copyright (c) 2025 AGILira - A. Giordano
+// Series: an AGILira fragment
+// SPDX-License-Identifier: MPL-2.0
+
 package argus
 
 import (
@@ -8,7 +14,7 @@ import (
 	"time"
 )
 
-// Test specifico per identificare l'overhead del consumer
+// Specific benchmark to measure overhead when Argus is set up but no consumer is running
 func BenchmarkArgus_NoConsumer(b *testing.B) {
 	tempDir, err := os.MkdirTemp("", "no_consumer_test")
 	if err != nil {
@@ -25,7 +31,7 @@ func BenchmarkArgus_NoConsumer(b *testing.B) {
 
 	var logCount atomic.Int64
 
-	// Setup Argus SENZA avviare il consumer
+	// Setup Argus without starting the consumer
 	config := Config{
 		PollInterval:         100 * time.Millisecond,
 		OptimizationStrategy: OptimizationSingleEvent,
@@ -35,10 +41,10 @@ func BenchmarkArgus_NoConsumer(b *testing.B) {
 	defer watcher.Stop()
 
 	watcher.Watch(configFile, func(event ChangeEvent) {
-		// Callback vuoto
+		// Empty callback
 	})
 
-	// NO watcher.Start() - nessun consumer in background
+	// NO watcher.Start() - no consumer in background
 	time.Sleep(10 * time.Millisecond)
 
 	logEntry := func(level string, message string) {

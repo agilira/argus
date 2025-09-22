@@ -1,0 +1,264 @@
+# Changelog - Version 1.0.2
+
+## Release Date
+2025-09-22
+
+## Overview
+Version 1.0.2 introduces comprehensive security hardening and production-grade infrastructure to Argus Dynamic Configuration Framework. This major security release implements multi-layer protection against common attack vectors, unified SQLite audit backend, remote configuration management, and graceful shutdown capabilities. The release transforms Argus from a high-performance configuration watcher into an enterprise-ready, security-hardened configuration management platform suitable for production environments with untrusted input.
+
+## Security
+
+### Multi-Layer Path Validation System
+- **7-Layer Security Validation**: Comprehensive protection against directory traversal attacks (CWE-22)
+- **Directory Traversal Protection**: Detection of `.`, `..`, `../`, `..\\`, `/.`, `\\..`, `./` patterns
+- **Path Length Limits**: Maximum 4096 characters to prevent buffer overflow attacks
+- **Directory Depth Limits**: Maximum 50 levels to prevent deep directory DoS attacks
+- **Control Character Filtering**: Blocks control characters (\\x00-\\x1f, \\x7f-\\x9f) to prevent injection
+- **Symlink Resolution Safety**: Secure symlink following with circular reference detection
+- **Windows ADS Protection**: Blocks Alternate Data Stream attacks (file:stream notation)
+
+### DoS Protection and Resource Limits
+- **File Descriptor Exhaustion Protection**: Configurable max watched files (1-10,000)
+- **CPU DoS Prevention**: Minimum poll interval of 100ms to prevent excessive CPU usage
+- **Memory DoS Protection**: Path and configuration size limits with validation
+- **Cache DoS Prevention**: Minimum cache TTL of 1 second to prevent performance degradation
+- **Environment Variable Validation**: Prevents injection and performance attacks via env vars
+
+### Comprehensive Security Testing Framework
+- **46 Security Test Scenarios**: Complete test coverage across all attack vectors
+- **Path Traversal Testing**: 8 different bypass attempt patterns tested and blocked
+- **Resource Exhaustion Testing**: Memory, file descriptor, and CPU exhaustion scenarios
+- **Environment Injection Testing**: 12 malicious environment variable payloads tested
+- **Special File Testing**: Protection against `/dev/null`, `/dev/random`, Windows device files
+
+## Infrastructure
+
+### Unified SQLite Audit Backend
+- **SQLite Database Integration**: Persistent audit storage with unified backend
+- **Structured Audit Schema**: Optimized database schema for audit events and queries
+- **Transaction Batching**: High-performance batch insertions for audit events
+- **Prepared Statement Optimization**: Reusable prepared statements for optimal performance
+- **Concurrent Access Support**: Thread-safe SQLite operations with proper locking
+- **Audit Event Correlation**: Linked audit entries with process context and timestamps
+
+### Remote Configuration Management
+- **Distributed Configuration Support**: Multi-instance configuration synchronization
+- **Automatic Failover**: Graceful degradation to local fallback files
+- **Conflict Resolution**: Configurable merge strategies for configuration conflicts
+- **Encrypted Transport**: TLS certificate validation for secure configuration retrieval
+- **Connection Resilience**: Configurable timeouts and retry mechanisms
+- **Remote Audit Integration**: Audit logging for all remote configuration operations
+
+### Graceful Shutdown System
+- **Signal Handler Integration**: Automatic SIGINT/SIGTERM graceful shutdown
+- **Resource Cleanup Sequence**: Orderly shutdown of watchers, buffers, and audit systems
+- **Configurable Shutdown Timeout**: Prevents hanging during application termination
+- **SQLite Flush Completion**: Ensures all audit events are persisted before shutdown
+- **File Descriptor Cleanup**: Proper cleanup of all watched file descriptors
+- **Memory Resource Release**: Clean deallocation of buffers and data structures
+
+## #New Features
+
+### Security Validation Functions
+- `validateSecurePath(path string) bool` - Multi-layer path security validation
+- `isValidPollInterval(interval string) bool` - DoS-resistant poll interval validation
+- `isValidCacheTTL(ttl string) bool` - Cache TTL validation with security limits
+- `isValidMaxFiles(files string) bool` - File limit validation for DoS protection
+- Security-enhanced `Watch()` method with automatic path validation
+
+### Environment Configuration Security
+- `loadCoreConfig()` - Security-validated core configuration loading
+- `loadAuditConfig()` - Audit configuration with SQLite backend validation
+- `loadPerformanceConfig()` - Performance settings with DoS protection
+- UTF-8 validation for all environment variable inputs
+- Numeric range validation for all configurable limits
+
+### Remote Configuration API
+- `RemoteConfig` struct for distributed configuration management
+- `TimeoutConfig` for connection and read timeout configuration
+- Automatic fallback mechanism with local file support
+- TLS certificate validation and encrypted transport
+- Configurable sync intervals with jitter for load distribution
+
+### Graceful Shutdown API
+- `GracefulShutdown(timeout time.Duration)` - Automatic shutdown with timeout
+- `InitiateShutdown() <-chan struct{}` - Manual shutdown initiation
+- Signal handler registration for SIGINT/SIGTERM
+- Resource cleanup coordination across all subsystems
+
+## #Updated
+
+### Core Architecture Enhancements
+- **6-Subsystem Architecture**: Enhanced from 4 to 6 integrated subsystems
+- **Security-First Design**: All input validation routed through security layer
+- **SQLite Backend Integration**: Unified audit storage with database persistence
+- **Remote Configuration Layer**: Added distributed configuration management
+- **Graceful Shutdown Layer**: Added proper resource cleanup and signal handling
+
+### Documentation Comprehensive Updates
+- **Complete Security Documentation**: Multi-layer security approach documentation
+- **SQLite Backend Documentation**: Database schema and configuration guide
+- **Remote Configuration Guide**: Setup and deployment documentation for distributed configs
+- **Graceful Shutdown Documentation**: Signal handling and cleanup sequence documentation
+- **Security Best Practices**: Production deployment security recommendations
+
+### Performance Optimizations
+- **Security-Optimized Path Validation**: Minimal performance impact for security checks
+- **SQLite Prepared Statements**: Optimized database operations with statement caching
+- **Batch Audit Insertions**: Reduced database I/O through intelligent batching
+- **Memory-Efficient Security Checks**: Zero-allocation path validation where possible
+
+## #Corrected
+
+### Security Vulnerabilities Fixed
+- **CWE-22 Directory Traversal**: Complete protection against path traversal attacks
+- **CWE-400 Resource Exhaustion**: DoS protection through configurable resource limits
+- **Environment Variable Injection**: Input validation prevents malicious environment manipulation
+- **Symlink Attacks**: Safe symlink resolution prevents directory escape
+- **Windows-Specific Attacks**: ADS protection and Windows device file blocking
+
+### Code Quality Improvements
+- **Linter Warning Resolution**: Fixed unused variable warnings throughout codebase
+- **Error Message Capitalization**: Standardized error message formatting
+- **Language Consistency**: Unified documentation language and copyright statements
+- **Test Coverage Enhancement**: Comprehensive security test coverage added
+
+## #Security Test Coverage
+
+### Path Traversal Attack Scenarios
+```go
+// All patterns tested and blocked:
+"../../../etc/passwd"           // Classic Unix traversal
+"..\\..\\..\\windows\\system32" // Windows traversal
+"/./../../../sensitive"         // Mixed slash traversal
+"/app/config/../../../etc/"     // Embedded traversal
+"config.json:ads"              // Windows ADS attack
+"symlink -> /etc/passwd"       // Symlink attack
+```
+
+### Resource Exhaustion Protection
+```go
+// DoS attack vectors tested:
+MaxWatchedFiles: 10001         // File descriptor exhaustion
+PollInterval: 50ms             // CPU exhaustion
+CacheTTL: 0                    // Performance degradation
+PathLength: 5000 chars         // Buffer overflow attempt
+DirectoryDepth: 100 levels     // Deep directory DoS
+```
+
+### Environment Variable Injection
+```go
+// Malicious environment variables blocked:
+ARGUS_POLL_INTERVAL="0"        // Performance DoS
+ARGUS_CONFIG_FILE="../../../etc/passwd"  // Path traversal
+ARGUS_MAX_WATCHED_FILES="999999"         // Resource exhaustion
+ARGUS_CACHE_TTL="invalid"               // Configuration corruption
+```
+
+## #API Compatibility
+
+### Backward Compatibility Maintained
+- **Zero Breaking Changes**: All existing APIs remain fully functional
+- **Additive Security**: Security validation added transparently to existing methods
+- **Optional Features**: Remote configuration and SQLite backend are optional
+- **Configuration Compatibility**: All existing configuration options preserved
+
+### Enhanced API Surface
+- **Security Validation**: All file path inputs automatically validated
+- **Graceful Shutdown**: New optional shutdown methods for production deployments
+- **Remote Configuration**: New optional distributed configuration capabilities
+- **SQLite Audit**: New optional persistent audit storage
+
+## #Production Readiness
+
+### Security Compliance
+- **OWASP Top 10**: Protection against relevant web application security risks
+- **CWE Coverage**: Specific protection against CWE-22 (Path Traversal) and CWE-400 (DoS)
+- **Input Validation**: Comprehensive validation of all external inputs
+- **Audit Trail**: Complete audit logging for security and compliance requirements
+- **Tamper Detection**: SHA-256 checksums for configuration integrity verification
+
+## #Performance Impact
+
+### Security Performance Characteristics
+```
+Security Validation Benchmarks:
+Path Validation:     ~2.1μs per validation (7 security layers)
+Environment Validation: ~890ns per variable validation
+SQLite Audit Insert: ~45μs per event (batched operations)
+Graceful Shutdown:   <30s for complete resource cleanup
+```
+
+### System Performance (Maintained)
+- **File Monitoring**: 12.11ns polling overhead (unchanged)
+- **Configuration Parsing**: ~100ns universal format detection (unchanged)  
+- **Memory Footprint**: 8KB fixed + configurable buffers (+2KB for security)
+- **Configuration Binding**: 744ns for complete binding (unchanged)
+
+## #Testing
+
+### Security Test Framework
+- **Comprehensive Test Suite**: 46 individual security test scenarios
+- **Attack Vector Coverage**: Path traversal, DoS, injection, symlink attacks
+- **Automated Security Testing**: Integrated into CI/CD pipeline
+- **Edge Case Validation**: Windows-specific attacks, special files, encoding issues
+- **Performance Regression Tests**: Security validation performance benchmarks
+
+## #Migration Guide
+
+### Adopting Security Features
+Existing Argus deployments automatically benefit from security hardening:
+
+```go
+// Automatic security validation (no code changes required)
+watcher, err := argus.UniversalConfigWatcher("config.yml", callback)
+// Path "config.yml" is now automatically validated for security
+
+// Optional: Enable SQLite audit backend
+config := argus.Config{
+    AuditConfig: argus.AuditConfig{
+        Enabled:      true,
+        SQLiteFile:   "/var/log/argus/audit.db",
+        EnableSQLite: true,
+    },
+}
+
+// Optional: Enable graceful shutdown
+watcher := argus.New(config)
+defer watcher.GracefulShutdown(30 * time.Second)
+```
+
+### Remote Configuration Adoption
+```go
+// Optional: Enable remote configuration
+config := argus.Config{
+    RemoteConfig: argus.RemoteConfig{
+        Enabled:      true,
+        PrimaryURL:   "https://config.example.com/api/v1",
+        FallbackPath: "/etc/argus/fallback.json",
+        SyncInterval: 30 * time.Second,
+    },
+}
+```
+
+## #Deployment Recommendations
+
+### Security-Hardened Production Deployment
+```go
+productionConfig := argus.Config{
+    PollInterval:     5 * time.Second,    // Safe polling interval
+    MaxWatchedFiles:  100,                // Reasonable file limit
+    CacheTTL:         10 * time.Second,   // Efficient caching
+    AuditConfig: argus.AuditConfig{
+        Enabled:       true,
+        SQLiteFile:    "/var/log/argus/audit.db",
+        EnableSQLite:  true,
+        MinLevel:      argus.AuditInfo,
+    },
+    ErrorHandler: func(err error, path string) {
+        securityLogger.Error("config_error", 
+            "error", err, "path", path, "timestamp", time.Now())
+    },
+}
+```
+

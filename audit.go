@@ -17,10 +17,8 @@ package argus
 
 import (
 	"crypto/sha256"
-	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -78,14 +76,22 @@ type AuditConfig struct {
 	IncludeStack  bool          `json:"include_stack"`
 }
 
-// DefaultAuditConfig returns secure default audit configuration
+// DefaultAuditConfig returns secure default audit configuration with unified SQLite storage.
+//
+// The default configuration uses the unified SQLite audit system, which consolidates
+// all Argus audit events into a single system-wide database. This provides:
+//   - Cross-component event correlation
+//   - Efficient storage and querying
+//   - Automatic schema management
+//   - WAL mode for concurrent access
+//
+// For applications requiring JSONL format, specify OutputFile with .jsonl extension.
 func DefaultAuditConfig() AuditConfig {
-	// Use cross-platform temporary directory for default audit file
-	auditFile := filepath.Join(os.TempDir(), "argus", "audit.jsonl")
-
+	// Use empty OutputFile to trigger unified SQLite backend selection
+	// The backend will automatically use the system audit database path
 	return AuditConfig{
 		Enabled:       true,
-		OutputFile:    auditFile,
+		OutputFile:    "", // Empty triggers unified SQLite backend
 		MinLevel:      AuditInfo,
 		BufferSize:    1000,
 		FlushInterval: 5 * time.Second,
@@ -93,10 +99,17 @@ func DefaultAuditConfig() AuditConfig {
 	}
 }
 
-// AuditLogger provides high-performance audit logging
+// AuditLogger provides high-performance audit logging with pluggable backends.
+//
+// This logger implements a unified audit system that automatically selects
+// the optimal storage backend (SQLite for unified system audit, JSONL for
+// backward compatibility) while maintaining the same public API.
+//
+// The logger uses buffering and background flushing for optimal performance
+// in high-throughput scenarios while ensuring audit integrity.
 type AuditLogger struct {
 	config      AuditConfig
-	file        *os.File
+	backend     auditBackend // Pluggable storage backend (SQLite or JSONL)
 	buffer      []AuditEvent
 	bufferMu    sync.Mutex
 	flushTicker *time.Ticker
@@ -105,28 +118,36 @@ type AuditLogger struct {
 	processName string
 }
 
-// NewAuditLogger creates a new audit logger
+// NewAuditLogger creates a new audit logger with automatic backend selection.
+//
+// The logger automatically selects the optimal audit backend based on system
+// capabilities and configuration:
+//   - SQLite unified backend for consolidation (preferred)
+//   - JSONL fallback for compatibility
+//
+// This approach ensures seamless migration to unified audit trails while
+// maintaining backward compatibility with existing configurations.
+//
+// Parameters:
+//   - config: Audit configuration specifying behavior and output preferences
+//
+// Returns:
+//   - Configured audit logger ready for use
+//   - Error if both backend initialization attempts fail
 func NewAuditLogger(config AuditConfig) (*AuditLogger, error) {
+	// Initialize backend using automatic selection
+	backend, err := createAuditBackend(config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize audit backend: %w", err)
+	}
+
 	logger := &AuditLogger{
 		config:      config,
+		backend:     backend,
 		buffer:      make([]AuditEvent, 0, config.BufferSize),
 		stopCh:      make(chan struct{}),
 		processID:   os.Getpid(),
 		processName: getProcessName(),
-	}
-
-	if config.Enabled && config.OutputFile != "" {
-		// Ensure directory exists
-		if err := os.MkdirAll(getDir(config.OutputFile), 0750); err != nil {
-			return nil, fmt.Errorf("failed to create audit log directory: %w", err)
-		}
-
-		// Open audit file with secure permissions (owner read/write only)
-		file, err := os.OpenFile(config.OutputFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
-		if err != nil {
-			return nil, fmt.Errorf("failed to open audit log file: %w", err)
-		}
-		logger.file = file
 	}
 
 	// Start background flusher
@@ -140,7 +161,7 @@ func NewAuditLogger(config AuditConfig) (*AuditLogger, error) {
 
 // Log records an audit event with ultra-high performance
 func (al *AuditLogger) Log(level AuditLevel, event, component, filePath string, oldVal, newVal interface{}, context map[string]interface{}) {
-	if !al.config.Enabled || level < al.config.MinLevel {
+	if al == nil || al.backend == nil || !al.config.Enabled || level < al.config.MinLevel {
 		return
 	}
 
@@ -167,7 +188,7 @@ func (al *AuditLogger) Log(level AuditLevel, event, component, filePath string, 
 	al.bufferMu.Lock()
 	al.buffer = append(al.buffer, auditEvent)
 	if len(al.buffer) >= al.config.BufferSize {
-		al.flushBufferUnsafe()
+		_ = al.flushBufferUnsafe() // Ignore flush errors during buffering to maintain performance
 	}
 	al.bufferMu.Unlock()
 }
@@ -201,14 +222,18 @@ func (al *AuditLogger) Close() error {
 		al.flushTicker.Stop()
 	}
 
-	// Final flush
+	// Final flush to ensure all events are persisted
 	if err := al.Flush(); err != nil {
-		return err
+		return fmt.Errorf("failed to flush audit logger during close: %w", err)
 	}
 
-	if al.file != nil {
-		return al.file.Close()
+	// Close backend and release resources
+	if al.backend != nil {
+		if err := al.backend.Close(); err != nil {
+			return fmt.Errorf("failed to close audit backend: %w", err)
+		}
 	}
+
 	return nil
 }
 
@@ -217,30 +242,30 @@ func (al *AuditLogger) flushLoop() {
 	for {
 		select {
 		case <-al.flushTicker.C:
-			al.Flush()
+			_ = al.Flush() // Ignore flush errors in background process to maintain performance
 		case <-al.stopCh:
 			return
 		}
 	}
 }
 
-// flushBufferUnsafe writes buffer to file (caller must hold bufferMu)
+// flushBufferUnsafe writes buffer to backend storage (caller must hold bufferMu).
+//
+// This method delegates to the configured backend (SQLite or JSONL) for
+// actual persistence. It handles batch writing for optimal performance
+// and proper error handling with buffer management.
 func (al *AuditLogger) flushBufferUnsafe() error {
-	if len(al.buffer) == 0 || al.file == nil {
+	if len(al.buffer) == 0 {
 		return nil
 	}
 
-	for _, event := range al.buffer {
-		data, err := json.Marshal(event)
-		if err != nil {
-			continue // Skip malformed events
-		}
-		al.file.Write(data)
-		al.file.Write([]byte("\n"))
+	// Write batch to backend
+	if err := al.backend.Write(al.buffer); err != nil {
+		return fmt.Errorf("failed to write audit events to backend: %w", err)
 	}
 
-	al.file.Sync()            // Force to disk for audit integrity
-	al.buffer = al.buffer[:0] // Reset buffer
+	// Clear buffer after successful write
+	al.buffer = al.buffer[:0]
 	return nil
 }
 
@@ -257,13 +282,4 @@ func (al *AuditLogger) generateChecksum(event AuditEvent) string {
 // Helper functions
 func getProcessName() string {
 	return "argus" // Could read from /proc/self/comm
-}
-
-func getDir(filePath string) string {
-	for i := len(filePath) - 1; i >= 0; i-- {
-		if filePath[i] == '/' {
-			return filePath[:i]
-		}
-	}
-	return "."
 }

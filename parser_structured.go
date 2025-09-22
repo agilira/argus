@@ -5,7 +5,7 @@
 // - YAML (YAML Ain't Markup Language)
 // - TOML (Tom's Obvious Minimal Language)
 //
-// Copyright (c) 2025 AGILira
+// Copyright (c) 2025 AGILira - A. Giordano
 // Series: AGILira fragment
 // SPDX-License-Identifier: MPL-2.0
 
@@ -13,8 +13,9 @@ package argus
 
 import (
 	"encoding/json"
-	"fmt"
 	"strings"
+
+	"github.com/agilira/go-errors"
 )
 
 // parseJSON parses JSON configuration with pooled map to reduce allocations.
@@ -24,7 +25,7 @@ func parseJSON(data []byte) (map[string]interface{}, error) {
 	config := getConfigMap()
 	if err := json.Unmarshal(data, &config); err != nil {
 		putConfigMap(config)
-		return nil, fmt.Errorf("invalid JSON: %w", err)
+		return nil, errors.Wrap(err, ErrCodeInvalidConfig, "invalid JSON")
 	}
 	// Note: We don't put the config back in the pool since we're returning it
 	// The caller is responsible for the memory

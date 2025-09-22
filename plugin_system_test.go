@@ -1,6 +1,6 @@
 // plugin_system_test.go: Tests for the parser plugin system
 //
-// Copyright (c) 2025 AGILira
+// Copyright (c) 2025 AGILira - A. Giordano
 // Series: AGILira fragment
 // SPDX-License-Identifier: MPL-2.0
 

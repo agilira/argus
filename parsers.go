@@ -16,17 +16,18 @@
 // - Plugin parsers: Full-featured external parsers for complex production needs
 // - Automatic fallback: Try plugins first, fallback to built-in
 //
-// Copyright (c) 2025 AGILira
+// Copyright (c) 2025 AGILira - A. Giordano
 // Series: AGILira fragment
 // SPDX-License-Identifier: MPL-2.0
 
 package argus
 
 import (
-	"fmt"
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/agilira/go-errors"
 )
 
 // ConfigFormat represents supported configuration file formats for auto-detection.
@@ -279,7 +280,7 @@ func parseBuiltin(data []byte, format ConfigFormat) (map[string]interface{}, err
 	case FormatProperties:
 		return parseProperties(data)
 	default:
-		return nil, fmt.Errorf("unsupported format: %s", format)
+		return nil, errors.New(ErrCodeInvalidConfig, "unsupported format: "+format.String())
 	}
 }
 

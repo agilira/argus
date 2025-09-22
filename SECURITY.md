@@ -12,7 +12,7 @@ To help us address your report effectively, please include the following details
 - **Relevant Tools**: Any tools used during your investigation, including their versions.
 - **Tool Output**: Logs, screenshots, or any other output that supports your findings.
 
-For more information about AGILira's security practices, please visit our [Security Page](https://agilira.com/security).
+For more information about AGILira's security practices, please visit our [Security Page](https://agilira.one/security).
 
 Thank you for helping us maintain a secure and trustworthy environment for all users.
 

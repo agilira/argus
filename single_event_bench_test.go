@@ -1,6 +1,6 @@
 // single_event_bench_test.go: Testing Argus Single Event Processing
 //
-// Copyright (c) 2025 AGILira
+// Copyright (c) 2025 AGILira - A. Giordano
 // Series: an AGILira fragment
 // SPDX-License-Identifier: MPL-2.0
 
@@ -8,10 +8,11 @@ package argus
 
 import (
 	"testing"
-	"time"
+
+	"github.com/agilira/go-timecache"
 )
 
-// Benchmark specifico per scenari 1-2 files (single event processing)
+// Benchmark for 1-2 files scenarios (single event processing)
 func BenchmarkBoreasLite_SingleEvent(b *testing.B) {
 	var processed int64
 	processor := func(*FileChangeEvent) {
@@ -20,10 +21,10 @@ func BenchmarkBoreasLite_SingleEvent(b *testing.B) {
 
 	boreas := NewBoreasLite(256, OptimizationSingleEvent, processor)
 	defer boreas.Stop()
-	// Non avviare RunProcessor in background per il benchmark
+	// Do not start RunProcessor in background for benchmark
 
 	event := FileChangeEvent{
-		ModTime: time.Now().UnixNano(),
+		ModTime: timecache.CachedTimeNano(),
 		Size:    1024,
 		Flags:   FileEventModify,
 		PathLen: 9,
@@ -57,7 +58,7 @@ func BenchmarkBoreasLite_ProcessingStrategy(b *testing.B) {
 
 		// Pre-popola con un singolo evento
 		event := FileChangeEvent{
-			ModTime: time.Now().UnixNano(),
+			ModTime: timecache.CachedTimeNano(),
 			Size:    1024,
 			Flags:   FileEventModify,
 			PathLen: 9,
@@ -79,7 +80,7 @@ func BenchmarkBoreasLite_ProcessingStrategy(b *testing.B) {
 		events := make([]FileChangeEvent, 8)
 		for i := range events {
 			events[i] = FileChangeEvent{
-				ModTime: time.Now().UnixNano(),
+				ModTime: timecache.CachedTimeNano(),
 				Size:    1024,
 				Flags:   FileEventModify,
 				PathLen: 9,

@@ -1,6 +1,6 @@
 // production_overhead_test.go: Testing Argus Production Overhead
 //
-// Copyright (c) 2025 AGILira
+// Copyright (c) 2025 AGILira - A. Giordano
 // Series: an AGILira fragment
 // SPDX-License-Identifier: MPL-2.0
 
@@ -15,7 +15,7 @@ import (
 	"time"
 )
 
-// Benchmark per misurare l'overhead di Argus su un logger production-like
+// Benchmark to measure Argus overhead in production-like scenarios
 func BenchmarkArgus_ProductionOverhead(b *testing.B) {
 	tempDir, err := os.MkdirTemp("", "production_overhead")
 	if err != nil {
@@ -30,35 +30,35 @@ func BenchmarkArgus_ProductionOverhead(b *testing.B) {
 		b.Fatal(err)
 	}
 
-	// Test 1: Baseline senza file watching
+	// Test 1: Baseline without file watching
 	b.Run("Baseline_NoWatching", func(b *testing.B) {
 		benchmarkBaselineNoWatching(b)
 	})
 
-	// Test 2: Con Argus attivo ma senza cambiamenti (scenario normale)
+	// Test 2: With Argus active but no changes (normal scenario)
 	b.Run("WithArgus_NoChanges", func(b *testing.B) {
 		benchmarkWithArgusNoChanges(b, configFile)
 	})
 
-	// Test 3: Con Argus e cambiamenti ogni 5 secondi (worst case)
+	// Test 3: With Argus and changes every 5 seconds (worst case)
 	b.Run("WithArgus_Changes5s", func(b *testing.B) {
 		benchmarkWithArgusChanges(b, configFile, 5*time.Second)
 	})
 
-	// Test 4: CPU overhead di Argus in background
+	// Test 4: CPU overhead of Argus in background
 	b.Run("CPU_Overhead", func(b *testing.B) {
 		benchmarkCPUOverhead(b, configFile)
 	})
 }
 
-// Baseline: simula logger senza file watching
+// Baseline: simulates logging without Argus
 func benchmarkBaselineNoWatching(b *testing.B) {
 	var logCount atomic.Int64
 
-	// Simula logging operation (come farebbe Iris)
+	// Simulate logging operation (like Iris would)
 	logEntry := func(level string, message string) {
 		logCount.Add(1)
-		// Simula il costo di un log entry
+		// Simulate the cost of a log entry
 		_ = level + ": " + message
 	}
 
@@ -72,14 +72,14 @@ func benchmarkBaselineNoWatching(b *testing.B) {
 	b.Logf("Logged %d entries", logCount.Load())
 }
 
-// Con Argus attivo ma senza config changes (scenario normale production)
+// With Argus active but no config changes (normal production scenario)
 func benchmarkWithArgusNoChanges(b *testing.B, configFile string) {
 	var logCount atomic.Int64
 	var configReloads atomic.Int64
 
 	// Setup Argus
 	config := Config{
-		PollInterval:         100 * time.Millisecond, // Poll ogni 100ms (tipico)
+		PollInterval:         100 * time.Millisecond, // Poll every 100ms (typical)
 		OptimizationStrategy: OptimizationSingleEvent,
 	}
 
@@ -89,17 +89,17 @@ func benchmarkWithArgusNoChanges(b *testing.B, configFile string) {
 	// Config callback (viene chiamato solo su cambiamenti)
 	watcher.Watch(configFile, func(event ChangeEvent) {
 		configReloads.Add(1)
-		// Simula reload config
-		time.Sleep(1 * time.Millisecond) // Costo parsing config
+		// Simulate config reload
+		time.Sleep(1 * time.Millisecond) // Cost of parsing config
 	})
 
 	watcher.Start()
-	time.Sleep(10 * time.Millisecond) // Stabilizzazione
+	time.Sleep(10 * time.Millisecond) // Stabilization
 
-	// Simula logging con Argus attivo in background
+	// Simulate logging with Argus active in the background
 	logEntry := func(level string, message string) {
 		logCount.Add(1)
-		// Simula il costo di un log entry (identico al baseline)
+		// Simulate the cost of a log entry (identical to baseline)
 		_ = level + ": " + message
 	}
 
@@ -113,7 +113,7 @@ func benchmarkWithArgusNoChanges(b *testing.B, configFile string) {
 	b.Logf("Logged %d entries, Config reloads: %d", logCount.Load(), configReloads.Load())
 }
 
-// Con Argus e config changes ogni 5 secondi (worst case scenario)
+// With Argus and config changes every 5 seconds (worst case scenario)
 func benchmarkWithArgusChanges(b *testing.B, configFile string, changeInterval time.Duration) {
 	var logCount atomic.Int64
 	var configReloads atomic.Int64
@@ -130,13 +130,13 @@ func benchmarkWithArgusChanges(b *testing.B, configFile string, changeInterval t
 	// Config callback
 	watcher.Watch(configFile, func(event ChangeEvent) {
 		configReloads.Add(1)
-		// Simula reload config (parsing JSON, validation, etc.)
-		time.Sleep(2 * time.Millisecond) // Costo realistico parsing config
+		// Simulate config reload (parsing JSON, validation, etc.)
+		time.Sleep(2 * time.Millisecond) // Cost of parsing config
 	})
 
 	watcher.Start()
 
-	// Goroutine che simula config changes ogni 5 secondi
+	// Goroutine that simulates config changes every 5 seconds
 	stopChanges := make(chan bool)
 	go func() {
 		ticker := time.NewTicker(changeInterval)
@@ -161,7 +161,7 @@ func benchmarkWithArgusChanges(b *testing.B, configFile string, changeInterval t
 		time.Sleep(10 * time.Millisecond) // Cleanup
 	}()
 
-	// Simula logging intensivo
+	// Simulate intensive logging
 	logEntry := func(level string, message string) {
 		logCount.Add(1)
 		_ = level + ": " + message
@@ -177,11 +177,11 @@ func benchmarkWithArgusChanges(b *testing.B, configFile string, changeInterval t
 	b.Logf("Logged %d entries, Config reloads: %d", logCount.Load(), configReloads.Load())
 }
 
-// Misura l'overhead CPU di Argus in background
+// Calculate the CPU overhead of Argus in the background
 func benchmarkCPUOverhead(b *testing.B, configFile string) {
 	// Setup Argus
 	config := Config{
-		PollInterval:         100 * time.Millisecond, // 10 poll/secondo
+		PollInterval:         100 * time.Millisecond, // 10 poll/second
 		OptimizationStrategy: OptimizationSingleEvent,
 	}
 
@@ -202,12 +202,12 @@ func benchmarkCPUOverhead(b *testing.B, configFile string) {
 
 	b.ResetTimer()
 
-	// Simula 1 secondo di attività (10 poll cycles)
+	// Simulates 1 second of activity (10 poll cycles)
 	time.Sleep(1 * time.Second)
 
 	b.StopTimer()
 
-	// Misura CPU time dopo
+	// Measures CPU time after
 	elapsed := time.Since(start)
 	var m2 runtime.MemStats
 	runtime.ReadMemStats(&m2)
@@ -224,7 +224,7 @@ func benchmarkCPUOverhead(b *testing.B, configFile string) {
 	}
 }
 
-// Benchmark per misurare il costo specifico di ogni 5 secondi
+// Benchmark to measure Argus overhead in production-like scenarios
 func BenchmarkArgus_Every5Seconds(b *testing.B) {
 	tempDir, err := os.MkdirTemp("", "every5s")
 	if err != nil {
@@ -248,7 +248,7 @@ func BenchmarkArgus_Every5Seconds(b *testing.B) {
 
 func benchmarkPollCostPer5Seconds(b *testing.B, configFile string) {
 	config := Config{
-		PollInterval:         100 * time.Millisecond, // 10 poll/secondo
+		PollInterval:         100 * time.Millisecond, // 10 poll/second
 		OptimizationStrategy: OptimizationSingleEvent,
 	}
 
@@ -264,13 +264,13 @@ func benchmarkPollCostPer5Seconds(b *testing.B, configFile string) {
 
 	b.ResetTimer()
 
-	// Simula esattamente 5 secondi di polling (50 poll operations)
+	// Simulates exactly 5 seconds of polling (50 poll operations)
 	for i := 0; i < b.N; i++ {
 		start := time.Now()
 		time.Sleep(5 * time.Second)
 		elapsed := time.Since(start)
 
-		if i == 0 { // Log solo il primo per non sporcare l'output
+		if i == 0 { // Log only the first to avoid cluttering output
 			b.Logf("5 seconds of polling: %v elapsed", elapsed)
 		}
 	}
@@ -291,22 +291,22 @@ func benchmarkConfigChangeCost(b *testing.B, configFile string) {
 	var changeCount atomic.Int64
 	watcher.Watch(configFile, func(event ChangeEvent) {
 		changeCount.Add(1)
-		// Simula costo parsing config realistico
+		// Simulate realistic config parsing cost
 		time.Sleep(1 * time.Millisecond)
 	})
 
 	watcher.Start()
-	time.Sleep(10 * time.Millisecond) // Stabilizzazione
+	time.Sleep(10 * time.Millisecond) // Stabilization
 
 	b.ResetTimer()
 
-	// Misura il costo di una singola config change
+	// Measures the cost of a single config change
 	for i := 0; i < b.N; i++ {
 		// Modifica config
 		newConfig := `{"level": "debug", "iteration": ` + string(rune('0'+(i%10))) + `}`
 		os.WriteFile(configFile, []byte(newConfig), 0644)
 
-		// Aspetta che venga processata
+		// Wait for it to be processed
 		time.Sleep(200 * time.Millisecond)
 	}
 

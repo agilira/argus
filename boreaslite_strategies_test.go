@@ -1,6 +1,6 @@
 // boreaslite_strategies_test.go - Test delle strategie di processing di BoreasLite
 //
-// Copyright (c) 2025 AGILira
+// Copyright (c) 2025 AGILira - A. Giordano
 // Series: an AGILira fragment
 // SPDX-License-Identifier: MPL-2.0
 
@@ -10,6 +10,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/agilira/go-timecache"
 )
 
 // TestBoreasLiteSmallBatchStrategy tests the small batch processing strategy
@@ -32,11 +34,11 @@ func TestBoreasLiteSmallBatchStrategy(t *testing.T) {
 
 	// Add enough events to trigger small batch processing
 	events := []FileChangeEvent{
-		{PathLen: 11, ModTime: time.Now().UnixNano(), Size: 100, Flags: FileEventCreate},
-		{PathLen: 11, ModTime: time.Now().UnixNano(), Size: 200, Flags: FileEventModify},
-		{PathLen: 11, ModTime: time.Now().UnixNano(), Size: 0, Flags: FileEventDelete},
-		{PathLen: 11, ModTime: time.Now().UnixNano(), Size: 150, Flags: FileEventCreate},
-		{PathLen: 11, ModTime: time.Now().UnixNano(), Size: 250, Flags: FileEventModify},
+		{PathLen: 11, ModTime: timecache.CachedTimeNano(), Size: 100, Flags: FileEventCreate},
+		{PathLen: 11, ModTime: timecache.CachedTimeNano(), Size: 200, Flags: FileEventModify},
+		{PathLen: 11, ModTime: timecache.CachedTimeNano(), Size: 0, Flags: FileEventDelete},
+		{PathLen: 11, ModTime: timecache.CachedTimeNano(), Size: 150, Flags: FileEventCreate},
+		{PathLen: 11, ModTime: timecache.CachedTimeNano(), Size: 250, Flags: FileEventModify},
 	}
 
 	// Copy path names into the fixed-size arrays
@@ -95,7 +97,7 @@ func TestBoreasLiteLargeBatchStrategy(t *testing.T) {
 	for i := 0; i < 30; i++ {
 		events[i] = FileChangeEvent{
 			PathLen: 20,
-			ModTime: time.Now().UnixNano(),
+			ModTime: timecache.CachedTimeNano(),
 			Size:    int64(100 + i),
 			Flags:   FileEventModify,
 		}
@@ -155,9 +157,9 @@ func TestBoreasLiteSmallBatchProcessor(t *testing.T) {
 
 	// Add events to be processed
 	events := []FileChangeEvent{
-		{PathLen: 19, ModTime: time.Now().UnixNano(), Size: 100, Flags: FileEventCreate},
-		{PathLen: 19, ModTime: time.Now().UnixNano(), Size: 200, Flags: FileEventModify},
-		{PathLen: 19, ModTime: time.Now().UnixNano(), Size: 0, Flags: FileEventDelete},
+		{PathLen: 19, ModTime: timecache.CachedTimeNano(), Size: 100, Flags: FileEventCreate},
+		{PathLen: 19, ModTime: timecache.CachedTimeNano(), Size: 200, Flags: FileEventModify},
+		{PathLen: 19, ModTime: timecache.CachedTimeNano(), Size: 0, Flags: FileEventDelete},
 	}
 
 	copy(events[0].Path[:], "/processor_test1.json")
@@ -210,7 +212,7 @@ func TestBoreasLiteLargeBatchProcessor(t *testing.T) {
 	for i := 0; i < 25; i++ {
 		events[i] = FileChangeEvent{
 			PathLen: 25,
-			ModTime: time.Now().UnixNano(),
+			ModTime: timecache.CachedTimeNano(),
 			Size:    int64(100 + i),
 			Flags:   FileEventModify,
 		}

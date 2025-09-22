@@ -1,6 +1,6 @@
 // low_file_test.go: Testing Argus Low File Count Handling
 //
-// Copyright (c) 2025 AGILira
+// Copyright (c) 2025 AGILira - A. Giordano
 // Series: an AGILira fragment
 // SPDX-License-Identifier: MPL-2.0
 
@@ -15,7 +15,7 @@ import (
 	"time"
 )
 
-// Test ottimizzato per scenari 1-2 files (caso più comune)
+// Test optimized handling for low file counts (1-2 files)
 func TestBoreasLite_LowFileCount(b *testing.T) {
 	tempDir, err := os.MkdirTemp("", "low_file_test")
 	if err != nil {
@@ -24,19 +24,19 @@ func TestBoreasLite_LowFileCount(b *testing.T) {
 	defer os.RemoveAll(tempDir)
 
 	config := Config{
-		PollInterval:    20 * time.Millisecond, // Polling veloce per test
+		PollInterval:    20 * time.Millisecond, // Polling more frequently for test
 		CacheTTL:        10 * time.Millisecond,
 		MaxWatchedFiles: 10,
 	}
 
 	b.Logf("=== TESTING OPTIMIZED 1-2 FILE SCENARIOS ===")
 
-	// Test 1: Singolo file (scenario più comune)
+	// Test 1: Single file (most common scenario)
 	b.Run("Single_File", func(b *testing.T) {
 		testLowFileCount(b, tempDir, config, 1)
 	})
 
-	// Test 2: Due file (secondo caso più comune)
+	// Test 2: Two files (second most common case)
 	b.Run("Two_Files", func(b *testing.T) {
 		testLowFileCount(b, tempDir, config, 2)
 	})
@@ -54,27 +54,27 @@ func testLowFileCount(t *testing.T, tempDir string, config Config, fileCount int
 		t.Logf("Event: %s", filepath.Base(event.Path))
 	}
 
-	// Crea e registra files
+	// Create and register files
 	for i := 0; i < fileCount; i++ {
 		filePath := filepath.Join(tempDir, fmt.Sprintf("config_%d.json", i))
 		filePaths[i] = filePath
 
-		// Crea file
+		// Create file
 		content := fmt.Sprintf(`{"id": %d, "value": "initial"}`, i)
 		if err := os.WriteFile(filePath, []byte(content), 0644); err != nil {
 			t.Fatal(err)
 		}
 
-		// Registra nel watcher
+		// Register with watcher
 		if err := watcher.Watch(filePath, callback); err != nil {
 			t.Fatal(err)
 		}
 	}
 
 	watcher.Start()
-	time.Sleep(50 * time.Millisecond) // Inizializzazione
+	time.Sleep(50 * time.Millisecond) // Stabilization
 
-	// Misura latenza per modifiche singole
+	// Measure latency for single changes
 	iterations := 10
 	totalDuration := time.Duration(0)
 
@@ -83,7 +83,7 @@ func testLowFileCount(t *testing.T, tempDir string, config Config, fileCount int
 
 		startTime := time.Now()
 
-		// Modifica tutti i file rapidamente (simula scenario reale)
+		// Modify all files rapidly (simulate real-world scenario)
 		for i, filePath := range filePaths {
 			content := fmt.Sprintf(`{"id": %d, "value": "modified_%d_%d"}`, i, iter, time.Now().UnixNano())
 			if err := os.WriteFile(filePath, []byte(content), 0644); err != nil {
@@ -91,7 +91,7 @@ func testLowFileCount(t *testing.T, tempDir string, config Config, fileCount int
 			}
 		}
 
-		// Aspetta che tutti gli eventi arrivino
+		// Wait for all events to arrive
 		timeout := 200 * time.Millisecond
 		waitStart := time.Now()
 
@@ -134,7 +134,7 @@ func testLowFileCount(t *testing.T, tempDir string, config Config, fileCount int
 		}
 	}
 
-	// Per 1-2 files, dovremmo avere latenza molto bassa
+	// For 1-2 files, we should have very low latency
 	maxExpectedLatency := 50 * time.Millisecond
 	if avgLatency > maxExpectedLatency {
 		t.Logf("WARNING: High latency %v for %d files (expected <%v)",

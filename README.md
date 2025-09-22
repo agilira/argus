@@ -15,7 +15,7 @@ Argus is a high-performance, OS-independent dynamic configuration framework for 
 - **Universal Format Support**: JSON, YAML, TOML, HCL, INI, Properties with auto-detection
 - **Adaptive Optimization**: Four strategies (SingleEvent, SmallBatch, LargeBatch, Auto) 
 - **Zero-Allocation Design**: Pre-allocated buffers eliminate GC pressure in hot paths
-- **Forensic Audit System**: Tamper-resistant logging with minimal performance impact
+- **Unified Audit System**: SQLite-based cross-application correlation with JSONL fallback
 - **Scalable Monitoring**: Handle 1-1000+ files simultaneously with linear performance
 
 ## Installation
@@ -98,7 +98,7 @@ graph TD
 - **Ultra-fast format detection** at 2.79ns per operation
 - **BoreasLite MPSC ring buffer** with 24.91ns event processing
 - **Universal format parsing** with plugin system for complex specs
-- **Forensic audit system** with SHA-256 tamper detection
+- **Unified SQLite audit** with cross-application correlation and automatic fallback
 
 ### Parser Support
 
@@ -170,6 +170,31 @@ err := argus.BindFromConfig(config).
 - **Kubernetes ConfigMaps**: Automatic detection of mounted ConfigMap changes
 - **Security Policy Updates**: Real-time security configuration enforcement
 
+## Observability & Integrations
+
+### OpenTelemetry Integration
+Professional OTEL tracing integration with zero core dependency pollution:
+
+```go
+// Clean separation: core Argus has no OTEL dependencies
+auditLogger, _ := argus.NewAuditLogger(argus.DefaultAuditConfig())
+
+// Optional OTEL wrapper (only when needed)
+tracer := otel.Tracer("my-service")
+wrapper := NewOTELAuditWrapper(auditLogger, tracer)
+
+// Use either logger or wrapper seamlessly
+wrapper.LogConfigChange("/etc/config.json", oldConfig, newConfig)
+```
+
+**Key Features:**
+- **Async Tracing**: OTEL spans generated asynchronously (no performance impact)
+- **Rich Context**: Full audit context propagated to distributed traces
+- **Production Ready**: Stdout, Jaeger, OTLP exporters with proper resource metadata
+- **Zero Contamination**: Core library remains OTEL-free
+
+**[Complete OTEL Integration Example →](./examples/otel_integration/)**
+
 ## The Philosophy Behind Argus
 
 In Greek mythology, Argus Panoptes was the all-seeing giant with a hundred eyes, known for his unwavering vigilance and ability to watch over everything simultaneously. Unlike reactive systems that miss changes, Argus maintained constant awareness while remaining efficient and unobtrusive.
@@ -188,16 +213,23 @@ Comprehensive security standards with automated validation:
 gosec --exclude=G104,G306,G301 ./...  # Manual verification
 ```
 
-### Audit Configuration
+### Unified Audit Configuration
 ```go
-// Production audit setup with SHA-256 tamper detection
-config := argus.DefaultAuditConfig()  // Cross-platform temp directory
+// Unified SQLite audit (recommended for cross-application correlation)
+config := argus.DefaultAuditConfig()  // Uses unified SQLite backend
 
-// Cross-platform configuration
+// Legacy JSONL audit (for backward compatibility)
 config := argus.AuditConfig{
     Enabled:    true,
-    OutputFile: filepath.Join(os.TempDir(), "argus-audit.jsonl"),
+    OutputFile: filepath.Join(os.TempDir(), "argus-audit.jsonl"), // .jsonl = JSONL backend
     MinLevel:   argus.AuditInfo,
+}
+
+// Explicit unified SQLite configuration
+config := argus.AuditConfig{
+    Enabled:    true,
+    OutputFile: "",  // Empty = unified SQLite backend
+    MinLevel:   argus.AuditCritical,
 }
 ```
 

@@ -4,7 +4,7 @@
 // ensuring safe and reliable operation in production environments with
 // detailed error reporting and performance optimization recommendations.
 //
-// Copyright (c) 2025 AGILira
+// Copyright (c) 2025 AGILira - A. Giordano
 // Series: an AGILira fragment
 // SPDX-License-Identifier: MPL-2.0
 
@@ -15,29 +15,30 @@ package argus
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/agilira/go-errors"
 )
 
 // Validation errors - implementing error codes pattern from Iris
 var (
-	ErrInvalidPollInterval    = errors.New("ARGUS_INVALID_POLL_INTERVAL: poll interval must be positive")
-	ErrInvalidCacheTTL        = errors.New("ARGUS_INVALID_CACHE_TTL: cache TTL must be positive")
-	ErrInvalidMaxWatchedFiles = errors.New("ARGUS_INVALID_MAX_WATCHED_FILES: max watched files must be positive")
-	ErrInvalidOptimization    = errors.New("ARGUS_INVALID_OPTIMIZATION: unknown optimization strategy")
-	ErrInvalidAuditConfig     = errors.New("ARGUS_INVALID_AUDIT_CONFIG: audit configuration is invalid")
-	ErrInvalidBufferSize      = errors.New("ARGUS_INVALID_BUFFER_SIZE: buffer size must be positive")
-	ErrInvalidFlushInterval   = errors.New("ARGUS_INVALID_FLUSH_INTERVAL: flush interval must be positive")
-	ErrInvalidOutputFile      = errors.New("ARGUS_INVALID_OUTPUT_FILE: audit output file path is invalid")
-	ErrUnwritableOutputFile   = errors.New("ARGUS_UNWRITABLE_OUTPUT_FILE: audit output file is not writable")
-	ErrCacheTTLTooLarge       = errors.New("ARGUS_CACHE_TTL_TOO_LARGE: cache TTL should not exceed poll interval")
-	ErrPollIntervalTooSmall   = errors.New("ARGUS_POLL_INTERVAL_TOO_SMALL: poll interval should be at least 10ms for stability")
-	ErrMaxFilesTooLarge       = errors.New("ARGUS_MAX_FILES_TOO_LARGE: max watched files exceeds recommended limit (10000)")
-	ErrBoreasCapacityInvalid  = errors.New("ARGUS_INVALID_BOREAS_CAPACITY: BoreasLite capacity must be power of 2")
+	ErrInvalidPollInterval    = errors.New(ErrCodeInvalidPollInterval, "poll interval must be positive")
+	ErrInvalidCacheTTL        = errors.New(ErrCodeInvalidCacheTTL, "cache TTL must be positive")
+	ErrInvalidMaxWatchedFiles = errors.New(ErrCodeInvalidMaxWatchedFiles, "max watched files must be positive")
+	ErrInvalidOptimization    = errors.New(ErrCodeInvalidOptimization, "unknown optimization strategy")
+	ErrInvalidAuditConfig     = errors.New(ErrCodeInvalidAuditConfig, "audit configuration is invalid")
+	ErrInvalidBufferSize      = errors.New(ErrCodeInvalidBufferSize, "buffer size must be positive")
+	ErrInvalidFlushInterval   = errors.New(ErrCodeInvalidFlushInterval, "flush interval must be positive")
+	ErrInvalidOutputFile      = errors.New(ErrCodeInvalidOutputFile, "audit output file path is invalid")
+	ErrUnwritableOutputFile   = errors.New(ErrCodeUnwritableOutputFile, "audit output file is not writable")
+	ErrCacheTTLTooLarge       = errors.New(ErrCodeCacheTTLTooLarge, "cache TTL should not exceed poll interval")
+	ErrPollIntervalTooSmall   = errors.New(ErrCodePollIntervalTooSmall, "poll interval should be at least 10ms for stability")
+	ErrMaxFilesTooLarge       = errors.New(ErrCodeMaxFilesTooLarge, "max watched files exceeds recommended limit (10000)")
+	ErrBoreasCapacityInvalid  = errors.New(ErrCodeBoreasCapacityInvalid, "BoreasLite capacity must be power of 2")
 )
 
 // ValidationResult contains the result of configuration validation with detailed feedback.
@@ -68,7 +69,33 @@ func (c *Config) Validate() error {
 	if !result.Valid {
 		// Return first error as the primary validation error
 		if len(result.Errors) > 0 {
-			return errors.New(result.Errors[0])
+			// Map the error string back to the original error object
+			firstError := result.Errors[0]
+			switch {
+			case firstError == ErrInvalidPollInterval.Error():
+				return ErrInvalidPollInterval
+			case firstError == ErrPollIntervalTooSmall.Error():
+				return ErrPollIntervalTooSmall
+			case firstError == ErrInvalidCacheTTL.Error():
+				return ErrInvalidCacheTTL
+			case firstError == ErrInvalidMaxWatchedFiles.Error():
+				return ErrInvalidMaxWatchedFiles
+			case firstError == ErrInvalidOptimization.Error():
+				return ErrInvalidOptimization
+			case firstError == ErrBoreasCapacityInvalid.Error():
+				return ErrBoreasCapacityInvalid
+			case firstError == ErrInvalidBufferSize.Error():
+				return ErrInvalidBufferSize
+			case firstError == ErrInvalidFlushInterval.Error():
+				return ErrInvalidFlushInterval
+			case firstError == ErrInvalidOutputFile.Error():
+				return ErrInvalidOutputFile
+			case firstError == ErrUnwritableOutputFile.Error():
+				return ErrUnwritableOutputFile
+			default:
+				// Fallback to generic error
+				return errors.New(ErrCodeInvalidConfig, firstError)
+			}
 		}
 	}
 	return nil
@@ -165,7 +192,13 @@ func (c *Config) validateAuditConfig(result *ValidationResult) {
 		return // Skip audit validation if disabled
 	}
 
-	// Buffer size validation
+	c.validateAuditBufferSize(result)
+	c.validateAuditFlushInterval(result)
+	c.validateAuditOutputFile(result)
+}
+
+// validateAuditBufferSize validates audit buffer size configuration
+func (c *Config) validateAuditBufferSize(result *ValidationResult) {
 	if c.Audit.BufferSize < 0 {
 		result.Errors = append(result.Errors, ErrInvalidBufferSize.Error())
 	} else if c.Audit.BufferSize == 0 {
@@ -173,15 +206,19 @@ func (c *Config) validateAuditConfig(result *ValidationResult) {
 	} else if c.Audit.BufferSize > 10000 {
 		result.Warnings = append(result.Warnings, "Large audit buffer size may consume significant memory")
 	}
+}
 
-	// Flush interval validation
+// validateAuditFlushInterval validates audit flush interval configuration
+func (c *Config) validateAuditFlushInterval(result *ValidationResult) {
 	if c.Audit.FlushInterval < 0 {
 		result.Errors = append(result.Errors, ErrInvalidFlushInterval.Error())
 	} else if c.Audit.FlushInterval == 0 {
 		result.Warnings = append(result.Warnings, "Audit flush interval is 0, events will be written immediately (may impact performance)")
 	}
+}
 
-	// Output file validation
+// validateAuditOutputFile validates audit output file configuration
+func (c *Config) validateAuditOutputFile(result *ValidationResult) {
 	if c.Audit.OutputFile == "" {
 		result.Errors = append(result.Errors, ErrInvalidOutputFile.Error())
 		return
@@ -198,8 +235,8 @@ func (c *Config) validateOutputFile(outputFile string) error {
 	// Clean and validate the path
 	cleanPath := filepath.Clean(outputFile)
 	if cleanPath == "." || cleanPath == "/" {
-		return fmt.Errorf("%s: path '%s' is not a valid file path",
-			ErrInvalidOutputFile.Error(), outputFile)
+		return errors.New(ErrCodeInvalidConfig,
+			fmt.Sprintf("path '%s' is not a valid file path", outputFile))
 	}
 
 	// Check if directory exists and is writable
@@ -207,14 +244,14 @@ func (c *Config) validateOutputFile(outputFile string) error {
 	if dir != "" {
 		if info, err := os.Stat(dir); err != nil {
 			if os.IsNotExist(err) {
-				return fmt.Errorf("%s: directory '%s' does not exist",
-					ErrInvalidOutputFile.Error(), dir)
+				return errors.New(ErrCodeInvalidConfig,
+					fmt.Sprintf("directory '%s' does not exist", dir))
 			}
-			return fmt.Errorf("%s: cannot access directory '%s': %v",
-				ErrInvalidOutputFile.Error(), dir, err)
+			return errors.Wrap(err, ErrCodeInvalidConfig,
+				fmt.Sprintf("cannot access directory '%s'", dir))
 		} else if !info.IsDir() {
-			return fmt.Errorf("%s: '%s' is not a directory",
-				ErrInvalidOutputFile.Error(), dir)
+			return errors.New(ErrCodeInvalidConfig,
+				fmt.Sprintf("'%s' is not a directory", dir))
 		}
 	}
 
@@ -258,7 +295,7 @@ func (c *Config) validatePerformanceConstraints(result *ValidationResult) {
 func ValidateEnvironmentConfig() error {
 	config, err := LoadConfigFromEnv()
 	if err != nil {
-		return fmt.Errorf("failed to load config from environment: %w", err)
+		return errors.Wrap(err, ErrCodeInvalidConfig, "failed to load config from environment")
 	}
 
 	return config.Validate()
@@ -269,7 +306,7 @@ func loadConfigFromJSON(configPath string) (*Config, error) {
 	// Read the file content
 	data, err := os.ReadFile(configPath) // #nosec G304 - configPath is validated by caller, intentional config file loading
 	if err != nil {
-		return nil, fmt.Errorf("failed to read config file '%s': %w", configPath, err)
+		return nil, errors.Wrap(err, ErrCodeFileNotFound, "failed to read config file '"+configPath+"'")
 	}
 
 	// Handle cross-platform JSON parsing - normalize Windows path separators
@@ -288,7 +325,7 @@ func loadConfigFromJSON(configPath string) (*Config, error) {
 
 	// Parse JSON into the config
 	if err := json.Unmarshal([]byte(jsonStr), config); err != nil {
-		return nil, fmt.Errorf("failed to parse JSON config: %w", err)
+		return nil, errors.Wrap(err, ErrCodeInvalidConfig, "failed to parse JSON config")
 	}
 
 	return config, nil
@@ -298,21 +335,21 @@ func loadConfigFromJSON(configPath string) (*Config, error) {
 // This method performs validation without actually starting file watching
 func ValidateConfigFile(configPath string) error {
 	if configPath == "" {
-		return fmt.Errorf("ARGUS_INVALID_CONFIG_PATH: configuration file path cannot be empty")
+		return errors.New(ErrCodeInvalidConfig, "configuration file path cannot be empty")
 	}
 
 	// Check if file exists and is readable
 	if _, err := os.Stat(configPath); err != nil {
 		if os.IsNotExist(err) {
-			return fmt.Errorf("ARGUS_CONFIG_FILE_NOT_FOUND: configuration file '%s' not found", configPath)
+			return errors.New(ErrCodeConfigNotFound, "configuration file '"+configPath+"' not found")
 		}
-		return fmt.Errorf("ARGUS_CONFIG_FILE_ERROR: cannot access configuration file '%s': %v", configPath, err)
+		return errors.Wrap(err, ErrCodeConfigNotFound, "cannot access configuration file '"+configPath+"'")
 	}
 
 	// Load and parse the actual config file
 	config, err := loadConfigFromJSON(configPath)
 	if err != nil {
-		return fmt.Errorf("ARGUS_CONFIG_PARSE_ERROR: %w", err)
+		return errors.Wrap(err, ErrCodeInvalidConfig, "config parse error")
 	}
 
 	// Validate the loaded configuration
@@ -326,6 +363,17 @@ func GetValidationErrorCode(err error) string {
 	}
 
 	errStr := err.Error()
+
+	// Handle go-errors format: [CODE]: Message
+	if len(errStr) > 3 && errStr[0] == '[' {
+		for idx := 1; idx < len(errStr); idx++ {
+			if errStr[idx] == ']' {
+				return errStr[1:idx]
+			}
+		}
+	}
+
+	// Fallback for old format: CODE: Message
 	for idx := 0; idx < len(errStr); idx++ {
 		if errStr[idx] == ':' {
 			return errStr[:idx]
@@ -342,5 +390,12 @@ func IsValidationError(err error) bool {
 	}
 
 	errorStr := err.Error()
+
+	// Handle go-errors format: [ARGUS_*]: Message
+	if len(errorStr) > 8 && errorStr[0] == '[' && errorStr[1:7] == "ARGUS_" {
+		return true
+	}
+
+	// Fallback for old format: ARGUS_*: Message
 	return len(errorStr) > 6 && errorStr[:6] == "ARGUS_"
 }

@@ -19,8 +19,10 @@ const (
 type AuditConfig struct {
 	Enabled       bool
 	OutputFile    string
+	MinLevel      int // Using int instead of AuditLevel for simplicity
 	BufferSize    int
 	FlushInterval time.Duration
+	IncludeStack  bool
 }
 
 type Config struct {
@@ -52,7 +54,19 @@ func GetValidationErrorCode(err error) string {
 	if err == nil {
 		return ""
 	}
+
 	errStr := err.Error()
+
+	// Handle go-errors format: [CODE]: Message
+	if len(errStr) > 3 && errStr[0] == '[' {
+		for idx := 1; idx < len(errStr); idx++ {
+			if errStr[idx] == ']' {
+				return errStr[1:idx]
+			}
+		}
+	}
+
+	// Fallback for old format: CODE: Message
 	for idx := 0; idx < len(errStr); idx++ {
 		if errStr[idx] == ':' {
 			return errStr[:idx]

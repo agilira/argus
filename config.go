@@ -1,7 +1,7 @@
 // config.go: Configuration management for Argus Dynamic Configuration Framework
 //
-// Copyright (c) 2025 AGILira
-// Series: AGILira System Libraries
+// Copyright (c) 2025 AGILira - A. Giordano
+// Series: AGILira fragment
 // SPDX-License-Identifier: MPL-2.0
 
 package argus
@@ -53,57 +53,84 @@ func (s *SleepStrategy) Reset() {
 func (c *Config) WithDefaults() *Config {
 	config := *c
 
-	if config.PollInterval <= 0 {
-		config.PollInterval = 5 * time.Second
+	config.setTimingDefaults()
+	config.setFileDefaults()
+	config.setAuditDefaults()
+	config.setBoreasLiteDefaults()
+
+	return &config
+}
+
+// setTimingDefaults sets default values for timing-related configuration
+func (c *Config) setTimingDefaults() {
+	if c.PollInterval <= 0 {
+		c.PollInterval = 5 * time.Second
 	}
 
-	if config.CacheTTL <= 0 {
-		config.CacheTTL = config.PollInterval / 2
+	if c.CacheTTL <= 0 {
+		c.CacheTTL = c.PollInterval / 2
 	}
 
 	// GUARD RAIL: Ensure CacheTTL <= PollInterval for effectiveness
-	if config.CacheTTL > config.PollInterval {
-		config.CacheTTL = config.PollInterval / 2
+	if c.CacheTTL > c.PollInterval {
+		c.CacheTTL = c.PollInterval / 2
 	}
+}
 
-	if config.MaxWatchedFiles <= 0 {
-		config.MaxWatchedFiles = 100
+// setFileDefaults sets default values for file watching configuration
+func (c *Config) setFileDefaults() {
+	if c.MaxWatchedFiles <= 0 {
+		c.MaxWatchedFiles = 100
 	}
+}
 
-	// Set audit defaults if not configured
-	if config.Audit == (AuditConfig{}) {
-		config.Audit = DefaultAuditConfig()
+// setAuditDefaults sets default audit configuration
+func (c *Config) setAuditDefaults() {
+	if c.Audit == (AuditConfig{}) {
+		c.Audit = DefaultAuditConfig()
 	}
+}
 
+// setBoreasLiteDefaults sets default BoreasLite optimization configuration
+func (c *Config) setBoreasLiteDefaults() {
 	// Set BoreasLite optimization defaults
-	if config.OptimizationStrategy == OptimizationAuto {
+	if c.OptimizationStrategy == OptimizationAuto {
 		// Auto-strategy remains, will be determined at runtime based on file count
-		config.OptimizationStrategy = OptimizationAuto
+		c.OptimizationStrategy = OptimizationAuto
 	}
 
 	// Set BoreasLite capacity based on strategy if not explicitly set
-	if config.BoreasLiteCapacity <= 0 {
-		switch config.OptimizationStrategy {
-		case OptimizationSingleEvent:
-			config.BoreasLiteCapacity = 64 // Minimal for 1-2 files
-		case OptimizationSmallBatch:
-			config.BoreasLiteCapacity = 128 // Balanced for 3-20 files
-		case OptimizationLargeBatch:
-			config.BoreasLiteCapacity = 256 // High throughput for 20+ files
-		default: // OptimizationAuto
-			config.BoreasLiteCapacity = 128 // Safe default, will adjust at runtime
-		}
+	if c.BoreasLiteCapacity <= 0 {
+		c.BoreasLiteCapacity = c.getDefaultCapacityByStrategy()
 	}
 
 	// Ensure capacity is power of 2
-	if config.BoreasLiteCapacity > 0 && (config.BoreasLiteCapacity&(config.BoreasLiteCapacity-1)) != 0 {
-		// Find next power of 2
-		capacity := int64(1)
-		for capacity < config.BoreasLiteCapacity {
-			capacity <<= 1
-		}
-		config.BoreasLiteCapacity = capacity
-	}
+	c.BoreasLiteCapacity = c.nextPowerOfTwo(c.BoreasLiteCapacity)
+}
 
-	return &config
+// getDefaultCapacityByStrategy returns the default capacity for the optimization strategy
+func (c *Config) getDefaultCapacityByStrategy() int64 {
+	switch c.OptimizationStrategy {
+	case OptimizationSingleEvent:
+		return 64 // Minimal for 1-2 files
+	case OptimizationSmallBatch:
+		return 128 // Balanced for 3-20 files
+	case OptimizationLargeBatch:
+		return 256 // High throughput for 20+ files
+	default: // OptimizationAuto
+		return 128 // Safe default, will adjust at runtime
+	}
+}
+
+// nextPowerOfTwo ensures capacity is a power of 2
+func (c *Config) nextPowerOfTwo(capacity int64) int64 {
+	if capacity > 0 && (capacity&(capacity-1)) != 0 {
+		// Find next power of 2
+		result := int64(1)
+		for result < capacity {
+			result <<= 1
+		}
+		return result
+	}
+	return capacity
 }
