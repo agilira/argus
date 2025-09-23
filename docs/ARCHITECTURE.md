@@ -14,6 +14,7 @@ Argus is a high-performance, OS-independent dynamic configuration framework for 
 4. **Universal Format Support**: Auto-detection and parsing of JSON, YAML, TOML, HCL, INI, and Properties.
 5. **Audit System**: Tamper-resistant audit trails with sub-microsecond performance impact.
 6. **Configurable Optimization**: Four distinct strategies for different workload patterns.
+7. **ConfigWriter System**: Atomic configuration file updates with type-safe operations
 
 ## Module Structure
 

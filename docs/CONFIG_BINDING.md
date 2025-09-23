@@ -564,3 +564,7 @@ err := argus.BindFromConfig(config).
 7. **Document your configuration schema**
 
 The configuration binding system provides exceptional performance while maintaining the safety and readability that Go developers expect. It's particularly effective for high-performance applications that need frequent configuration updates.
+
+---
+
+Argus • an AGILira fragment

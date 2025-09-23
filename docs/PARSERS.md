@@ -115,3 +115,7 @@ See [examples/custom_parser/](../examples/custom_parser/) for a working implemen
 - Error handling patterns
 - Integration testing
 - Performance benchmarks
+
+---
+
+Argus • an AGILira fragment

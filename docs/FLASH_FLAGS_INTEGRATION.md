@@ -19,7 +19,7 @@ The integration provides a unified configuration management solution that combin
 - **3565 ns/op** for complete ConfigManager creation
 - Lock-free atomic operations throughout
 
-### 🎯 Fluent Interface
+### Fluent Interface
 ```go
 config := argus.NewConfigManager("myapp").
     SetDescription("My Application").
@@ -29,7 +29,7 @@ config := argus.NewConfigManager("myapp").
     BoolFlag("debug", false, "Enable debug mode")
 ```
 
-### 📊 Multi-Source Configuration
+### Multi-Source Configuration
 1. **Explicit Sets** (highest priority): `config.Set("key", value)`
 2. **Command Line Flags**: `--host=example.com`
 3. **Environment Variables**: `MYAPP_HOST=example.com`
@@ -491,14 +491,15 @@ cd demo && go build
 
 ## License
 
-This integration is part of the AGILira ecosystem and is licensed under MPL-2.0.
+This integration is licensed under MPL-2.0.
 
 ## Related Projects
 
+- **[Orpheus](https://github.com/agilira/orpheus)**: Blazing-Fast CLI Framework
 - **[flash-flags](https://github.com/agilira/flash-flags)**: Ultra-fast command-line flag parsing
 - **[go-timecache](https://github.com/agilira/go-timecache)**: Zero-allocation time caching  
 - **[go-errors](https://github.com/agilira/go-errors)**: Structured error handling
 
 ---
 
-For more examples and advanced usage, see the `demo/` directory and test files.
+Argus • an AGILira fragment

@@ -1,7 +1,7 @@
 # Argus — Dynamic Configuration Framework for Go
 ### an AGILira fragment
 
-Argus is a high-performance, OS-independent dynamic configuration framework for Go, built for applications that demand real-time updates, universal format support, and production-grade reliability — without service restarts.
+High-performance configuration management library for Go applications with zero-allocation performance, universal format support (JSON, YAML, TOML, HCL, INI, Properties), and an ultra-fast CLI powered by [Orpheus](https://github.com/agilira/argus).
 
 [![CI/CD Pipeline](https://github.com/agilira/argus/actions/workflows/ci.yml/badge.svg)](https://github.com/agilira/argus/actions/workflows/ci.yml)
 [![Security](https://img.shields.io/badge/security-gosec-brightgreen.svg)](https://github.com/agilira/argus/actions/workflows/ci.yml)
@@ -9,12 +9,18 @@ Argus is a high-performance, OS-independent dynamic configuration framework for 
 [![Test Coverage](https://codecov.io/gh/agilira/argus/branch/main/graph/badge.svg)](https://codecov.io/gh/agilira/argus)
 ![Xantos Powered](https://img.shields.io/badge/Xantos%20Powered-8A2BE2?style=flat)
 
+**[Installation](#installation) • [Quick Start](#quick-start) • [Performance](#performance) • [Architecture](#architecture) • [Framework](#core-framework) • [Observability](#observability--integrations) • [Philosophy](#the-philosophy-behind-argus) • [Documentation](#documentation)**
 
 
 ### Key Features
 - **Universal Format Support**: JSON, YAML, TOML, HCL, INI, Properties with auto-detection
-- **Adaptive Optimization**: Four strategies (SingleEvent, SmallBatch, LargeBatch, Auto) 
+- **ConfigWriter System**: Atomic configuration file updates with type-safe operations
+- **Ultra-Fast CLI**: [Orpheus](https://github.com/agilira/argus)-powered CLI 7x-53x faster 
+- **Secure by Design**: Red-team tested against path traversal, injection, DoS and resource exhaustion attacks
 - **Zero-Allocation Design**: Pre-allocated buffers eliminate GC pressure in hot paths
+- **OpenTelemetry Ready**: Async tracing and metrics with zero contamination of core library
+- **Type-Safe Binding**: Zero-reflection configuration binding with fluent API (1.6M ops/sec)
+- **Adaptive Optimization**: Four strategies (SingleEvent, SmallBatch, LargeBatch, Auto) 
 - **Unified Audit System**: SQLite-based cross-application correlation with JSONL fallback
 - **Scalable Monitoring**: Handle 1-1000+ files simultaneously with linear performance
 
@@ -26,9 +32,23 @@ go get github.com/agilira/argus
 
 ## Quick Start
 
+### Configuration Management
 ```go
 import "github.com/agilira/argus"
 
+// Load and bind configuration
+cfg := argus.New()
+cfg.AddFile("config.yaml")
+cfg.AddEnv("APP")
+
+var config AppConfig
+if err := cfg.Load(&config); err != nil {
+    log.Fatal(err)
+}
+```
+
+### Real-Time Configuration Updates
+```go
 // Watch any configuration format - auto-detected
 watcher, err := argus.UniversalConfigWatcher("config.yaml", 
     func(config map[string]interface{}) {
@@ -39,7 +59,17 @@ watcher.Start()
 defer watcher.Stop()
 ```
 
-**[Complete Quick Start Guide →](./docs/QUICK_START.md)** - Get running in 2 minutes with detailed examples
+### CLI Usage
+```bash
+# Ultra-fast configuration management CLI
+argus config get config.yaml server.port
+argus config set config.yaml database.host localhost
+argus config convert config.yaml config.json
+argus watch config.yaml --interval=1s
+```
+
+**[Complete Quick Start Guide →](./docs/QUICK_START.md)** - Get running in 2 minutes with detailed examples  
+**[Orpheus CLI Integration →](./docs/ORPHEUS_INTEGRATION.md)** - Complete CLI documentation and examples
 
 ## Performance
 
@@ -52,6 +82,7 @@ Format Auto-Detection:         2.79 ns/op      (universal format support)
 JSON Parsing (small):          1,712 ns/op     (616 B/op, 16 allocs/op)
 JSON Parsing (large):          7,793 ns/op     (3,064 B/op, 86 allocs/op)
 Event Processing:              24.91 ns/op     (BoreasLite single event)
+CLI Command Parsing:             512 ns/op     (3 allocs/op, Orpheus framework)
 Memory Footprint:              8KB fixed       + configurable buffers
 
 **Scalability (Setup Performance):**
@@ -68,7 +99,7 @@ File Count    Setup Time    Strategy Used
 
 ## Architecture
 
-Argus provides intelligent configuration management through polling-based optimization and universal format support:
+Argus provides intelligent configuration management through polling-based optimization.
 
 ```mermaid
 graph TD
@@ -93,51 +124,48 @@ graph TD
     class E,F performance
 ```
 
-**Key Architectural Components:**
+**Architectural Components:**
 - **Lock-free stat cache** for 12.10ns monitoring overhead (0 allocations)
 - **Ultra-fast format detection** at 2.79ns per operation
 - **BoreasLite MPSC ring buffer** with 24.91ns event processing
-- **Universal format parsing** with plugin system for complex specs
-- **Unified SQLite audit** with cross-application correlation and automatic fallback
+
 
 ### Parser Support
 
-Built-in parsers optimized for rapid deployment with full specification compliance available via plugins:
-
-**Complete Implementation:**
-- **JSON** - RFC 7159 compliant
-- **Properties** - Java-style key=value
-- **INI** - Section-based configuration
-
-**Essential Implementation (80% Use Case):**
-- **YAML** - Simple key-value configurations
-- **TOML** - Standard use cases  
-- **HCL** - HashiCorp Configuration Language basics
+Built-in parsers optimized for rapid deployment with full specification compliance available via plugins.
 
 > **Advanced Features**: Complex configurations requiring full spec compliance should use plugin parsers via `argus.RegisterParser()`. See [docs/PARSERS.md](docs/PARSERS.md) for details.
 
 
 ## Core Framework
 
-### Universal Format Support
-Auto-detection and parsing of JSON, YAML, TOML, HCL (.hcl, .tf), INI, and Properties files without configuration.
+### ConfigWriter System
+Atomic configuration file management with type-safe operations across all supported formats:
 
-### Optimization Strategies
-- **Auto**: Adaptive strategy selection based on file count
-- **SingleEvent**: Ultra-low latency for 1-3 files (24.91ns processing)
-- **SmallBatch**: Balanced performance for 4-50 files (100% detection rate)
-- **LargeBatch**: High throughput for 50-1000+ files (4x unrolling, 10K files/sec)
+```go
+// Create writer with automatic format detection
+writer, err := argus.NewConfigWriter("config.yaml", argus.FormatYAML, config)
+if err != nil {
+    return err
+}
 
-### Audit & Compliance
-- **Tamper Detection**: Cryptographic checksums on every entry
-- **Standards Ready**: SOX, PCI-DSS, GDPR compatible logging
-- **Minimal Impact**: Cached timestamps for sub-microsecond overhead
+// Type-safe value operations (zero allocations)
+writer.SetValue("database.host", "localhost")
+writer.SetValue("database.port", 5432)
+writer.SetValue("debug", true)
+
+// Atomic write to disk
+if err := writer.WriteConfig(); err != nil {
+    return err
+}
+
+// Query operations
+host := writer.GetValue("database.host")       // 30ns, 0 allocs
+keys := writer.ListKeys("database")            // Lists all database.* keys
+exists := writer.DeleteValue("old.setting")   // Removes key if exists
+```
 
 ### Configuration Binding
-- **Zero Reflection**: Type-safe binding without reflection overhead
-- **Fluent API**: Clean, readable syntax with dot-notation keys
-- **High Performance**: 1,645,489 operations/second, 713.9ns for 15 bindings
-- **Type Safety**: Intelligent conversion with inline defaults
 
 ```go
 // Ultra-fast configuration binding - zero reflection
@@ -162,17 +190,9 @@ err := argus.BindFromConfig(config).
 
 **[Configuration Binding Guide →](./docs/CONFIG_BINDING.md)** | **[Full API Reference →](./docs/API.md)**
 
-## Use Cases
-
-- **Microservices Configuration**: Real-time config updates without service restarts
-- **Feature Flag Management**: Dynamic feature enabling/disabling  
-- **Database Connection Management**: Hot-swapping connection parameters
-- **Kubernetes ConfigMaps**: Automatic detection of mounted ConfigMap changes
-- **Security Policy Updates**: Real-time security configuration enforcement
 
 ## Observability & Integrations
 
-### OpenTelemetry Integration
 Professional OTEL tracing integration with zero core dependency pollution:
 
 ```go
@@ -187,31 +207,15 @@ wrapper := NewOTELAuditWrapper(auditLogger, tracer)
 wrapper.LogConfigChange("/etc/config.json", oldConfig, newConfig)
 ```
 
-**Key Features:**
-- **Async Tracing**: OTEL spans generated asynchronously (no performance impact)
-- **Rich Context**: Full audit context propagated to distributed traces
-- **Production Ready**: Stdout, Jaeger, OTLP exporters with proper resource metadata
-- **Zero Contamination**: Core library remains OTEL-free
-
 **[Complete OTEL Integration Example →](./examples/otel_integration/)**
 
 ## The Philosophy Behind Argus
 
-In Greek mythology, Argus Panoptes was the all-seeing giant with a hundred eyes, known for his unwavering vigilance and ability to watch over everything simultaneously. Unlike reactive systems that miss changes, Argus maintained constant awareness while remaining efficient and unobtrusive.
+Argus Panoptes was no ordinary guardian. While others slept, he watched. While others blinked, his hundred eyes remained ever vigilant. Hera chose him not for his strength, but for something rarer—his ability to see everything without ever growing weary.
 
-This embodies Argus' design philosophy: intelligent vigilance over configuration changes through universal format support and adaptive optimization. The framework provides comprehensive visibility into configuration state while adapting its monitoring strategy to current conditions. The audit system ensures complete accountability without sacrificing performance.
+The giant understood that true protection came not from reactive force, but from constant, intelligent awareness. He didn't chase threats after they appeared; he saw them coming from every direction simultaneously. His vigilance was not frantic or wasteful—each eye served a purpose, each moment of watching was deliberate.
 
-Argus doesn't just watch files—it understands configuration, adapting to your application's needs while maintaining the reliability and transparency that production systems demand.
-
-## Security & Quality
-
-Comprehensive security standards with automated validation:
-
-### Security Analysis
-```bash
-./scripts/security-check.sh  # Automated security scan
-gosec --exclude=G104,G306,G301 ./...  # Manual verification
-```
+This is the essence we've captured: vigilant awareness that never sleeps, intelligent observation that adapts without waste. Like the mythical guardian, Argus sees all formats, understands all changes, and maintains its watch with unwavering reliability.
 
 ### Unified Audit Configuration
 ```go
@@ -237,6 +241,7 @@ config := argus.AuditConfig{
 
 **Quick Links:**
 - **[Quick Start Guide](./docs/QUICK_START.md)** - Get running in 2 minutes
+- **[Orpheus CLI Integration](./docs/ORPHEUS_INTEGRATION.md)** - Complete CLI documentation and examples
 - **[Configuration Binding](./docs/CONFIG_BINDING.md)** - Ultra-fast zero-reflection binding system
 - **[API Reference](./docs/API.md)** - Complete API documentation  
 - **[Architecture Guide](./docs/ARCHITECTURE.md)** - Deep dive into dynamic configuration design
