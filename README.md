@@ -1,7 +1,7 @@
 # Argus — Dynamic Configuration Framework for Go
 ### an AGILira fragment
 
-High-performance configuration management library for Go applications with zero-allocation performance, universal format support (JSON, YAML, TOML, HCL, INI, Properties), and an ultra-fast CLI powered by [Orpheus](https://github.com/agilira/argus).
+High-performance configuration management library for Go applications with zero-allocation performance, universal format support (JSON, YAML, TOML, HCL, INI, Properties), and an ultra-fast CLI powered by [Orpheus](https://github.com/agilira/orpheus).
 
 [![CI/CD Pipeline](https://github.com/agilira/argus/actions/workflows/ci.yml/badge.svg)](https://github.com/agilira/argus/actions/workflows/ci.yml)
 [![Security](https://img.shields.io/badge/security-gosec-brightgreen.svg)](https://github.com/agilira/argus/actions/workflows/ci.yml)
@@ -15,7 +15,7 @@ High-performance configuration management library for Go applications with zero-
 ### Key Features
 - **Universal Format Support**: JSON, YAML, TOML, HCL, INI, Properties with auto-detection
 - **ConfigWriter System**: Atomic configuration file updates with type-safe operations
-- **Ultra-Fast CLI**: [Orpheus](https://github.com/agilira/argus)-powered CLI 7x-53x faster 
+- **Ultra-Fast CLI**: [Orpheus](https://github.com/agilira/orpheus)-powered CLI 7x-53x faster 
 - **Secure by Design**: Red-team tested against path traversal, injection, DoS and resource exhaustion attacks
 - **Zero-Allocation Design**: Pre-allocated buffers eliminate GC pressure in hot paths
 - **OpenTelemetry Ready**: Async tracing and metrics with zero contamination of core library
