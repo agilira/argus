@@ -21,7 +21,11 @@ func BenchmarkArgus_ProductionOverhead(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			b.Logf("Failed to remove temp dir: %v", err)
+		}
+	}()
 
 	configFile := filepath.Join(tempDir, "logger.json")
 	initialConfig := `{"level": "info", "output": "stdout", "format": "json"}`
@@ -84,19 +88,24 @@ func benchmarkWithArgusNoChanges(b *testing.B, configFile string) {
 	}
 
 	watcher := New(*config.WithDefaults())
-	defer watcher.Stop()
-
+	defer func() {
+		if err := watcher.Stop(); err != nil {
+			b.Logf("Failed to stop watcher: %v", err)
+		}
+	}()
 	// Config callback (viene chiamato solo su cambiamenti)
-	watcher.Watch(configFile, func(event ChangeEvent) {
+	if err := watcher.Watch(configFile, func(event ChangeEvent) {
 		configReloads.Add(1)
 		// Simulate config reload
 		time.Sleep(1 * time.Millisecond) // Cost of parsing config
-	})
+	}); err != nil {
+		b.Fatalf("Failed to watch config file: %v", err)
+	}
 
-	watcher.Start()
+	if err := watcher.Start(); err != nil {
+		b.Fatalf("Failed to start watcher: %v", err)
+	}
 	time.Sleep(10 * time.Millisecond) // Stabilization
-
-	// Simulate logging with Argus active in the background
 	logEntry := func(level string, message string) {
 		logCount.Add(1)
 		// Simulate the cost of a log entry (identical to baseline)
@@ -125,16 +134,24 @@ func benchmarkWithArgusChanges(b *testing.B, configFile string, changeInterval t
 	}
 
 	watcher := New(*config.WithDefaults())
-	defer watcher.Stop()
+	defer func() {
+		if err := watcher.Stop(); err != nil {
+			b.Logf("Failed to stop watcher: %v", err)
+		}
+	}()
 
 	// Config callback
-	watcher.Watch(configFile, func(event ChangeEvent) {
+	if err := watcher.Watch(configFile, func(event ChangeEvent) {
 		configReloads.Add(1)
 		// Simulate config reload (parsing JSON, validation, etc.)
 		time.Sleep(2 * time.Millisecond) // Cost of parsing config
-	})
+	}); err != nil {
+		b.Fatalf("Failed to watch config file: %v", err)
+	}
 
-	watcher.Start()
+	if err := watcher.Start(); err != nil {
+		b.Fatalf("Failed to start watcher: %v", err)
+	}
 
 	// Goroutine that simulates config changes every 5 seconds
 	stopChanges := make(chan bool)
@@ -149,7 +166,9 @@ func benchmarkWithArgusChanges(b *testing.B, configFile string, changeInterval t
 				counter++
 				newConfig := `{"level": "debug", "output": "file", "counter": ` +
 					string(rune('0'+counter%10)) + `}`
-				os.WriteFile(configFile, []byte(newConfig), 0644)
+				if err := os.WriteFile(configFile, []byte(newConfig), 0644); err != nil {
+					b.Logf("Failed to write config file: %v", err)
+				}
 			case <-stopChanges:
 				return
 			}
@@ -186,14 +205,22 @@ func benchmarkCPUOverhead(b *testing.B, configFile string) {
 	}
 
 	watcher := New(*config.WithDefaults())
-	defer watcher.Stop()
+	defer func() {
+		if err := watcher.Stop(); err != nil {
+			b.Logf("Failed to stop watcher: %v", err)
+		}
+	}()
 
 	var configChecks atomic.Int64
-	watcher.Watch(configFile, func(event ChangeEvent) {
+	if err := watcher.Watch(configFile, func(event ChangeEvent) {
 		configChecks.Add(1)
-	})
+	}); err != nil {
+		b.Fatalf("Failed to watch config file: %v", err)
+	}
 
-	watcher.Start()
+	if err := watcher.Start(); err != nil {
+		b.Fatalf("Failed to start watcher: %v", err)
+	}
 
 	// Misura CPU time prima
 	var m1 runtime.MemStats
@@ -230,7 +257,11 @@ func BenchmarkArgus_Every5Seconds(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			b.Logf("Failed to remove temp dir: %v", err)
+		}
+	}()
 
 	configFile := filepath.Join(tempDir, "config.json")
 	if err := os.WriteFile(configFile, []byte(`{"level": "info"}`), 0644); err != nil {
@@ -253,14 +284,22 @@ func benchmarkPollCostPer5Seconds(b *testing.B, configFile string) {
 	}
 
 	watcher := New(*config.WithDefaults())
-	defer watcher.Stop()
+	defer func() {
+		if err := watcher.Stop(); err != nil {
+			b.Logf("Failed to stop watcher: %v", err)
+		}
+	}()
 
 	var pollCount atomic.Int64
-	watcher.Watch(configFile, func(event ChangeEvent) {
+	if err := watcher.Watch(configFile, func(event ChangeEvent) {
 		pollCount.Add(1)
-	})
+	}); err != nil {
+		b.Fatalf("Failed to watch config file: %v", err)
+	}
 
-	watcher.Start()
+	if err := watcher.Start(); err != nil {
+		b.Fatalf("Failed to start watcher: %v", err)
+	}
 
 	b.ResetTimer()
 
@@ -286,16 +325,24 @@ func benchmarkConfigChangeCost(b *testing.B, configFile string) {
 	}
 
 	watcher := New(*config.WithDefaults())
-	defer watcher.Stop()
+	defer func() {
+		if err := watcher.Stop(); err != nil {
+			b.Logf("Failed to stop watcher: %v", err)
+		}
+	}()
 
 	var changeCount atomic.Int64
-	watcher.Watch(configFile, func(event ChangeEvent) {
+	if err := watcher.Watch(configFile, func(event ChangeEvent) {
 		changeCount.Add(1)
 		// Simulate realistic config parsing cost
 		time.Sleep(1 * time.Millisecond)
-	})
+	}); err != nil {
+		b.Fatalf("Failed to watch config file: %v", err)
+	}
 
-	watcher.Start()
+	if err := watcher.Start(); err != nil {
+		b.Fatalf("Failed to start watcher: %v", err)
+	}
 	time.Sleep(10 * time.Millisecond) // Stabilization
 
 	b.ResetTimer()
@@ -304,7 +351,9 @@ func benchmarkConfigChangeCost(b *testing.B, configFile string) {
 	for i := 0; i < b.N; i++ {
 		// Modifica config
 		newConfig := `{"level": "debug", "iteration": ` + string(rune('0'+(i%10))) + `}`
-		os.WriteFile(configFile, []byte(newConfig), 0644)
+		if err := os.WriteFile(configFile, []byte(newConfig), 0644); err != nil {
+			b.Logf("Failed to write config file: %v", err)
+		}
 
 		// Wait for it to be processed
 		time.Sleep(200 * time.Millisecond)

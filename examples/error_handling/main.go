@@ -1,10 +1,18 @@
 // Error Handling Example
 //
-// This example demonstrates comprehensive error handling strategies with Argus.
+// This example demonstrates comprehensive error handling strategies with Argus
+// using the go-errors library (https://github.com/agilira/go-errors) for
+// structured error handling with Argus error codes.
 //
-// Usage:
-//   cd examples/error_handling
-//   go run main.go
+// Features:
+// - Custom error handlers with go-errors integration
+// - Argus error code usage (ARGUS_INVALID_CONFIG, ARGUS_FILE_NOT_FOUND, etc.)
+// - Error wrapping and cause tracking
+// - Performance-optimized error handling
+//
+// Copyright (c) 2025 AGILira - A. Giordano
+// Series: an AGILira fragment
+// SPDX-License-Identifier: MPL-2.0
 
 package main
 
@@ -13,9 +21,11 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/agilira/argus"
+	"github.com/agilira/go-errors"
 )
 
 func main() {
@@ -43,7 +53,16 @@ func main() {
 	fmt.Println("\n4️⃣  Testing Default Error Handler:")
 	testDefaultErrorHandler(tempDir)
 
+	// Test 5: Custom Error Creation
+	testCustomErrorCreation()
+
 	fmt.Println("\n✅ Error handling demo completed!")
+	fmt.Println("\n💡 Key Features Demonstrated:")
+	fmt.Println("   • Structured error handling with go-errors")
+	fmt.Println("   • Error code checking and identification")
+	fmt.Println("   • Error wrapping and cause tracking")
+	fmt.Println("   • Custom error creation")
+	fmt.Println("   • Integration with Argus error handling")
 }
 
 func testCustomErrorHandler(tempDir string) {
@@ -53,9 +72,19 @@ func testCustomErrorHandler(tempDir string) {
 	validConfig := `{"service": "test", "port": 8080}`
 	os.WriteFile(configFile, []byte(validConfig), 0644)
 
-	// Create custom error handler (note the parameter order: err, filepath)
+	// Create custom error handler that demonstrates go-errors usage
 	errorHandler := func(err error, filepath string) {
 		fmt.Printf("   🔥 Custom Error Handler: File %s had error: %v\n", filepath, err)
+
+		// Demonstrate go-errors structured error handling
+		// go-errors implements the standard error interface
+		errorMsg := err.Error()
+		fmt.Printf("      📝 Error Message: %s\n", errorMsg)
+
+		// Check for specific error codes in the error message
+		if strings.Contains(errorMsg, "ARGUS_INVALID_CONFIG") {
+			fmt.Printf("      ✅ Identified as invalid config error\n")
+		}
 	}
 
 	// Create watcher with custom error handler using the utility function
@@ -91,6 +120,12 @@ func testFileNotFound(tempDir string) {
 	// Create custom error handler to catch file not found
 	errorHandler := func(err error, filepath string) {
 		fmt.Printf("   📁 Expected file not found error: %v\n", err)
+
+		// Demonstrate go-errors error code checking
+		errorMsg := err.Error()
+		if strings.Contains(errorMsg, "ARGUS_FILE_NOT_FOUND") {
+			fmt.Printf("      ✅ Correctly identified as file not found error\n")
+		}
 	}
 
 	config := argus.Config{
@@ -105,6 +140,10 @@ func testFileNotFound(tempDir string) {
 
 	if err != nil {
 		fmt.Printf("   ✅ Correctly caught watch error: %v\n", err)
+
+		// Demonstrate go-errors error code checking
+		errorMsg := err.Error()
+		fmt.Printf("      📝 Error Message: %s\n", errorMsg)
 	} else {
 		defer watcher.Stop()
 		time.Sleep(100 * time.Millisecond) // Give it time to trigger error handler
@@ -125,6 +164,13 @@ badly_formatted: {
 	// Error handler for parse errors
 	errorHandler := func(err error, filepath string) {
 		fmt.Printf("   🔧 Parse error as expected: %v\n", err)
+
+		// Demonstrate go-errors error code checking for parse errors
+		errorMsg := err.Error()
+		if strings.Contains(errorMsg, "INVALID_CONFIG") {
+			fmt.Printf("      ✅ Correctly identified as config parsing error\n")
+		}
+		fmt.Printf("      📝 Error Message: %s\n", errorMsg)
 	}
 
 	config := argus.Config{
@@ -138,6 +184,10 @@ badly_formatted: {
 
 	if err != nil {
 		fmt.Printf("   ✅ Watch setup completed with: %v\n", err)
+
+		// Demonstrate go-errors error code checking
+		errorMsg := err.Error()
+		fmt.Printf("      📝 Error Message: %s\n", errorMsg)
 	} else {
 		defer watcher.Stop()
 		// Give it time to process
@@ -161,9 +211,35 @@ func testDefaultErrorHandler(tempDir string) {
 
 	if err != nil {
 		fmt.Printf("   ✅ Watch error: %v\n", err)
+
+		// Demonstrate go-errors error code checking
+		errorMsg := err.Error()
+		fmt.Printf("      📝 Error Message: %s\n", errorMsg)
 	} else {
 		defer watcher.Stop()
 		// Give it time to process and show default error handling
 		time.Sleep(200 * time.Millisecond)
+	}
+}
+
+// Demonstrate creating custom errors with go-errors
+func testCustomErrorCreation() {
+	fmt.Println("\n5️⃣  Testing Custom Error Creation with go-errors:")
+
+	// Create a custom error using go-errors with Argus error codes
+	customErr := errors.New(argus.ErrCodeInvalidConfig, "This is a custom error for demonstration")
+
+	fmt.Printf("   🔧 Custom Error: %v\n", customErr)
+	fmt.Printf("      📝 Error Message: %s\n", customErr.Error())
+
+	// Demonstrate error wrapping with Argus error codes
+	wrappedErr := errors.Wrap(customErr, argus.ErrCodeWatcherStopped, "Wrapped the custom error")
+	fmt.Printf("   🔗 Wrapped Error: %v\n", wrappedErr)
+	fmt.Printf("      📝 Wrapped Message: %s\n", wrappedErr.Error())
+
+	// Demonstrate error code checking
+	errorMsg := wrappedErr.Error()
+	if strings.Contains(errorMsg, "ARGUS_WATCHER_STOPPED") {
+		fmt.Printf("      ✅ Correctly identified wrapped error code\n")
 	}
 }

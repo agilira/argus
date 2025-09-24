@@ -1,3 +1,11 @@
+// Package main demonstrates configuration binding using Argus.
+// This example shows how to bind configuration values from a generic map structure
+// to strongly typed Go variables, including error handling and performance benchmarking.
+//
+// Copyright (c) 2025 AGILira - A. Giordano
+// Series: an AGILira fragment
+// SPDX-License-Identifier: MPL-2.0
+
 package main
 
 import (
@@ -9,31 +17,32 @@ import (
 	"github.com/agilira/argus"
 )
 
-// Example configuration file content
+// exampleConfig is a sample configuration in JSON format for demonstration purposes.
 const exampleConfig = `{
-	"app": {
-		"name": "my-service",
-		"version": "1.0.0",
-		"debug": true
-	},
-	"server": {
-		"host": "localhost",
-		"port": 8080,
-		"timeout": "30s"
-	},
-	"database": {
-		"host": "db.example.com",
-		"port": 5432,
-		"ssl_mode": "require",
-		"pool": {
-			"max_connections": 20,
-			"idle_timeout": "5m"
-		}
-	}
+   "app": {
+	   "name": "my-service",
+	   "version": "1.0.0",
+	   "debug": true
+   },
+   "server": {
+	   "host": "localhost",
+	   "port": 8080,
+	   "timeout": "30s"
+   },
+   "database": {
+	   "host": "db.example.com",
+	   "port": 5432,
+	   "ssl_mode": "require",
+	   "pool": {
+		   "max_connections": 20,
+		   "idle_timeout": "5m"
+	   }
+   }
 }`
 
+// main demonstrates configuration binding, error handling, and performance benchmarking using Argus.
 func main() {
-	fmt.Println("🚀 Argus Ultra-Fast Config Binding Demo")
+	fmt.Println("Argus Configuration Binding Example")
 	fmt.Println("==========================================")
 
 	// Parse JSON configuration
@@ -62,20 +71,20 @@ func main() {
 		dbIdleTimeout time.Duration
 	)
 
-	// Bind configuration with ultra-fast performance
-	fmt.Println("\n📋 Binding configuration...")
+	// Bind configuration values to Go variables
+	fmt.Println("\nBinding configuration...")
 	start := time.Now()
 
 	err := argus.BindFromConfig(config).
-		// App bindings with defaults
+		// App bindings with default values
 		BindString(&appName, "app.name", "default-service").
 		BindString(&appVersion, "app.version", "0.0.1").
 		BindBool(&appDebug, "app.debug", false).
-		// Server bindings with defaults
+		// Server bindings with default values
 		BindString(&serverHost, "server.host", "0.0.0.0").
 		BindInt(&serverPort, "server.port", 3000).
 		BindDuration(&serverTimeout, "server.timeout", 10*time.Second).
-		// Database bindings with defaults
+		// Database bindings with default values
 		BindString(&dbHost, "database.host", "localhost").
 		BindInt(&dbPort, "database.port", 5432).
 		BindString(&dbSSLMode, "database.ssl_mode", "disable").
@@ -86,13 +95,13 @@ func main() {
 	duration := time.Since(start)
 
 	if err != nil {
-		log.Fatalf("❌ Binding failed: %v", err)
+		log.Fatalf("Binding failed: %v", err)
 	}
 
-	fmt.Printf("✅ Configuration bound in %v\n", duration)
+	fmt.Printf("Configuration bound in %v\n", duration)
 
-	// Display results
-	fmt.Println("\n📊 Configuration Results:")
+	// Display bound configuration values
+	fmt.Println("\nConfiguration Results:")
 	fmt.Println("=========================")
 	fmt.Printf("App Name:          %s\n", appName)
 	fmt.Printf("App Version:       %s\n", appVersion)
@@ -106,8 +115,8 @@ func main() {
 	fmt.Printf("DB Max Conns:      %d\n", dbMaxConns)
 	fmt.Printf("DB Idle Timeout:   %v\n", dbIdleTimeout)
 
-	// Demonstrate performance with repeated bindings
-	fmt.Println("\n🏎️  Performance Test:")
+	// Performance benchmark: repeated bindings
+	fmt.Println("\nPerformance Benchmark:")
 	fmt.Println("=====================")
 
 	const iterations = 10000
@@ -115,7 +124,7 @@ func main() {
 
 	start = time.Now()
 	for i := 0; i < iterations; i++ {
-		// Test variables for performance benchmark
+		// Variables for benchmark
 		var testName string
 		var testPort int
 		var testDebug bool
@@ -129,17 +138,17 @@ func main() {
 			Apply()
 
 		if err != nil {
-			log.Fatalf("Performance test failed: %v", err)
+			log.Fatalf("Performance benchmark failed: %v", err)
 		}
 	}
 	duration = time.Since(start)
 
-	fmt.Printf("✅ %d operations completed in %v\n", iterations, duration)
-	fmt.Printf("⚡ Average per operation: %v\n", duration/iterations)
-	fmt.Printf("🚀 Operations per second: %.0f\n", float64(iterations)/duration.Seconds())
+	fmt.Printf("%d operations completed in %v\n", iterations, duration)
+	fmt.Printf("Average per operation: %v\n", duration/iterations)
+	fmt.Printf("Operations per second: %.0f\n", float64(iterations)/duration.Seconds())
 
-	// Demonstrate error handling
-	fmt.Println("\n🔧 Error Handling Demo:")
+	// Error handling demonstration
+	fmt.Println("\nError Handling Demo:")
 	fmt.Println("========================")
 
 	invalidConfig := map[string]interface{}{
@@ -156,15 +165,11 @@ func main() {
 		Apply()
 
 	if err != nil {
-		fmt.Printf("✅ Error correctly detected: %v\n", err)
+		fmt.Printf("Error correctly detected: %v\n", err)
 	} else {
-		fmt.Println("❌ Expected error but got none")
+		fmt.Println("Expected error but got none")
 	}
 
-	fmt.Println("\n🎉 Demo completed successfully!")
-	fmt.Println("   - Zero reflection overhead")
-	fmt.Println("   - Type-safe bindings")
-	fmt.Println("   - Nested key support")
-	fmt.Println("   - Excellent performance")
-	fmt.Println("   - Clean, fluent API")
+	fmt.Println("\nDemo completed successfully.")
+	fmt.Println("All configuration bindings and error handling checks passed.")
 }

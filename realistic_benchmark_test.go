@@ -22,7 +22,11 @@ func BenchmarkRealWorldArchitectures(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			b.Logf("Failed to remove tempDir: %v", err)
+		}
+	}()
 
 	// Create test file
 	testFile := filepath.Join(tempDir, "config.json")
@@ -155,7 +159,11 @@ func BenchmarkEndToEnd_RealFileSystem(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			b.Logf("Failed to remove tempDir: %v", err)
+		}
+	}()
 
 	testFile := filepath.Join(tempDir, "config.json")
 	initialContent := `{"benchmark": true}`
@@ -180,7 +188,9 @@ func benchmarkTraditionalFileWatcher(b *testing.B, testFile string) {
 	for i := 0; i < b.N; i++ {
 		// Modify file
 		content := []byte(`{"benchmark": true, "iteration": ` + string(rune(i)) + `}`)
-		os.WriteFile(testFile, content, 0644)
+		if err := os.WriteFile(testFile, content, 0644); err != nil {
+			b.Logf("Failed to write file: %v", err)
+		}
 
 		// Traditional polling
 		stat, err := os.Stat(testFile)
@@ -198,21 +208,31 @@ func benchmarkArgusComplete(b *testing.B, testFile string) {
 	}
 
 	watcher := New(*config.WithDefaults())
-	defer watcher.Stop()
+	defer func() {
+		if err := watcher.Stop(); err != nil {
+			b.Logf("Failed to stop watcher: %v", err)
+		}
+	}()
 
 	var eventCount atomic.Int64
 	callback := func(event ChangeEvent) {
 		eventCount.Add(1)
 	}
 
-	watcher.Watch(testFile, callback)
-	watcher.Start()
+	if err := watcher.Watch(testFile, callback); err != nil {
+		b.Fatalf("Failed to watch test file: %v", err)
+	}
+	if err := watcher.Start(); err != nil {
+		b.Fatalf("Failed to start watcher: %v", err)
+	}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		// Modify real file
 		content := []byte(`{"benchmark": true, "iteration": ` + string(rune(i)) + `}`)
-		os.WriteFile(testFile, content, 0644)
+		if err := os.WriteFile(testFile, content, 0644); err != nil {
+			b.Logf("Failed to write file: %v", err)
+		}
 
 		// Small pause to allow detection
 		time.Sleep(2 * time.Millisecond)

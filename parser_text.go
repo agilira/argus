@@ -24,7 +24,11 @@ func parseHCL(data []byte) (map[string]interface{}, error) {
 	content := string(data)
 
 	// Parse HCL using a simple state machine approach
-	return parseHCLContent(content, config)
+	   parsed, err := parseHCLContent(content, config)
+	   if err != nil {
+		   return nil, err
+	   }
+	   return parsed, nil
 }
 
 // parseHCLContent processes HCL content and builds the configuration map.
@@ -55,7 +59,9 @@ func parseHCLContent(content string, config map[string]interface{}) (map[string]
 
 			// Parse the block content recursively
 			blockConfig := make(map[string]interface{})
-			parseHCLContent(blockContent, blockConfig)
+			   if _, err := parseHCLContent(blockContent, blockConfig); err != nil {
+				   return nil, err
+			   }
 			config[blockName] = blockConfig
 
 			i = endIndex + 1

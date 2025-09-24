@@ -20,7 +20,11 @@ func TestGenericConfigWatcher(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.Remove(tmpfile.Name())
+	defer func() {
+		if err := os.Remove(tmpfile.Name()); err != nil {
+			t.Logf("Failed to remove tmpfile: %v", err)
+		}
+	}()
 
 	// Initial config
 	config := map[string]interface{}{
@@ -28,8 +32,12 @@ func TestGenericConfigWatcher(t *testing.T) {
 		"port":  8080,
 	}
 	data, _ := json.Marshal(config)
-	tmpfile.Write(data)
-	tmpfile.Close()
+	if _, err := tmpfile.Write(data); err != nil {
+		t.Logf("Failed to write to tmpfile: %v", err)
+	}
+	if err := tmpfile.Close(); err != nil {
+		t.Logf("Failed to close tmpfile: %v", err)
+	}
 
 	// Track callback calls with mutex protection
 	var mu sync.Mutex
@@ -69,15 +77,23 @@ func TestGenericConfigWatcher(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer watcher.Stop()
+	defer func() {
+		if err := watcher.Stop(); err != nil {
+			t.Logf("Failed to stop watcher: %v", err)
+		}
+	}()
 
-	watcher.Start()
+	if err := watcher.Start(); err != nil {
+		t.Fatalf("Failed to start watcher: %v", err)
+	}
 
 	// Update the config file
 	config["level"] = "debug"
 	config["port"] = 9000
 	data, _ = json.Marshal(config)
-	os.WriteFile(tmpfile.Name(), data, 0644)
+	if err := os.WriteFile(tmpfile.Name(), data, 0644); err != nil {
+		t.Logf("Failed to write file: %v", err)
+	}
 
 	// Wait longer for the change to be detected (our polling is every 50ms)
 	time.Sleep(200 * time.Millisecond)
@@ -107,10 +123,18 @@ func TestSimpleFileWatcher(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.Remove(tmpfile.Name())
+	defer func() {
+		if err := os.Remove(tmpfile.Name()); err != nil {
+			t.Logf("Failed to remove tmpfile: %v", err)
+		}
+	}()
 
-	tmpfile.WriteString("initial content")
-	tmpfile.Close()
+	if _, err := tmpfile.WriteString("initial content"); err != nil {
+		t.Logf("Failed to write string to tmpfile: %v", err)
+	}
+	if err := tmpfile.Close(); err != nil {
+		t.Logf("Failed to close tmpfile: %v", err)
+	}
 
 	// Track callback calls with mutex protection
 	var mu sync.Mutex
@@ -138,15 +162,23 @@ func TestSimpleFileWatcher(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer watcher.Stop()
+	defer func() {
+		if err := watcher.Stop(); err != nil {
+			t.Logf("Failed to stop watcher: %v", err)
+		}
+	}()
 
-	watcher.Start()
+	if err := watcher.Start(); err != nil {
+		t.Fatalf("Failed to start watcher: %v", err)
+	}
 
 	// Give initial time for setup (important in CI)
 	time.Sleep(150 * time.Millisecond)
 
 	// Update the file
-	os.WriteFile(tmpfile.Name(), []byte("updated content"), 0644)
+	if err := os.WriteFile(tmpfile.Name(), []byte("updated content"), 0644); err != nil {
+		t.Logf("Failed to write file: %v", err)
+	}
 
 	// Wait with retry logic for CI environments
 	maxWait := 10 // 10 attempts of 100ms = 1 second max

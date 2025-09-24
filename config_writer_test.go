@@ -97,7 +97,9 @@ func TestConfigWriterAtomicWrite(t *testing.T) {
 		t.Fatalf("Failed to create ConfigWriter: %v", err)
 	}
 
-	writer.SetValue("initial", "value")
+	if err := writer.SetValue("initial", "value"); err != nil {
+		t.Logf("Failed to set value: %v", err)
+	}
 	err = writer.WriteConfig()
 	if err != nil {
 		t.Fatalf("Failed to write initial config: %v", err)
@@ -110,7 +112,9 @@ func TestConfigWriterAtomicWrite(t *testing.T) {
 	}
 
 	// Update existing writer instead of creating new one
-	writer.SetValue("updated", "value")
+	if err := writer.SetValue("updated", "value"); err != nil {
+		t.Logf("Failed to set value: %v", err)
+	}
 	err = writer.WriteConfig()
 	if err != nil {
 		t.Fatalf("Failed to write updated config: %v", err)
@@ -158,7 +162,9 @@ func TestConfigWriterErrorHandling(t *testing.T) {
 		t.Fatalf("Failed to create ConfigWriter: %v", err)
 	}
 
-	writer.SetValue("test", "value")
+	if err := writer.SetValue("test", "value"); err != nil {
+		t.Logf("Failed to set value: %v", err)
+	}
 	err = writer.WriteConfig()
 	if err != nil {
 		t.Errorf("YAML format should be supported: %v", err)
@@ -166,7 +172,9 @@ func TestConfigWriterErrorHandling(t *testing.T) {
 
 	// Test unsupported format by using FormatUnknown
 	// First, make sure there are changes to force serialization
-	writer.SetValue("force_change", "trigger_serialization")
+	if err := writer.SetValue("force_change", "trigger_serialization"); err != nil {
+		t.Logf("Failed to set value: %v", err)
+	}
 	writer.format = FormatUnknown
 	err = writer.WriteConfig()
 	if err == nil {
@@ -188,7 +196,9 @@ func TestConfigWriterBufferReuse(t *testing.T) {
 	initialCap := cap(writer.valueBuffer)
 
 	// Set a value that should fit in existing buffer
-	writer.SetValue("small", "value")
+	if err := writer.SetValue("small", "value"); err != nil {
+		t.Logf("Failed to set value: %v", err)
+	}
 	err = writer.WriteConfig()
 	if err != nil {
 		t.Fatalf("Failed to write config: %v", err)

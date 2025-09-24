@@ -19,7 +19,11 @@ func TestBoreasLite_PathLimits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			t.Logf("Failed to remove tempDir: %v", err)
+		}
+	}()
 
 	testFile := filepath.Join(tempDir, "test.json")
 	t.Logf("Testing with path: %s (len=%d)", testFile, len(testFile))
@@ -31,7 +35,11 @@ func TestBoreasLite_PathLimits(t *testing.T) {
 		OptimizationStrategy: OptimizationSingleEvent, // Strategy for single file test
 	}
 	watcher := New(*config.WithDefaults())
-	defer watcher.Stop()
+	defer func() {
+		if err := watcher.Stop(); err != nil {
+			t.Logf("Failed to stop watcher: %v", err)
+		}
+	}()
 
 	var events []ChangeEvent
 
@@ -42,7 +50,9 @@ func TestBoreasLite_PathLimits(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	watcher.Start()
+	if err := watcher.Start(); err != nil {
+		t.Fatalf("Failed to start watcher: %v", err)
+	}
 	time.Sleep(100 * time.Millisecond)
 
 	t.Logf("Watcher started, now creating file...")

@@ -111,12 +111,15 @@ var configMapPool = sync.Pool{
 // getConfigMap gets a map from the pool and clears it for reuse.
 // Part of the memory optimization system to reduce allocations during parsing.
 func getConfigMap() map[string]interface{} {
-	config := configMapPool.Get().(map[string]interface{})
-	// Clear the map for reuse
-	for k := range config {
-		delete(config, k)
+	if config, ok := configMapPool.Get().(map[string]interface{}); ok {
+		// Clear the map for reuse
+		for k := range config {
+			delete(config, k)
+		}
+		return config
 	}
-	return config
+	// Fallback if type assertion fails
+	return make(map[string]interface{})
 }
 
 // putConfigMap returns a map to the pool for reuse.

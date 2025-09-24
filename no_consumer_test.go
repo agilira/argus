@@ -20,7 +20,11 @@ func BenchmarkArgus_NoConsumer(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			b.Logf("Failed to remove tempDir: %v", err)
+		}
+	}()
 
 	configFile := filepath.Join(tempDir, "logger.json")
 	initialConfig := `{"level": "info", "output": "stdout", "format": "json"}`
@@ -38,11 +42,20 @@ func BenchmarkArgus_NoConsumer(b *testing.B) {
 	}
 
 	watcher := New(*config.WithDefaults())
-	defer watcher.Stop()
+	defer func() {
+		if err := watcher.Stop(); err != nil {
+			b.Logf("Failed to stop watcher: %v", err)
+		}
+	}()
 
-	watcher.Watch(configFile, func(event ChangeEvent) {
+	if err := watcher.Watch(configFile, func(event ChangeEvent) {
 		// Empty callback
-	})
+	}); err != nil {
+		b.Fatalf("Failed to watch config file: %v", err)
+	}
+	if err != nil {
+		b.Fatalf("Failed to watch configFile: %v", err)
+	}
 
 	// NO watcher.Start() - no consumer in background
 	time.Sleep(10 * time.Millisecond)

@@ -50,7 +50,11 @@ func TestErrorHandler_FileReadError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create watcher: %v", err)
 	}
-	defer watcher.Stop()
+	defer func() {
+		if err := watcher.Stop(); err != nil {
+			t.Logf("Failed to stop watcher: %v", err)
+		}
+	}()
 
 	// The watcher should already be started since UniversalConfigWatcherWithConfig auto-starts
 	// Wait for initial setup
@@ -84,8 +88,12 @@ func TestErrorHandler_FileReadError(t *testing.T) {
 
 	// Restore permissions at the end for cleanup
 	defer func() {
-		os.Chmod(configPath, 0644)
-		os.Remove(configPath)
+		if err := os.Chmod(configPath, 0644); err != nil {
+			t.Logf("Failed to restore file permissions: %v", err)
+		}
+		if err := os.Remove(configPath); err != nil {
+			t.Logf("Failed to remove config file: %v", err)
+		}
 	}()
 
 	// Trigger a change by updating file timestamp via touch
@@ -94,9 +102,15 @@ func TestErrorHandler_FileReadError(t *testing.T) {
 
 	// Use a more direct approach: temporarily restore write permission,
 	// modify content, then remove all permissions again
-	os.Chmod(configPath, 0644)
-	os.WriteFile(configPath, []byte(`{"test": "modified"}`), 0644)
-	os.Chmod(configPath, 0000) // Back to no permissions
+	if err := os.Chmod(configPath, 0644); err != nil {
+		t.Logf("Failed to restore write permission: %v", err)
+	}
+	if err := os.WriteFile(configPath, []byte(`{"test": "modified"}`), 0644); err != nil {
+		t.Logf("Failed to modify config file: %v", err)
+	}
+	if err := os.Chmod(configPath, 0000); err != nil {
+		t.Logf("Failed to remove permissions again: %v", err)
+	}
 
 	// Wait for error to be captured with extended retry logic for CI
 	maxRetries := 20 // Extended for macOS CI timing
@@ -178,7 +192,11 @@ func TestErrorHandler_ParseError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create watcher: %v", err)
 	}
-	defer watcher.Stop()
+	defer func() {
+		if err := watcher.Stop(); err != nil {
+			t.Logf("Failed to stop watcher: %v", err)
+		}
+	}()
 
 	// Write invalid JSON
 	if err := os.WriteFile(configPath, []byte(`{"test": invalid_json`), 0644); err != nil {
@@ -220,7 +238,11 @@ func TestErrorHandler_DefaultBehavior(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create watcher: %v", err)
 	}
-	defer watcher.Stop()
+	defer func() {
+		if err := watcher.Stop(); err != nil {
+			t.Logf("Failed to stop watcher: %v", err)
+		}
+	}()
 
 	// Write invalid JSON to trigger error
 	if err := os.WriteFile(configPath, []byte(`{"test": invalid`), 0644); err != nil {
@@ -259,7 +281,11 @@ func TestErrorHandler_StatError(t *testing.T) {
 	if err := watcher.Start(); err != nil {
 		t.Fatalf("Failed to start watcher: %v", err)
 	}
-	defer watcher.Stop()
+	defer func() {
+		if err := watcher.Stop(); err != nil {
+			t.Logf("Failed to stop watcher: %v", err)
+		}
+	}()
 
 	// Create a file first
 	if err := os.WriteFile(configPath, []byte(`{"test": true}`), 0644); err != nil {
@@ -283,7 +309,11 @@ func TestErrorHandler_StatError(t *testing.T) {
 	if err := os.Mkdir(configPath, 0755); err != nil {
 		t.Fatalf("Failed to create directory: %v", err)
 	}
-	defer os.RemoveAll(configPath)
+	defer func() {
+		if err := os.RemoveAll(configPath); err != nil {
+			t.Logf("Failed to cleanup configPath: %v", err)
+		}
+	}()
 
 	// Change the directory to make it inaccessible (permission denied)
 	if err := os.Chmod(configPath, 0000); err != nil {

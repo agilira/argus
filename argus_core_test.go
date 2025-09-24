@@ -104,7 +104,9 @@ func (h *testHelper) createWatcher() *Watcher {
 	watcher := New(config)
 	h.cleanup = append(h.cleanup, func() {
 		if watcher.IsRunning() {
-			watcher.Stop()
+			if err := watcher.Stop(); err != nil {
+				h.t.Errorf("Failed to stop watcher: %v", err)
+			}
 		}
 	})
 
@@ -157,7 +159,9 @@ func (h *testHelper) Close() {
 
 	// Remove temp directory
 	if h.tempDir != "" {
-		os.RemoveAll(h.tempDir)
+		if err := os.RemoveAll(h.tempDir); err != nil {
+			h.t.Errorf("Failed to remove tempDir: %v", err)
+		}
 	}
 }
 
@@ -382,7 +386,9 @@ func TestWatcher_CacheBehaviorAndTTL(t *testing.T) {
 	watcher := New(config)
 	defer func() {
 		if watcher.IsRunning() {
-			watcher.Stop()
+			if err := watcher.Stop(); err != nil {
+				t.Logf("Failed to stop watcher: %v", err)
+			}
 		}
 	}()
 
@@ -655,7 +661,9 @@ func TestWatcher_ErrorConditions(t *testing.T) {
 			t.Error("Second start should return error")
 		}
 
-		watcher.Stop()
+		if err := watcher.Stop(); err != nil {
+			t.Logf("Failed to stop watcher: %v", err)
+		}
 	})
 
 	t.Run("stop_without_start", func(t *testing.T) {

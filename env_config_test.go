@@ -44,12 +44,16 @@ func setupTestEnv(t *testing.T) {
 	}
 
 	for key, value := range envVars {
-		os.Setenv(key, value)
+		if err := os.Setenv(key, value); err != nil {
+			t.Logf("Failed to set env var %s: %v", key, err)
+		}
 	}
 
 	t.Cleanup(func() {
 		for key := range envVars {
-			os.Unsetenv(key)
+			if err := os.Unsetenv(key); err != nil {
+				t.Logf("Failed to unset env var %s: %v", key, err)
+			}
 		}
 	})
 }
@@ -108,7 +112,9 @@ func TestLoadConfigFromEnvWithDefaults(t *testing.T) {
 	}
 
 	for _, key := range envVars {
-		os.Unsetenv(key)
+		if err := os.Unsetenv(key); err != nil {
+			t.Logf("Failed to unset env var %s: %v", key, err)
+		}
 	}
 
 	// Load configuration with defaults
@@ -133,12 +139,20 @@ func TestLoadConfigFromEnvWithDefaults(t *testing.T) {
 
 func TestLoadConfigMultiSource(t *testing.T) {
 	// Set some environment variables
-	os.Setenv("ARGUS_POLL_INTERVAL", "8s")
-	os.Setenv("ARGUS_AUDIT_ENABLED", "true")
+	if err := os.Setenv("ARGUS_POLL_INTERVAL", "8s"); err != nil {
+		t.Fatalf("Failed to set ARGUS_POLL_INTERVAL: %v", err)
+	}
+	if err := os.Setenv("ARGUS_AUDIT_ENABLED", "true"); err != nil {
+		t.Fatalf("Failed to set ARGUS_AUDIT_ENABLED: %v", err)
+	}
 
 	defer func() {
-		os.Unsetenv("ARGUS_POLL_INTERVAL")
-		os.Unsetenv("ARGUS_AUDIT_ENABLED")
+		if err := os.Unsetenv("ARGUS_POLL_INTERVAL"); err != nil {
+			t.Errorf("Failed to unset ARGUS_POLL_INTERVAL: %v", err)
+		}
+		if err := os.Unsetenv("ARGUS_AUDIT_ENABLED"); err != nil {
+			t.Errorf("Failed to unset ARGUS_AUDIT_ENABLED: %v", err)
+		}
 	}()
 
 	// Load multi-source configuration (no file exists)
@@ -183,8 +197,14 @@ func TestOptimizationStrategyParsing(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.envValue, func(t *testing.T) {
-			os.Setenv("ARGUS_OPTIMIZATION_STRATEGY", tc.envValue)
-			defer os.Unsetenv("ARGUS_OPTIMIZATION_STRATEGY")
+			if err := os.Setenv("ARGUS_OPTIMIZATION_STRATEGY", tc.envValue); err != nil {
+				t.Logf("Failed to set ARGUS_OPTIMIZATION_STRATEGY: %v", err)
+			}
+			defer func() {
+				if err := os.Unsetenv("ARGUS_OPTIMIZATION_STRATEGY"); err != nil {
+					t.Logf("Failed to unset ARGUS_OPTIMIZATION_STRATEGY: %v", err)
+				}
+			}()
 
 			config, err := LoadConfigFromEnv()
 			if err != nil {
@@ -217,11 +237,19 @@ func TestAuditLevelParsing(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.envValue, func(t *testing.T) {
-			os.Setenv("ARGUS_AUDIT_MIN_LEVEL", tc.envValue)
-			os.Setenv("ARGUS_AUDIT_ENABLED", "true")
+			if err := os.Setenv("ARGUS_AUDIT_MIN_LEVEL", tc.envValue); err != nil {
+				t.Logf("Failed to set ARGUS_AUDIT_MIN_LEVEL: %v", err)
+			}
+			if err := os.Setenv("ARGUS_AUDIT_ENABLED", "true"); err != nil {
+				t.Logf("Failed to set ARGUS_AUDIT_ENABLED: %v", err)
+			}
 			defer func() {
-				os.Unsetenv("ARGUS_AUDIT_MIN_LEVEL")
-				os.Unsetenv("ARGUS_AUDIT_ENABLED")
+				if err := os.Unsetenv("ARGUS_AUDIT_MIN_LEVEL"); err != nil {
+					t.Logf("Failed to unset ARGUS_AUDIT_MIN_LEVEL: %v", err)
+				}
+				if err := os.Unsetenv("ARGUS_AUDIT_ENABLED"); err != nil {
+					t.Logf("Failed to unset ARGUS_AUDIT_ENABLED: %v", err)
+				}
 			}()
 
 			config, err := LoadConfigFromEnv()
@@ -255,8 +283,14 @@ func TestParseBool(t *testing.T) {
 
 func TestGetEnvHelpers(t *testing.T) {
 	// Test GetEnvWithDefault
-	os.Setenv("TEST_STRING", "testvalue")
-	defer os.Unsetenv("TEST_STRING")
+	if err := os.Setenv("TEST_STRING", "testvalue"); err != nil {
+		t.Logf("Failed to set TEST_STRING: %v", err)
+	}
+	defer func() {
+		if err := os.Unsetenv("TEST_STRING"); err != nil {
+			t.Logf("Failed to unset TEST_STRING: %v", err)
+		}
+	}()
 
 	if result := GetEnvWithDefault("TEST_STRING", "default"); result != "testvalue" {
 		t.Errorf("Expected 'testvalue', got %q", result)
@@ -267,8 +301,14 @@ func TestGetEnvHelpers(t *testing.T) {
 	}
 
 	// Test GetEnvDurationWithDefault
-	os.Setenv("TEST_DURATION", "30s")
-	defer os.Unsetenv("TEST_DURATION")
+	if err := os.Setenv("TEST_DURATION", "30s"); err != nil {
+		t.Logf("Failed to set TEST_DURATION: %v", err)
+	}
+	defer func() {
+		if err := os.Unsetenv("TEST_DURATION"); err != nil {
+			t.Logf("Failed to unset TEST_DURATION: %v", err)
+		}
+	}()
 
 	if result := GetEnvDurationWithDefault("TEST_DURATION", time.Minute); result != 30*time.Second {
 		t.Errorf("Expected 30s, got %v", result)
@@ -279,8 +319,14 @@ func TestGetEnvHelpers(t *testing.T) {
 	}
 
 	// Test GetEnvIntWithDefault
-	os.Setenv("TEST_INT", "42")
-	defer os.Unsetenv("TEST_INT")
+	if err := os.Setenv("TEST_INT", "42"); err != nil {
+		t.Logf("Failed to set TEST_INT: %v", err)
+	}
+	defer func() {
+		if err := os.Unsetenv("TEST_INT"); err != nil {
+			t.Logf("Failed to unset TEST_INT: %v", err)
+		}
+	}()
 
 	if result := GetEnvIntWithDefault("TEST_INT", 100); result != 42 {
 		t.Errorf("Expected 42, got %d", result)
@@ -291,8 +337,14 @@ func TestGetEnvHelpers(t *testing.T) {
 	}
 
 	// Test GetEnvBoolWithDefault
-	os.Setenv("TEST_BOOL", "true")
-	defer os.Unsetenv("TEST_BOOL")
+	if err := os.Setenv("TEST_BOOL", "true"); err != nil {
+		t.Logf("Failed to set TEST_BOOL: %v", err)
+	}
+	defer func() {
+		if err := os.Unsetenv("TEST_BOOL"); err != nil {
+			t.Logf("Failed to unset TEST_BOOL: %v", err)
+		}
+	}()
 
 	if result := GetEnvBoolWithDefault("TEST_BOOL", false); !result {
 		t.Error("Expected true, got false")
@@ -305,8 +357,14 @@ func TestGetEnvHelpers(t *testing.T) {
 
 func TestInvalidEnvironmentValues(t *testing.T) {
 	// Test invalid duration
-	os.Setenv("ARGUS_POLL_INTERVAL", "invalid-duration")
-	defer os.Unsetenv("ARGUS_POLL_INTERVAL")
+	if err := os.Setenv("ARGUS_POLL_INTERVAL", "invalid-duration"); err != nil {
+		t.Logf("Failed to set ARGUS_POLL_INTERVAL: %v", err)
+	}
+	defer func() {
+		if err := os.Unsetenv("ARGUS_POLL_INTERVAL"); err != nil {
+			t.Logf("Failed to unset ARGUS_POLL_INTERVAL: %v", err)
+		}
+	}()
 
 	_, err := LoadConfigFromEnv()
 	if err == nil {
@@ -314,9 +372,17 @@ func TestInvalidEnvironmentValues(t *testing.T) {
 	}
 
 	// Test invalid integer
-	os.Unsetenv("ARGUS_POLL_INTERVAL")
-	os.Setenv("ARGUS_MAX_WATCHED_FILES", "not-a-number")
-	defer os.Unsetenv("ARGUS_MAX_WATCHED_FILES")
+	if err := os.Unsetenv("ARGUS_POLL_INTERVAL"); err != nil {
+		t.Logf("Failed to unset ARGUS_POLL_INTERVAL: %v", err)
+	}
+	if err := os.Setenv("ARGUS_MAX_WATCHED_FILES", "not-a-number"); err != nil {
+		t.Logf("Failed to set ARGUS_MAX_WATCHED_FILES: %v", err)
+	}
+	defer func() {
+		if err := os.Unsetenv("ARGUS_MAX_WATCHED_FILES"); err != nil {
+			t.Logf("Failed to unset ARGUS_MAX_WATCHED_FILES: %v", err)
+		}
+	}()
 
 	_, err = LoadConfigFromEnv()
 	if err == nil {
@@ -324,9 +390,17 @@ func TestInvalidEnvironmentValues(t *testing.T) {
 	}
 
 	// Test invalid optimization strategy
-	os.Unsetenv("ARGUS_MAX_WATCHED_FILES")
-	os.Setenv("ARGUS_OPTIMIZATION_STRATEGY", "invalid-strategy")
-	defer os.Unsetenv("ARGUS_OPTIMIZATION_STRATEGY")
+	if err := os.Unsetenv("ARGUS_MAX_WATCHED_FILES"); err != nil {
+		t.Logf("Failed to unset ARGUS_MAX_WATCHED_FILES: %v", err)
+	}
+	if err := os.Setenv("ARGUS_OPTIMIZATION_STRATEGY", "invalid-strategy"); err != nil {
+		t.Logf("Failed to set ARGUS_OPTIMIZATION_STRATEGY: %v", err)
+	}
+	defer func() {
+		if err := os.Unsetenv("ARGUS_OPTIMIZATION_STRATEGY"); err != nil {
+			t.Logf("Failed to unset ARGUS_OPTIMIZATION_STRATEGY: %v", err)
+		}
+	}()
 
 	_, err = LoadConfigFromEnv()
 	if err == nil {
@@ -344,7 +418,9 @@ func TestEnvConfigLoadRemoteConfigEdgeCases(t *testing.T) {
 		"ARGUS_REMOTE_HEADERS",
 	}
 	for _, v := range remoteVars {
-		os.Unsetenv(v)
+		if err := os.Unsetenv(v); err != nil {
+			t.Logf("Failed to unset env var %s: %v", v, err)
+		}
 	}
 
 	// Test with all remote vars unset (should not fail)
@@ -355,8 +431,14 @@ func TestEnvConfigLoadRemoteConfigEdgeCases(t *testing.T) {
 	}
 
 	// Test with invalid duration format
-	os.Setenv("ARGUS_REMOTE_INTERVAL", "invalid-duration")
-	defer os.Unsetenv("ARGUS_REMOTE_INTERVAL")
+	if err := os.Setenv("ARGUS_REMOTE_INTERVAL", "invalid-duration"); err != nil {
+		t.Logf("Failed to set ARGUS_REMOTE_INTERVAL: %v", err)
+	}
+	defer func() {
+		if err := os.Unsetenv("ARGUS_REMOTE_INTERVAL"); err != nil {
+			t.Logf("Failed to unset ARGUS_REMOTE_INTERVAL: %v", err)
+		}
+	}()
 
 	envConfig = &EnvConfig{}
 	err = loadRemoteConfig(envConfig)
@@ -365,8 +447,14 @@ func TestEnvConfigLoadRemoteConfigEdgeCases(t *testing.T) {
 	}
 
 	// Test with invalid timeout format
-	os.Setenv("ARGUS_REMOTE_TIMEOUT", "not-a-duration")
-	defer os.Unsetenv("ARGUS_REMOTE_TIMEOUT")
+	if err := os.Setenv("ARGUS_REMOTE_TIMEOUT", "not-a-duration"); err != nil {
+		t.Logf("Failed to set ARGUS_REMOTE_TIMEOUT: %v", err)
+	}
+	defer func() {
+		if err := os.Unsetenv("ARGUS_REMOTE_TIMEOUT"); err != nil {
+			t.Logf("Failed to unset ARGUS_REMOTE_TIMEOUT: %v", err)
+		}
+	}()
 
 	envConfig = &EnvConfig{}
 	err = loadRemoteConfig(envConfig)
@@ -375,10 +463,18 @@ func TestEnvConfigLoadRemoteConfigEdgeCases(t *testing.T) {
 	}
 
 	// Test with valid values
-	os.Setenv("ARGUS_REMOTE_URL", "http://example.com/config")
-	os.Setenv("ARGUS_REMOTE_INTERVAL", "30s")
-	os.Setenv("ARGUS_REMOTE_TIMEOUT", "10s")
-	os.Setenv("ARGUS_REMOTE_HEADERS", "Authorization: Bearer token")
+	if err := os.Setenv("ARGUS_REMOTE_URL", "http://example.com/config"); err != nil {
+		t.Logf("Failed to set ARGUS_REMOTE_URL: %v", err)
+	}
+	if err := os.Setenv("ARGUS_REMOTE_INTERVAL", "30s"); err != nil {
+		t.Logf("Failed to set ARGUS_REMOTE_INTERVAL: %v", err)
+	}
+	if err := os.Setenv("ARGUS_REMOTE_TIMEOUT", "10s"); err != nil {
+		t.Logf("Failed to set ARGUS_REMOTE_TIMEOUT: %v", err)
+	}
+	if err := os.Setenv("ARGUS_REMOTE_HEADERS", "Authorization: Bearer token"); err != nil {
+		t.Logf("Failed to set ARGUS_REMOTE_HEADERS: %v", err)
+	}
 
 	envConfig = &EnvConfig{}
 	err = loadRemoteConfig(envConfig)
@@ -409,7 +505,9 @@ func TestEnvConfigLoadValidationConfigEdgeCases(t *testing.T) {
 		"ARGUS_VALIDATION_STRICT",
 	}
 	for _, v := range validationVars {
-		os.Unsetenv(v)
+		if err := os.Unsetenv(v); err != nil {
+			t.Logf("Failed to unset env var %s: %v", v, err)
+		}
 	}
 
 	// Test with all validation vars unset
@@ -420,8 +518,14 @@ func TestEnvConfigLoadValidationConfigEdgeCases(t *testing.T) {
 	}
 
 	// Test with invalid boolean values
-	os.Setenv("ARGUS_VALIDATION_ENABLED", "maybe")
-	defer os.Unsetenv("ARGUS_VALIDATION_ENABLED")
+	if err := os.Setenv("ARGUS_VALIDATION_ENABLED", "maybe"); err != nil {
+		t.Logf("Failed to set ARGUS_VALIDATION_ENABLED: %v", err)
+	}
+	defer func() {
+		if err := os.Unsetenv("ARGUS_VALIDATION_ENABLED"); err != nil {
+			t.Logf("Failed to unset ARGUS_VALIDATION_ENABLED: %v", err)
+		}
+	}()
 
 	envConfig = &EnvConfig{}
 	err = loadValidationConfig(envConfig)
@@ -430,9 +534,15 @@ func TestEnvConfigLoadValidationConfigEdgeCases(t *testing.T) {
 	}
 
 	// Test with valid values
-	os.Setenv("ARGUS_VALIDATION_ENABLED", "true")
-	os.Setenv("ARGUS_VALIDATION_SCHEMA", "/path/to/schema.json")
-	os.Setenv("ARGUS_VALIDATION_STRICT", "false")
+	if err := os.Setenv("ARGUS_VALIDATION_ENABLED", "true"); err != nil {
+		t.Logf("Failed to set ARGUS_VALIDATION_ENABLED: %v", err)
+	}
+	if err := os.Setenv("ARGUS_VALIDATION_SCHEMA", "/path/to/schema.json"); err != nil {
+		t.Logf("Failed to set ARGUS_VALIDATION_SCHEMA: %v", err)
+	}
+	if err := os.Setenv("ARGUS_VALIDATION_STRICT", "false"); err != nil {
+		t.Logf("Failed to set ARGUS_VALIDATION_STRICT: %v", err)
+	}
 
 	envConfig = &EnvConfig{}
 	err = loadValidationConfig(envConfig)
@@ -473,8 +583,14 @@ func TestLoadConfigMultiSourceEdgeCases(t *testing.T) {
 
 	// Test with invalid environment variables that cause LoadConfigFromEnv to fail
 	// Set an invalid poll interval
-	os.Setenv("ARGUS_POLL_INTERVAL", "invalid-duration")
-	defer os.Unsetenv("ARGUS_POLL_INTERVAL")
+	if err := os.Setenv("ARGUS_POLL_INTERVAL", "invalid-duration"); err != nil {
+		t.Logf("Failed to set ARGUS_POLL_INTERVAL: %v", err)
+	}
+	defer func() {
+		if err := os.Unsetenv("ARGUS_POLL_INTERVAL"); err != nil {
+			t.Logf("Failed to unset ARGUS_POLL_INTERVAL: %v", err)
+		}
+	}()
 
 	config, err = LoadConfigMultiSource("")
 	if err == nil {
@@ -497,12 +613,20 @@ func TestLoadEnvVarsErrorHandling(t *testing.T) {
 		"ARGUS_VALIDATION_ENABLED", "ARGUS_VALIDATION_SCHEMA", "ARGUS_VALIDATION_STRICT",
 	}
 	for _, v := range allVars {
-		os.Unsetenv(v)
+		if err := os.Unsetenv(v); err != nil {
+			t.Logf("Failed to unset env var %s: %v", v, err)
+		}
 	}
 
 	// Test with invalid poll interval (should cause loadCoreConfig to fail)
-	os.Setenv("ARGUS_POLL_INTERVAL", "not-a-duration")
-	defer os.Unsetenv("ARGUS_POLL_INTERVAL")
+	if err := os.Setenv("ARGUS_POLL_INTERVAL", "not-a-duration"); err != nil {
+		t.Logf("Failed to set ARGUS_POLL_INTERVAL: %v", err)
+	}
+	defer func() {
+		if err := os.Unsetenv("ARGUS_POLL_INTERVAL"); err != nil {
+			t.Logf("Failed to unset ARGUS_POLL_INTERVAL: %v", err)
+		}
+	}()
 
 	envConfig := &EnvConfig{}
 	err := loadEnvVars(envConfig)
@@ -511,9 +635,15 @@ func TestLoadEnvVarsErrorHandling(t *testing.T) {
 	}
 
 	// Test with valid configuration
-	os.Setenv("ARGUS_POLL_INTERVAL", "10s")
-	os.Setenv("ARGUS_CACHE_TTL", "5s")
-	os.Setenv("ARGUS_MAX_WATCHED_FILES", "50")
+	if err := os.Setenv("ARGUS_POLL_INTERVAL", "10s"); err != nil {
+		t.Logf("Failed to set ARGUS_POLL_INTERVAL: %v", err)
+	}
+	if err := os.Setenv("ARGUS_CACHE_TTL", "5s"); err != nil {
+		t.Logf("Failed to set ARGUS_CACHE_TTL: %v", err)
+	}
+	if err := os.Setenv("ARGUS_MAX_WATCHED_FILES", "50"); err != nil {
+		t.Logf("Failed to set ARGUS_MAX_WATCHED_FILES: %v", err)
+	}
 
 	envConfig = &EnvConfig{}
 	err = loadEnvVars(envConfig)

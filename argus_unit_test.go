@@ -5727,42 +5727,63 @@ func TestConfigValidationHighCoverage(t *testing.T) {
 	_ = result // Accept any result
 
 	// Test with environment variables set
-	_ = os.Setenv("ARGUS_POLL_INTERVAL", "5ms")
-	_ = os.Setenv("ARGUS_CACHE_TTL", "5ms")
-	_ = os.Setenv("ARGUS_OPTIMIZATION_STRATEGY", "auto")
-	_ = os.Setenv("ARGUS_BOREAS_CAPACITY", "5")
-	_ = os.Setenv("ARGUS_MAX_WATCHED_FILES", "5")
-	_ = os.Setenv("ARGUS_AUDIT_ENABLED", "true")
-	_ = os.Setenv("ARGUS_AUDIT_OUTPUT_FILE", "/tmp/test_audit_validation.log")
-	_ = os.Setenv("ARGUS_AUDIT_BUFFER_SIZE", "5")
-	_ = os.Setenv("ARGUS_AUDIT_FLUSH_INTERVAL", "5ms")
+	envVars := map[string]string{
+		"ARGUS_POLL_INTERVAL":         "5ms",
+		"ARGUS_CACHE_TTL":             "5ms",
+		"ARGUS_OPTIMIZATION_STRATEGY": "auto",
+		"ARGUS_BOREAS_CAPACITY":       "5",
+		"ARGUS_MAX_WATCHED_FILES":     "5",
+		"ARGUS_AUDIT_ENABLED":         "true",
+		"ARGUS_AUDIT_OUTPUT_FILE":     "/tmp/test_audit_validation.log",
+		"ARGUS_AUDIT_BUFFER_SIZE":     "5",
+		"ARGUS_AUDIT_FLUSH_INTERVAL":  "5ms",
+	}
+	for k, v := range envVars {
+		if err := os.Setenv(k, v); err != nil {
+			t.Fatalf("Failed to set env %s: %v", k, err)
+		}
+	}
 
 	result = ValidateEnvironmentConfig()
 	_ = result // Accept any result
 
 	// Test with invalid environment variables
-	os.Setenv("ARGUS_POLL_INTERVAL", "invalid")
-	os.Setenv("ARGUS_CACHE_TTL", "invalid")
-	os.Setenv("ARGUS_OPTIMIZATION_STRATEGY", "invalid")
-	os.Setenv("ARGUS_BOREAS_CAPACITY", "invalid")
-	os.Setenv("ARGUS_MAX_WATCHED_FILES", "invalid")
-	os.Setenv("ARGUS_AUDIT_ENABLED", "invalid")
-	os.Setenv("ARGUS_AUDIT_BUFFER_SIZE", "invalid")
-	os.Setenv("ARGUS_AUDIT_FLUSH_INTERVAL", "invalid")
+	invalidEnvVars := map[string]string{
+		"ARGUS_POLL_INTERVAL":         "invalid",
+		"ARGUS_CACHE_TTL":             "invalid",
+		"ARGUS_OPTIMIZATION_STRATEGY": "invalid",
+		"ARGUS_BOREAS_CAPACITY":       "invalid",
+		"ARGUS_MAX_WATCHED_FILES":     "invalid",
+		"ARGUS_AUDIT_ENABLED":         "invalid",
+		"ARGUS_AUDIT_BUFFER_SIZE":     "invalid",
+		"ARGUS_AUDIT_FLUSH_INTERVAL":  "invalid",
+	}
+	for k, v := range invalidEnvVars {
+		if err := os.Setenv(k, v); err != nil {
+			t.Fatalf("Failed to set env %s: %v", k, err)
+		}
+	}
 
 	result = ValidateEnvironmentConfig()
 	_ = result // Accept any result
 
 	// Clean up environment variables
-	os.Unsetenv("ARGUS_POLL_INTERVAL")
-	os.Unsetenv("ARGUS_CACHE_TTL")
-	os.Unsetenv("ARGUS_OPTIMIZATION_STRATEGY")
-	os.Unsetenv("ARGUS_BOREAS_CAPACITY")
-	os.Unsetenv("ARGUS_MAX_WATCHED_FILES")
-	os.Unsetenv("ARGUS_AUDIT_ENABLED")
-	os.Unsetenv("ARGUS_AUDIT_OUTPUT_FILE")
-	os.Unsetenv("ARGUS_AUDIT_BUFFER_SIZE")
-	os.Unsetenv("ARGUS_AUDIT_FLUSH_INTERVAL")
+	unsetEnvVars := []string{
+		"ARGUS_POLL_INTERVAL",
+		"ARGUS_CACHE_TTL",
+		"ARGUS_OPTIMIZATION_STRATEGY",
+		"ARGUS_BOREAS_CAPACITY",
+		"ARGUS_MAX_WATCHED_FILES",
+		"ARGUS_AUDIT_ENABLED",
+		"ARGUS_AUDIT_OUTPUT_FILE",
+		"ARGUS_AUDIT_BUFFER_SIZE",
+		"ARGUS_AUDIT_FLUSH_INTERVAL",
+	}
+	for _, k := range unsetEnvVars {
+		if err := os.Unsetenv(k); err != nil {
+			t.Fatalf("Failed to unset env %s: %v", k, err)
+		}
+	}
 }
 
 // TestEnvConfigHighCoverage tests more specific uncovered paths in env config functions
@@ -5777,15 +5798,33 @@ func TestEnvConfigHighCoverage(t *testing.T) {
 	_ = validationConfig // Accept any result
 
 	// Test with environment variables set
-	os.Setenv("ARGUS_POLL_INTERVAL", "10ms")
-	os.Setenv("ARGUS_CACHE_TTL", "20ms")
-	os.Setenv("ARGUS_OPTIMIZATION_STRATEGY", "auto")
-	os.Setenv("ARGUS_BOREAS_CAPACITY", "100")
-	os.Setenv("ARGUS_MAX_WATCHED_FILES", "50")
-	os.Setenv("ARGUS_AUDIT_ENABLED", "true")
-	os.Setenv("ARGUS_AUDIT_OUTPUT_FILE", "/tmp/test_audit.log")
-	os.Setenv("ARGUS_AUDIT_BUFFER_SIZE", "1000")
-	os.Setenv("ARGUS_AUDIT_FLUSH_INTERVAL", "1s")
+	if err := os.Setenv("ARGUS_POLL_INTERVAL", "10ms"); err != nil {
+		t.Fatalf("Failed to set env: %v", err)
+	}
+	if err := os.Setenv("ARGUS_CACHE_TTL", "20ms"); err != nil {
+		t.Fatalf("Failed to set env: %v", err)
+	}
+	if err := os.Setenv("ARGUS_OPTIMIZATION_STRATEGY", "auto"); err != nil {
+		t.Fatalf("Failed to set env: %v", err)
+	}
+	if err := os.Setenv("ARGUS_BOREAS_CAPACITY", "100"); err != nil {
+		t.Fatalf("Failed to set env: %v", err)
+	}
+	if err := os.Setenv("ARGUS_MAX_WATCHED_FILES", "50"); err != nil {
+		t.Fatalf("Failed to set env: %v", err)
+	}
+	if err := os.Setenv("ARGUS_AUDIT_ENABLED", "true"); err != nil {
+		t.Fatalf("Failed to set env: %v", err)
+	}
+	if err := os.Setenv("ARGUS_AUDIT_OUTPUT_FILE", "/tmp/test_audit.log"); err != nil {
+		t.Fatalf("Failed to set env: %v", err)
+	}
+	if err := os.Setenv("ARGUS_AUDIT_BUFFER_SIZE", "1000"); err != nil {
+		t.Fatalf("Failed to set env: %v", err)
+	}
+	if err := os.Setenv("ARGUS_AUDIT_FLUSH_INTERVAL", "1s"); err != nil {
+		t.Fatalf("Failed to set env: %v", err)
+	}
 
 	config = loadEnvVars(envConfig)
 	_ = config // Accept any result
@@ -5794,14 +5833,30 @@ func TestEnvConfigHighCoverage(t *testing.T) {
 	_ = validationConfig // Accept any result
 
 	// Test with invalid environment variables
-	os.Setenv("ARGUS_POLL_INTERVAL", "invalid")
-	os.Setenv("ARGUS_CACHE_TTL", "invalid")
-	os.Setenv("ARGUS_OPTIMIZATION_STRATEGY", "invalid")
-	os.Setenv("ARGUS_BOREAS_CAPACITY", "invalid")
-	os.Setenv("ARGUS_MAX_WATCHED_FILES", "invalid")
-	os.Setenv("ARGUS_AUDIT_ENABLED", "invalid")
-	os.Setenv("ARGUS_AUDIT_BUFFER_SIZE", "invalid")
-	os.Setenv("ARGUS_AUDIT_FLUSH_INTERVAL", "invalid")
+	if err := os.Setenv("ARGUS_POLL_INTERVAL", "invalid"); err != nil {
+		t.Fatalf("Failed to set env: %v", err)
+	}
+	if err := os.Setenv("ARGUS_CACHE_TTL", "invalid"); err != nil {
+		t.Fatalf("Failed to set env: %v", err)
+	}
+	if err := os.Setenv("ARGUS_OPTIMIZATION_STRATEGY", "invalid"); err != nil {
+		t.Fatalf("Failed to set env: %v", err)
+	}
+	if err := os.Setenv("ARGUS_BOREAS_CAPACITY", "invalid"); err != nil {
+		t.Fatalf("Failed to set env: %v", err)
+	}
+	if err := os.Setenv("ARGUS_MAX_WATCHED_FILES", "invalid"); err != nil {
+		t.Fatalf("Failed to set env: %v", err)
+	}
+	if err := os.Setenv("ARGUS_AUDIT_ENABLED", "invalid"); err != nil {
+		t.Fatalf("Failed to set env: %v", err)
+	}
+	if err := os.Setenv("ARGUS_AUDIT_BUFFER_SIZE", "invalid"); err != nil {
+		t.Fatalf("Failed to set env: %v", err)
+	}
+	if err := os.Setenv("ARGUS_AUDIT_FLUSH_INTERVAL", "invalid"); err != nil {
+		t.Fatalf("Failed to set env: %v", err)
+	}
 
 	config = loadEnvVars(envConfig)
 	_ = config // Accept any result
@@ -5810,15 +5865,33 @@ func TestEnvConfigHighCoverage(t *testing.T) {
 	_ = validationConfig // Accept any result
 
 	// Clean up environment variables
-	os.Unsetenv("ARGUS_POLL_INTERVAL")
-	os.Unsetenv("ARGUS_CACHE_TTL")
-	os.Unsetenv("ARGUS_OPTIMIZATION_STRATEGY")
-	os.Unsetenv("ARGUS_BOREAS_CAPACITY")
-	os.Unsetenv("ARGUS_MAX_WATCHED_FILES")
-	os.Unsetenv("ARGUS_AUDIT_ENABLED")
-	os.Unsetenv("ARGUS_AUDIT_OUTPUT_FILE")
-	os.Unsetenv("ARGUS_AUDIT_BUFFER_SIZE")
-	os.Unsetenv("ARGUS_AUDIT_FLUSH_INTERVAL")
+	if err := os.Unsetenv("ARGUS_POLL_INTERVAL"); err != nil {
+		t.Fatalf("Failed to unset env: %v", err)
+	}
+	if err := os.Unsetenv("ARGUS_CACHE_TTL"); err != nil {
+		t.Fatalf("Failed to unset env: %v", err)
+	}
+	if err := os.Unsetenv("ARGUS_OPTIMIZATION_STRATEGY"); err != nil {
+		t.Fatalf("Failed to unset env: %v", err)
+	}
+	if err := os.Unsetenv("ARGUS_BOREAS_CAPACITY"); err != nil {
+		t.Fatalf("Failed to unset env: %v", err)
+	}
+	if err := os.Unsetenv("ARGUS_MAX_WATCHED_FILES"); err != nil {
+		t.Fatalf("Failed to unset env: %v", err)
+	}
+	if err := os.Unsetenv("ARGUS_AUDIT_ENABLED"); err != nil {
+		t.Fatalf("Failed to unset env: %v", err)
+	}
+	if err := os.Unsetenv("ARGUS_AUDIT_OUTPUT_FILE"); err != nil {
+		t.Fatalf("Failed to unset env: %v", err)
+	}
+	if err := os.Unsetenv("ARGUS_AUDIT_BUFFER_SIZE"); err != nil {
+		t.Fatalf("Failed to unset env: %v", err)
+	}
+	if err := os.Unsetenv("ARGUS_AUDIT_FLUSH_INTERVAL"); err != nil {
+		t.Fatalf("Failed to unset env: %v", err)
+	}
 }
 
 // TestIntegrationHighCoverage tests more specific uncovered paths in integration functions
@@ -5875,15 +5948,22 @@ func TestIntegrationHighCoverage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp file: %v", err)
 	}
-	defer os.Remove(tmpFile.Name())
-	defer tmpFile.Close()
+	defer func() {
+		if err := os.Remove(tmpFile.Name()); err != nil {
+			t.Errorf("Failed to remove tmpFile: %v", err)
+		}
+	}()
+	defer func() {
+		if err := tmpFile.Close(); err != nil {
+			t.Errorf("Failed to close tmpFile: %v", err)
+		}
+	}()
 
 	// Write initial config
 	initialConfig := `{"watch-test": "initial"}`
 	if _, err := tmpFile.WriteString(initialConfig); err != nil {
 		t.Fatalf("Failed to write config: %v", err)
 	}
-	tmpFile.Close()
 
 	// Test WatchConfigFile
 	callback := func() {
@@ -6142,7 +6222,11 @@ func TestArgusWatcherOperations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() {
+		if err := os.RemoveAll(tmpDir); err != nil {
+			t.Logf("Failed to remove temp dir: %v", err)
+		}
+	}()
 
 	// Create test file
 	testFile := filepath.Join(tmpDir, "test.json")
@@ -6211,7 +6295,9 @@ func TestArgusWatcherOperations(t *testing.T) {
 	}
 
 	// Cleanup
-	watcher.Close()
+	if err := watcher.Close(); err != nil {
+		t.Logf("Failed to close watcher: %v", err)
+	}
 
 	t.Logf("Total events received: %d", eventCount)
 }
@@ -6238,8 +6324,14 @@ func TestArgusValidateOutputFileEdgeCases(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp file: %v", err)
 	}
-	defer os.Remove(tmpFile.Name())
-	tmpFile.Close()
+	defer func() {
+		if err := os.Remove(tmpFile.Name()); err != nil {
+			t.Logf("Failed to remove temp file: %v", err)
+		}
+	}()
+	if err := tmpFile.Close(); err != nil {
+		t.Logf("Failed to close tmpFile: %v", err)
+	}
 
 	err = config.validateOutputFile(tmpFile.Name())
 	// This might succeed or fail depending on the system, but we're testing the path
@@ -6247,7 +6339,11 @@ func TestArgusValidateOutputFileEdgeCases(t *testing.T) {
 
 	// Test with current directory file
 	currentDirFile := "test-audit.log"
-	defer os.Remove(currentDirFile) // Clean up if created
+	defer func() {
+		if err := os.Remove(currentDirFile); err != nil {
+			t.Logf("Failed to remove currentDirFile: %v", err)
+		}
+	}() // Clean up if created
 
 	err = config.validateOutputFile(currentDirFile)
 	// This might succeed or fail depending on permissions

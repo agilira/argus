@@ -21,7 +21,11 @@ func TestBoreasLite_LowFileCount(b *testing.T) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			b.Logf("Failed to remove tempDir: %v", err)
+		}
+	}()
 
 	config := Config{
 		PollInterval:    20 * time.Millisecond, // Polling more frequently for test
@@ -44,7 +48,11 @@ func TestBoreasLite_LowFileCount(b *testing.T) {
 
 func testLowFileCount(t *testing.T, tempDir string, config Config, fileCount int) {
 	watcher := New(config)
-	defer watcher.Stop()
+	defer func() {
+		if err := watcher.Stop(); err != nil {
+			t.Logf("Failed to stop watcher: %v", err)
+		}
+	}()
 
 	var eventCount atomic.Int64
 	filePaths := make([]string, fileCount)
@@ -62,16 +70,18 @@ func testLowFileCount(t *testing.T, tempDir string, config Config, fileCount int
 		// Create file
 		content := fmt.Sprintf(`{"id": %d, "value": "initial"}`, i)
 		if err := os.WriteFile(filePath, []byte(content), 0644); err != nil {
-			t.Fatal(err)
+			t.Fatalf("Failed to create file %s: %v", filePath, err)
 		}
 
 		// Register with watcher
 		if err := watcher.Watch(filePath, callback); err != nil {
-			t.Fatal(err)
+			t.Fatalf("Failed to watch file %s: %v", filePath, err)
 		}
 	}
 
-	watcher.Start()
+	if err := watcher.Start(); err != nil {
+		t.Fatalf("Failed to start watcher: %v", err)
+	}
 	time.Sleep(50 * time.Millisecond) // Stabilization
 
 	// Measure latency for single changes

@@ -10,6 +10,7 @@
 package argus
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync/atomic"
@@ -18,12 +19,19 @@ import (
 )
 
 func TestFullEnvironmentIntegration(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping full environment integration test in short mode")
+	}
 	// Test environment variables integration with actual file watching
 	tempDir, err := os.MkdirTemp("", "argus-env-integration-")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			t.Logf("Failed to remove temp dir: %v", err)
+		}
+	}()
 
 	configFile := filepath.Join(tempDir, "test-config.json")
 
@@ -39,13 +47,17 @@ func TestFullEnvironmentIntegration(t *testing.T) {
 
 	// Set environment variables
 	for key, value := range envVars {
-		os.Setenv(key, value)
+		if err := os.Setenv(key, value); err != nil {
+			t.Logf("Failed to set env %s: %v", key, err)
+		}
 	}
 
 	// Clean up after test
 	defer func() {
 		for key := range envVars {
-			os.Unsetenv(key)
+			if err := os.Unsetenv(key); err != nil {
+				t.Logf("Failed to unset env %s: %v", key, err)
+			}
 		}
 	}()
 
@@ -80,10 +92,13 @@ func TestFullEnvironmentIntegration(t *testing.T) {
 
 	// Test that watcher works with environment configuration
 	changeDetected := false
-	watcher.Watch(configFile, func(event ChangeEvent) {
+	err = watcher.Watch(configFile, func(event ChangeEvent) {
 		changeDetected = true
 		t.Logf("Change detected: %v", event)
 	})
+	if err != nil {
+		t.Fatalf("Failed to watch configFile: %v", err)
+	}
 
 	// Start watcher
 	err = watcher.Start()
@@ -112,7 +127,9 @@ func TestFullEnvironmentIntegration(t *testing.T) {
 	time.Sleep(300 * time.Millisecond) // 3x poll interval
 
 	// Stop watcher
-	watcher.Stop()
+	if err := watcher.Stop(); err != nil {
+		t.Logf("Failed to stop watcher: %v", err)
+	}
 
 	if !changeDetected {
 		t.Error("No change was detected with environment-configured watcher")
@@ -120,12 +137,19 @@ func TestFullEnvironmentIntegration(t *testing.T) {
 }
 
 func TestMultiSourceIntegrationWithRealFile(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping multi-source integration test in short mode")
+	}
 	// Test multi-source configuration with actual file
 	tempDir, err := os.MkdirTemp("", "argus-multisource-")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			t.Logf("Failed to remove temp dir: %v", err)
+		}
+	}()
 
 	configFile := filepath.Join(tempDir, "config.json")
 	watchedFile := filepath.Join(tempDir, "watched.json")
@@ -138,11 +162,19 @@ func TestMultiSourceIntegrationWithRealFile(t *testing.T) {
 	}
 
 	// Set environment variables to override
-	os.Setenv("ARGUS_POLL_INTERVAL", "100ms") // Override
-	os.Setenv("ARGUS_AUDIT_ENABLED", "true")  // Additional
+	if err := os.Setenv("ARGUS_POLL_INTERVAL", "100ms"); err != nil {
+		t.Logf("Failed to set ARGUS_POLL_INTERVAL: %v", err)
+	} // Override
+	if err := os.Setenv("ARGUS_AUDIT_ENABLED", "true"); err != nil {
+		t.Logf("Failed to set ARGUS_AUDIT_ENABLED: %v", err)
+	} // Additional
 	defer func() {
-		os.Unsetenv("ARGUS_POLL_INTERVAL")
-		os.Unsetenv("ARGUS_AUDIT_ENABLED")
+		if err := os.Unsetenv("ARGUS_POLL_INTERVAL"); err != nil {
+			t.Logf("Failed to unset ARGUS_POLL_INTERVAL: %v", err)
+		}
+		if err := os.Unsetenv("ARGUS_AUDIT_ENABLED"); err != nil {
+			t.Logf("Failed to unset ARGUS_AUDIT_ENABLED: %v", err)
+		}
 	}()
 
 	// Load multi-source configuration
@@ -173,10 +205,13 @@ func TestMultiSourceIntegrationWithRealFile(t *testing.T) {
 	}
 
 	changeCount := int64(0)
-	watcher.Watch(watchedFile, func(event ChangeEvent) {
+	err = watcher.Watch(watchedFile, func(event ChangeEvent) {
 		atomic.AddInt64(&changeCount, 1)
 		t.Logf("Multi-source change detected: %v", event)
 	})
+	if err != nil {
+		t.Fatalf("Failed to watch watchedFile: %v", err)
+	}
 
 	err = watcher.Start()
 	if err != nil {
@@ -200,7 +235,9 @@ func TestMultiSourceIntegrationWithRealFile(t *testing.T) {
 
 	time.Sleep(300 * time.Millisecond)
 
-	watcher.Stop()
+	if err := watcher.Stop(); err != nil {
+		t.Logf("Failed to stop watcher: %v", err)
+	}
 
 	if atomic.LoadInt64(&changeCount) == 0 {
 		t.Error("No changes detected with multi-source configured watcher")
@@ -231,8 +268,14 @@ func TestEnvironmentVariableValidation(t *testing.T) {
 			clearArgusEnvVars()
 
 			// Set the test env var
-			os.Setenv(tc.envVar, tc.envValue)
-			defer os.Unsetenv(tc.envVar)
+			if err := os.Setenv(tc.envVar, tc.envValue); err != nil {
+				t.Logf("Failed to set env %s: %v", tc.envVar, err)
+			}
+			defer func() {
+				if err := os.Unsetenv(tc.envVar); err != nil {
+					t.Logf("Failed to unset env %s: %v", tc.envVar, err)
+				}
+			}()
 
 			// Try to load config
 			_, err := LoadConfigFromEnv()
@@ -252,8 +295,14 @@ func TestEnvironmentVariableHelpers(t *testing.T) {
 	// Test the utility helper functions
 
 	// Test GetEnvWithDefault
-	os.Setenv("TEST_STRING", "test-value")
-	defer os.Unsetenv("TEST_STRING")
+	if err := os.Setenv("TEST_STRING", "test-value"); err != nil {
+		t.Logf("Failed to set TEST_STRING: %v", err)
+	}
+	defer func() {
+		if err := os.Unsetenv("TEST_STRING"); err != nil {
+			t.Logf("Failed to unset TEST_STRING: %v", err)
+		}
+	}()
 
 	result := GetEnvWithDefault("TEST_STRING", "default")
 	if result != "test-value" {
@@ -266,8 +315,14 @@ func TestEnvironmentVariableHelpers(t *testing.T) {
 	}
 
 	// Test GetEnvDurationWithDefault
-	os.Setenv("TEST_DURATION", "30s")
-	defer os.Unsetenv("TEST_DURATION")
+	if err := os.Setenv("TEST_DURATION", "30s"); err != nil {
+		t.Logf("Failed to set TEST_DURATION: %v", err)
+	}
+	defer func() {
+		if err := os.Unsetenv("TEST_DURATION"); err != nil {
+			t.Logf("Failed to unset TEST_DURATION: %v", err)
+		}
+	}()
 
 	duration := GetEnvDurationWithDefault("TEST_DURATION", time.Minute)
 	if duration != 30*time.Second {
@@ -280,8 +335,14 @@ func TestEnvironmentVariableHelpers(t *testing.T) {
 	}
 
 	// Test GetEnvIntWithDefault
-	os.Setenv("TEST_INT", "42")
-	defer os.Unsetenv("TEST_INT")
+	if err := os.Setenv("TEST_INT", "42"); err != nil {
+		t.Logf("Failed to set TEST_INT: %v", err)
+	}
+	defer func() {
+		if err := os.Unsetenv("TEST_INT"); err != nil {
+			t.Logf("Failed to unset TEST_INT: %v", err)
+		}
+	}()
 
 	intVal := GetEnvIntWithDefault("TEST_INT", 100)
 	if intVal != 42 {
@@ -294,8 +355,14 @@ func TestEnvironmentVariableHelpers(t *testing.T) {
 	}
 
 	// Test GetEnvBoolWithDefault
-	os.Setenv("TEST_BOOL", "true")
-	defer os.Unsetenv("TEST_BOOL")
+	if err := os.Setenv("TEST_BOOL", "true"); err != nil {
+		t.Logf("Failed to set TEST_BOOL: %v", err)
+	}
+	defer func() {
+		if err := os.Unsetenv("TEST_BOOL"); err != nil {
+			t.Logf("Failed to unset TEST_BOOL: %v", err)
+		}
+	}()
 
 	boolVal := GetEnvBoolWithDefault("TEST_BOOL", false)
 	if !boolVal {
@@ -324,6 +391,8 @@ func clearArgusEnvVars() {
 	}
 
 	for _, envVar := range envVars {
-		os.Unsetenv(envVar)
+		if err := os.Unsetenv(envVar); err != nil {
+			fmt.Printf("Failed to unset env %s: %v\n", envVar, err)
+		}
 	}
 }

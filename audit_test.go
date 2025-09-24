@@ -18,8 +18,14 @@ func TestAuditLogger(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.Remove(tmpFile.Name())
-	tmpFile.Close()
+       defer func() {
+	       if err := os.Remove(tmpFile.Name()); err != nil {
+		       t.Errorf("Failed to remove tmpFile: %v", err)
+	       }
+       }()
+       if err := tmpFile.Close(); err != nil {
+	       t.Errorf("Failed to close tmpFile: %v", err)
+       }
 
 	// Create audit config
 	config := AuditConfig{
@@ -36,7 +42,11 @@ func TestAuditLogger(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer auditor.Close()
+       defer func() {
+	       if err := auditor.Close(); err != nil {
+		       t.Errorf("Failed to close auditor: %v", err)
+	       }
+       }()
 
 	// Test file watch audit
 	auditor.LogFileWatch("test_event", "/test/path")
@@ -53,7 +63,9 @@ func TestAuditLogger(t *testing.T) {
 	auditor.LogConfigChange("/test/config.json", oldConfig, newConfig)
 
 	// Force flush
-	auditor.Flush()
+       if err := auditor.Flush(); err != nil {
+	       t.Errorf("Failed to flush auditor: %v", err)
+       }
 
 	// Wait a bit
 	time.Sleep(200 * time.Millisecond)
@@ -84,22 +96,34 @@ func TestWatcherWithAudit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.Remove(tmpFile.Name())
+       defer func() {
+	       if err := os.Remove(tmpFile.Name()); err != nil {
+		       t.Errorf("Failed to remove tmpFile: %v", err)
+	       }
+       }()
 
 	// Write initial config
 	initialConfig := `{"log_level": "info", "port": 8080}`
 	if _, err := tmpFile.WriteString(initialConfig); err != nil {
 		t.Fatal(err)
 	}
-	tmpFile.Close()
+       if err := tmpFile.Close(); err != nil {
+	       t.Errorf("Failed to close tmpFile: %v", err)
+       }
 
 	// Create temporary audit file
 	auditFile, err := os.CreateTemp("", "audit-*.jsonl")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.Remove(auditFile.Name())
-	auditFile.Close()
+       defer func() {
+	       if err := os.Remove(auditFile.Name()); err != nil {
+		       t.Errorf("Failed to remove auditFile: %v", err)
+	       }
+       }()
+       if err := auditFile.Close(); err != nil {
+	       t.Errorf("Failed to close auditFile: %v", err)
+       }
 
 	// Create watcher with audit
 	config := Config{
@@ -144,11 +168,15 @@ func TestWatcherWithAudit(t *testing.T) {
 	}
 
 	// Stop watcher and flush audit
-	watcher.Stop()
-	if watcher.auditLogger != nil {
-		watcher.auditLogger.Flush()
-		time.Sleep(200 * time.Millisecond)
-	}
+       if err := watcher.Stop(); err != nil {
+	       t.Errorf("Failed to stop watcher: %v", err)
+       }
+       if watcher.auditLogger != nil {
+	       if err := watcher.auditLogger.Flush(); err != nil {
+		       t.Errorf("Failed to flush auditLogger: %v", err)
+	       }
+	       time.Sleep(200 * time.Millisecond)
+       }
 
 	// Check audit output
 	auditData, err := os.ReadFile(auditFile.Name())
@@ -170,8 +198,14 @@ func TestAuditLoggerTamperDetection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.Remove(tmpFile.Name())
-	tmpFile.Close()
+       defer func() {
+	       if err := os.Remove(tmpFile.Name()); err != nil {
+		       t.Errorf("Failed to remove tmpFile: %v", err)
+	       }
+       }()
+       if err := tmpFile.Close(); err != nil {
+	       t.Errorf("Failed to close tmpFile: %v", err)
+       }
 
 	config := AuditConfig{
 		Enabled:       true,
@@ -192,8 +226,12 @@ func TestAuditLoggerTamperDetection(t *testing.T) {
 	auditor.LogFileWatch("test2", "/path2")
 	auditor.LogConfigChange("/config", nil, map[string]interface{}{"key": "value"})
 
-	auditor.Flush()
-	auditor.Close()
+       if err := auditor.Flush(); err != nil {
+	       t.Errorf("Failed to flush auditor: %v", err)
+       }
+       if err := auditor.Close(); err != nil {
+	       t.Errorf("Failed to close auditor: %v", err)
+       }
 
 	// Read and verify audit entries
 	auditData, err := os.ReadFile(tmpFile.Name())

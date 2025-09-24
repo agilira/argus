@@ -1,116 +1,154 @@
-# ErrorHandler Examples
+# Error Handling Example
 
-The `ErrorHandler` feature in Argus provides powerful error handling capabilities for production environments.
+This example demonstrates comprehensive error handling strategies with Argus using the [go-errors](https://github.com/agilira/go-errors) library for structured error handling.
 
 ## Overview
 
-The `ErrorHandler` is a function type that gets called whenever errors occur during file watching or configuration parsing:
+The error handling example showcases:
 
-```go
-type ErrorHandler func(err error, filepath string)
-```
+- **Structured Error Handling**: Using `go-errors` for consistent error codes and messages
+- **Custom Error Handlers**: Implementing custom error handling logic
+- **Error Code Integration**: Using Argus error codes with `go-errors`
+- **Error Wrapping**: Demonstrating error wrapping and cause tracking
+- **Performance**: Error creation and handling performance characteristics
 
-## Usage Patterns
+## Features Demonstrated
 
-### 1. Default Behavior (Backward Compatible)
-
-When `ErrorHandler` is `nil`, Argus uses default error logging:
-
-```go
-config := argus.Config{
-    PollInterval: 5 * time.Second,
-    // ErrorHandler: nil (default)
-}
-watcher, err := argus.UniversalConfigWatcherWithConfig(path, callback, config)
-```
-
-### 2. Custom Error Handler
+### 1. Custom Error Handler
+Shows how to implement custom error handlers that integrate with Argus watchers:
 
 ```go
 errorHandler := func(err error, filepath string) {
-    // Custom error handling logic
-    log.Printf("Config error in %s: %v", filepath, err)
+    fmt.Printf("Custom Error Handler: File %s had error: %v\n", filepath, err)
     
-    // Integration examples:
-    metrics.ConfigErrors.WithLabelValues(filepath).Inc()
-    alertManager.SendAlert("Config error", err)
-}
-
-config := argus.Config{
-    ErrorHandler: errorHandler,
-}
-```
-
-### 3. Production Integrations
-
-#### Prometheus Metrics
-```go
-var configErrors = prometheus.NewCounterVec(
-    prometheus.CounterOpts{
-        Name: "config_errors_total",
-        Help: "Total configuration errors",
-    },
-    []string{"file", "error_type"},
-)
-
-errorHandler := func(err error, filepath string) {
-    configErrors.WithLabelValues(filepath, "parse_error").Inc()
-}
-```
-
-#### Structured Logging
-```go
-errorHandler := func(err error, filepath string) {
-    logger.Error("config_error",
-        zap.String("file", filepath),
-        zap.Error(err),
-        zap.String("component", "argus"),
-    )
-}
-```
-
-#### Error Tracking
-```go
-errorHandler := func(err error, filepath string) {
-    sentry.WithScope(func(scope *sentry.Scope) {
-        scope.SetTag("component", "config-watcher")
-        scope.SetTag("file", filepath)
-        sentry.CaptureException(err)
-    })
-}
-```
-
-#### Circuit Breaker
-```go
-var errorCount atomic.Int64
-
-errorHandler := func(err error, filepath string) {
-    if errorCount.Add(1) > maxErrors {
-        circuitBreaker.Open()
-        log.Fatal("Too many config errors, opening circuit breaker")
+    // Demonstrate go-errors structured error handling
+    errorMsg := err.Error()
+    if strings.Contains(errorMsg, "ARGUS_INVALID_CONFIG") {
+        fmt.Printf("Identified as invalid config error\n")
     }
 }
 ```
 
-## Error Types
+### 2. Error Code Integration
+Demonstrates using Argus error codes with `go-errors`:
 
-The ErrorHandler receives different types of errors:
+```go
+// Create error with go-errors using Argus error codes
+customErr := errors.New(argus.ErrCodeInvalidConfig, "Custom error message")
 
-1. **File Read Errors**: Permission denied, file locked, etc.
-2. **Parse Errors**: Invalid JSON, YAML, TOML syntax
-3. **Stat Errors**: File system errors (excluding file not found)
+// Wrap error with another Argus error code
+wrappedErr := errors.Wrap(customErr, argus.ErrCodeWatcherStopped, "Wrapped error")
+```
 
-## Benefits
+### 3. File Not Found Handling
+Shows how to handle file not found errors:
 
-- **Observability**: Integration with monitoring systems
-- **Alerting**: Real-time notifications on config issues  
-- **Debugging**: Enhanced error context with file paths
-- **Reliability**: Circuit breaker and graceful degradation
-- **Backward Compatible**: Optional feature, doesn't break existing code
+```go
+// Error handler for file not found
+errorHandler := func(err error, filepath string) {
+    errorMsg := err.Error()
+    if strings.Contains(errorMsg, "ARGUS_FILE_NOT_FOUND") {
+        fmt.Printf("Correctly identified as file not found error\n")
+    }
+}
+```
 
-## Testing
+### 4. Parse Error Handling
+Demonstrates handling configuration parsing errors:
 
-See `error_handler_test.go` for comprehensive test examples demonstrating:
-- Custom error handler integration
-- Default behavior validation
-- Error propagation testing
+```go
+// Error handler for parse errors
+errorHandler := func(err error, filepath string) {
+    errorMsg := err.Error()
+    if strings.Contains(errorMsg, "INVALID_CONFIG") {
+        fmt.Printf("Correctly identified as config parsing error\n")
+    }
+}
+```
+
+## Argus Error Codes
+
+The example uses the following Argus error codes:
+
+- `ARGUS_INVALID_CONFIG`: Invalid configuration or parsing errors
+- `ARGUS_FILE_NOT_FOUND`: File not found errors
+- `ARGUS_WATCHER_STOPPED`: Watcher stopped errors
+- `ARGUS_WATCHER_BUSY`: Watcher busy errors
+- `ARGUS_INVALID_POLL_INTERVAL`: Invalid poll interval errors
+
+## Dependencies
+
+- [go-errors](https://github.com/agilira/go-errors): Structured error handling library
+- [argus](https://github.com/agilira/argus): Configuration watcher library
+
+## Running the Example
+
+```bash
+# Run the example
+go run main.go
+
+# Run the test suite
+go test -v
+
+# Run with race detection
+go test -race -v
+```
+
+## Test Coverage
+
+The example includes comprehensive tests covering:
+
+- **Custom Error Handler**: Tests custom error handler functionality
+- **File Not Found Error**: Tests file not found error handling
+- **Parse Error Handling**: Tests configuration parsing error handling
+- **Default Error Handler**: Tests default error handler behavior
+- **Custom Error Creation**: Tests creating custom errors with `go-errors`
+- **Error Handler Integration**: Tests multiple error scenarios
+- **Performance**: Tests error creation performance (target: < 1µs per error)
+- **Concurrency**: Tests concurrent error handling
+
+## Performance Characteristics
+
+- **Error Creation**: < 1µs per error (tested with 1000 iterations)
+- **Error Wrapping**: Efficient error wrapping with cause tracking
+- **Concurrent Safety**: Thread-safe error handling
+- **Memory Efficient**: Minimal allocations in error handling paths
+
+## Best Practices
+
+1. **Use Argus Error Codes**: Always use `argus.ErrCode*` constants for consistency
+2. **Error Wrapping**: Use `errors.Wrap()` to preserve error context
+3. **Error Code Checking**: Check error codes using string matching on `err.Error()`
+4. **Custom Handlers**: Implement custom error handlers for specific use cases
+5. **Performance**: Error handling should be fast and non-blocking
+
+## Integration with Argus
+
+The example shows how to integrate `go-errors` with Argus:
+
+```go
+config := argus.Config{
+    PollInterval: 50 * time.Millisecond,
+    ErrorHandler: customErrorHandler,
+}
+
+watcher, err := argus.UniversalConfigWatcherWithConfig(configFile, callback, config)
+```
+
+## Error Message Format
+
+Argus errors follow the format: `[ERROR_CODE]: Error message`
+
+Example: `[ARGUS_INVALID_CONFIG]: failed to parse JSON config`
+
+## License
+
+Copyright (c) 2025 AGILira - A. Giordano  
+Series: an AGILira fragment  
+SPDX-License-Identifier: MPL-2.0
+
+## Links
+
+- [go-errors Documentation](https://github.com/agilira/go-errors)
+- [Argus Documentation](https://github.com/agilira/argus)
+- [AGILira](https://github.com/agilira)

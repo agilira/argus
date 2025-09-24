@@ -186,7 +186,11 @@ func TestUtilities_UniversalConfigWatcher(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Failed to create universal config watcher: %v", err)
 			}
-			defer watcher.Stop() // Give watcher sufficient time to start monitoring
+			defer func() {
+				if err := watcher.Stop(); err != nil {
+					t.Logf("Failed to stop watcher: %v", err)
+				}
+			}() // Give watcher sufficient time to start monitoring
 			time.Sleep(500 * time.Millisecond)
 
 			// Wait for initial config load
@@ -279,7 +283,11 @@ func TestUtilities_UniversalConfigWatcherWithConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create config watcher with custom config: %v", err)
 	}
-	defer watcher.Stop()
+	defer func() {
+		if err := watcher.Stop(); err != nil {
+			t.Logf("Failed to stop watcher: %v", err)
+		}
+	}()
 
 	// Verify watcher is using custom config
 	if watcher.config.MaxWatchedFiles != 50 {
@@ -319,7 +327,11 @@ func TestUtilities_UniversalConfigWatcherWithConfig(t *testing.T) {
 
 	// Test LogSecurityEvent coverage by creating an audit logger directly
 	tempDir, _ := os.MkdirTemp("", "security_test_*")
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			t.Logf("Failed to remove tempDir: %v", err)
+		}
+	}()
 
 	securityAuditFile := filepath.Join(tempDir, "security.jsonl")
 	securityConfig := AuditConfig{
@@ -339,7 +351,9 @@ func TestUtilities_UniversalConfigWatcherWithConfig(t *testing.T) {
 			"reason": "testing_coverage",
 			"user":   "test_user",
 		})
-		securityLogger.Close()
+		if err := securityLogger.Close(); err != nil {
+			t.Logf("Failed to close securityLogger: %v", err)
+		}
 
 		// Verify security audit file was created
 		if _, err := os.Stat(securityAuditFile); os.IsNotExist(err) {
@@ -371,7 +385,11 @@ func TestUtilities_GenericConfigWatcher(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create generic config watcher: %v", err)
 	}
-	defer watcher.Stop()
+	defer func() {
+		if err := watcher.Stop(); err != nil {
+			t.Logf("Failed to stop watcher: %v", err)
+		}
+	}()
 
 	// Should behave identically to UniversalConfigWatcher
 	select {
@@ -410,7 +428,11 @@ func TestUtilities_SimpleFileWatcher(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create simple file watcher: %v", err)
 	}
-	defer watcher.Stop()
+	defer func() {
+		if err := watcher.Stop(); err != nil {
+			t.Logf("Failed to stop watcher: %v", err)
+		}
+	}()
 
 	// Start the watcher explicitly
 	if err := watcher.Start(); err != nil {
@@ -418,21 +440,21 @@ func TestUtilities_SimpleFileWatcher(t *testing.T) {
 	}
 
 	// Give watcher time to be fully ready
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	// Update file content
 	helper.updateTestFile(testFile, "updated content")
 
 	// Give time for file system event propagation
-	time.Sleep(300 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
-	// Wait for change detection with longer timeout for slow config
+	// Wait for change detection with reasonable timeout
 	select {
 	case changedPath := <-changesChan:
 		if changedPath != testFile {
 			t.Errorf("Expected changed path %s, got %s", testFile, changedPath)
 		}
-	case <-time.After(10 * time.Second): // Increased timeout for default config
+	case <-time.After(5 * time.Second): // Increased timeout for file system events
 		t.Fatal("Timeout waiting for file change detection")
 	}
 
@@ -517,7 +539,9 @@ func TestUtilities_ConcurrentAccess(t *testing.T) {
 	defer func() {
 		for _, watcher := range watchers {
 			if watcher != nil {
-				watcher.Stop()
+				if err := watcher.Stop(); err != nil {
+					t.Logf("Failed to stop watcher: %v", err)
+				}
 			}
 		}
 	}()
@@ -685,7 +709,11 @@ func TestUtilities_EdgeCaseCoverage(t *testing.T) {
 
 	// Test audit logger edge cases
 	tempDir, _ := os.MkdirTemp("", "edge_test_*")
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			t.Logf("Failed to remove tempDir: %v", err)
+		}
+	}()
 
 	// Test audit logger with invalid directory
 	invalidConfig := AuditConfig{
@@ -699,7 +727,9 @@ func TestUtilities_EdgeCaseCoverage(t *testing.T) {
 	invalidLogger, err := NewAuditLogger(invalidConfig)
 	if err == nil && invalidLogger != nil {
 		// If it succeeds, close it
-		invalidLogger.Close()
+		if err := invalidLogger.Close(); err != nil {
+			t.Logf("Failed to close invalidLogger: %v", err)
+		}
 	}
 
 	// Test audit logger with valid directory that doesn't exist yet
@@ -731,7 +761,9 @@ func TestUtilities_EdgeCaseCoverage(t *testing.T) {
 	validLogger.Log(AuditSecurity, "security_event", "test_component", "test_file.json", nil, nil, map[string]interface{}{"level": "security"})
 
 	// Close and verify file was created
-	validLogger.Close()
+	if err := validLogger.Close(); err != nil {
+		t.Logf("Failed to close validLogger: %v", err)
+	}
 
 	// Note: With new SQLite backend, file creation behavior may vary based on backend selection
 	// For JSONL backend, check file existence; for SQLite backend, check database existence
@@ -764,7 +796,9 @@ func TestUtilities_CoverageGaps(t *testing.T) {
 	if err != nil {
 		t.Errorf("UniversalConfigWatcherWithConfig with non-existent file should work: %v", err)
 	} else {
-		watcher.Stop()
+		if err := watcher.Stop(); err != nil {
+			t.Logf("Failed to stop watcher: %v", err)
+		}
 	}
 
 	// 2. Test with unsupported file format
@@ -784,7 +818,9 @@ func TestUtilities_CoverageGaps(t *testing.T) {
 	if err != nil {
 		t.Logf("Expected error for malformed config: %v", err)
 	} else {
-		watcher3.Stop()
+		if err := watcher3.Stop(); err != nil {
+			t.Logf("Failed to stop watcher3: %v", err)
+		}
 	}
 
 	// 4. Test HCL parsing edge cases
@@ -870,13 +906,19 @@ func TestUtilities_CoverageGaps(t *testing.T) {
 
 	// Test with directory instead of file (may or may not fail)
 	tempDir, _ := os.MkdirTemp("", "dir_test_*")
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			t.Logf("Failed to remove tempDir: %v", err)
+		}
+	}()
 
 	dirWatcher, err := SimpleFileWatcher(tempDir, func(path string) {})
 	if err != nil {
 		t.Logf("SimpleFileWatcher with directory failed as expected: %v", err)
 	} else {
 		t.Logf("SimpleFileWatcher with directory succeeded (watcher will handle directories)")
-		dirWatcher.Stop()
+		if err := dirWatcher.Stop(); err != nil {
+			t.Logf("Failed to stop dirWatcher: %v", err)
+		}
 	}
 }

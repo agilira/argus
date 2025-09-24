@@ -84,7 +84,9 @@ func TestImmediateShutdown(t *testing.T) {
 
 		// Generate another change to trigger callback
 		content := fmt.Sprintf(`{"retry": %d, "timestamp": %d}`, attempts, time.Now().UnixNano())
-		os.WriteFile(testFile, []byte(content), 0644)
+		if err := os.WriteFile(testFile, []byte(content), 0644); err != nil {
+			t.Logf("Failed to modify file in callback check: %v", err)
+		}
 	}
 
 	// If still no callbacks running, this is likely due to system timing
@@ -160,7 +162,11 @@ func TestCallbackPanicRecovery(t *testing.T) {
 	if err := watcher.Start(); err != nil {
 		t.Fatalf("Failed to start watcher: %v", err)
 	}
-	defer watcher.Stop()
+	defer func() {
+		if err := watcher.Stop(); err != nil {
+			t.Logf("Failed to stop watcher: %v", err)
+		}
+	}()
 
 	// Modify file normally - should work
 	if err := os.WriteFile(testFile, []byte(`{"key": "normal"}`), 0644); err != nil {
@@ -244,7 +250,9 @@ func TestConcurrentOperationsSafety(t *testing.T) {
 			defer wg.Done()
 			for j := 0; j < 3; j++ {
 				content := fmt.Sprintf(`{"worker": %d, "iteration": %d}`, id, j)
-				os.WriteFile(testFile, []byte(content), 0644)
+				if err := os.WriteFile(testFile, []byte(content), 0644); err != nil {
+					t.Logf("Failed to modify file in goroutine: %v", err)
+				}
 				time.Sleep(8 * time.Millisecond)
 			}
 		}(i)

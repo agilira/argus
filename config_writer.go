@@ -233,10 +233,12 @@ func (w *ConfigWriter) WriteConfigAs(filePath string) error {
 		return errors.Wrap(err, ErrCodeIOError, fmt.Sprintf("failed to write temp file: %v", err))
 	}
 
-	if err := os.Rename(tempPath, filePath); err != nil {
-		os.Remove(tempPath) // Cleanup on failure
-		return errors.Wrap(err, ErrCodeIOError, fmt.Sprintf("failed to rename temp file: %v", err))
-	}
+       if err := os.Rename(tempPath, filePath); err != nil {
+	       if removeErr := os.Remove(tempPath); removeErr != nil {
+		       fmt.Printf("Failed to cleanup temp file %s: %v\n", tempPath, removeErr)
+	       }
+	       return errors.Wrap(err, ErrCodeIOError, fmt.Sprintf("failed to rename temp file: %v", err))
+       }
 
 	// Audit logging for file export operations (optional)
 	if w.auditLogger != nil {
@@ -597,10 +599,12 @@ func (w *ConfigWriter) atomicWrite(data []byte) error {
 	}
 
 	// Atomic rename
-	if err := os.Rename(tempPath, w.filePath); err != nil {
-		os.Remove(tempPath) // Cleanup on failure
-		return fmt.Errorf("failed to rename temp file: %w", err)
-	}
+       if err := os.Rename(tempPath, w.filePath); err != nil {
+	       if removeErr := os.Remove(tempPath); removeErr != nil {
+		       fmt.Printf("Failed to cleanup temp file %s: %v\n", tempPath, removeErr)
+	       }
+	       return fmt.Errorf("failed to rename temp file: %w", err)
+       }
 
 	return nil
 }

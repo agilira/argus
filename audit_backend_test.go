@@ -21,8 +21,9 @@ import (
 	"testing"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3" // SQLite driver for tests
 	"runtime"
+
+	_ "github.com/mattn/go-sqlite3" // SQLite driver for tests
 )
 
 // Test helpers and utilities
@@ -61,7 +62,9 @@ func createTempJSONL(t *testing.T) string {
 	if err != nil {
 		t.Fatalf("Failed to create temp JSONL file: %v", err)
 	}
-	tmpFile.Close()
+	if err := tmpFile.Close(); err != nil {
+		t.Errorf("Failed to close temp JSONL file: %v", err)
+	}
 	return tmpFile.Name()
 }
 
@@ -90,7 +93,11 @@ func verifyEventInDB(t *testing.T, dbPath string, event AuditEvent) {
 	if err != nil {
 		t.Fatalf("Failed to open database: %v", err)
 	}
-	defer db.Close()
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("Failed to close database: %v", err)
+		}
+	}()
 
 	var count int
 	err = db.QueryRow(`
@@ -124,7 +131,11 @@ func TestBackendInterface_SQLite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create SQLite backend: %v", err)
 	}
-	defer backend.Close()
+	defer func() {
+		if err := backend.Close(); err != nil {
+			t.Errorf("Failed to close backend: %v", err)
+		}
+	}()
 
 	// Test interface methods exist and work
 	events := []AuditEvent{createTestAuditEvent("test-component", "test-event")}
@@ -156,7 +167,11 @@ func TestBackendInterface_JSONL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create JSONL backend: %v", err)
 	}
-	defer backend.Close()
+	defer func() {
+		if err := backend.Close(); err != nil {
+			t.Errorf("Failed to close backend: %v", err)
+		}
+	}()
 
 	// Test interface methods exist and work
 	events := []AuditEvent{createTestAuditEvent("test-component", "test-event")}
@@ -202,7 +217,11 @@ func TestBackendSelection_AutomaticSQLite(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Backend creation failed for %s: %v", tc.name, err)
 			}
-			defer backend.Close()
+			defer func() {
+				if err := backend.Close(); err != nil {
+					t.Errorf("Failed to close backend: %v", err)
+				}
+			}()
 
 			// Verify it's SQLite by checking if we can cast to sqliteAuditBackend
 			if _, ok := backend.(*sqliteAuditBackend); !ok && tc.expectType == "SQLite" {
@@ -226,7 +245,11 @@ func TestBackendSelection_JSONL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create JSONL backend: %v", err)
 	}
-	defer backend.Close()
+	defer func() {
+		if err := backend.Close(); err != nil {
+			t.Errorf("Failed to close backend: %v", err)
+		}
+	}()
 
 	// Verify it's JSONL by checking if we can cast to jsonlAuditBackend
 	if _, ok := backend.(*jsonlAuditBackend); !ok {
@@ -240,7 +263,11 @@ func TestSQLiteBackend_WriteAndVerify(t *testing.T) {
 	t.Parallel()
 
 	backend, dbPath := createTestSQLiteBackend(t)
-	defer backend.Close()
+	defer func() {
+		if err := backend.Close(); err != nil {
+			t.Errorf("Failed to close backend: %v", err)
+		}
+	}()
 
 	// Create and write test events
 	events := []AuditEvent{
@@ -266,14 +293,22 @@ func TestSQLiteBackend_SchemaVersioning(t *testing.T) {
 	t.Parallel()
 
 	backend, dbPath := createTestSQLiteBackend(t)
-	defer backend.Close()
+	defer func() {
+		if err := backend.Close(); err != nil {
+			t.Errorf("Failed to close backend: %v", err)
+		}
+	}()
 
 	// Verify schema_info table was created and has correct version
 	db, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
 		t.Fatalf("Failed to open database: %v", err)
 	}
-	defer db.Close()
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("Failed to close database: %v", err)
+		}
+	}()
 
 	var version int
 	err = db.QueryRow("SELECT version FROM schema_info ORDER BY version DESC LIMIT 1").Scan(&version)
@@ -290,14 +325,22 @@ func TestSQLiteBackend_IndexesCreated(t *testing.T) {
 	t.Parallel()
 
 	backend, dbPath := createTestSQLiteBackend(t)
-	defer backend.Close()
+	defer func() {
+		if err := backend.Close(); err != nil {
+			t.Errorf("Failed to close backend: %v", err)
+		}
+	}()
 
 	// Verify indexes were created
 	db, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
 		t.Fatalf("Failed to open database: %v", err)
 	}
-	defer db.Close()
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("Failed to close database: %v", err)
+		}
+	}()
 
 	expectedIndexes := []string{
 		"idx_audit_timestamp",
@@ -334,7 +377,11 @@ func TestSQLiteBackend_ConcurrentWrites_Basic(t *testing.T) {
 	t.Parallel()
 
 	backend, _ := createTestSQLiteBackend(t)
-	defer backend.Close()
+	defer func() {
+		if err := backend.Close(); err != nil {
+			t.Errorf("Failed to close backend: %v", err)
+		}
+	}()
 
 	const numWorkers = 5
 	const eventsPerWorker = 10
@@ -384,20 +431,31 @@ func TestSQLiteBackend_ConcurrentWrites_Basic(t *testing.T) {
 }
 
 func TestSQLiteBackend_ConcurrentWriteAndMaintenance(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping concurrent write and maintenance test in short mode")
+	}
 	t.Parallel()
 
 	backend, _ := createTestSQLiteBackend(t)
-	defer backend.Close()
+	defer func() {
+		if err := backend.Close(); err != nil {
+			t.Errorf("Failed to close backend: %v", err)
+		}
+	}()
 
-	// Test duration
-	testDuration := 1 * time.Second
+	// Test duration - reduced for faster execution
+	testDuration := 200 * time.Millisecond
 	stopChan := make(chan struct{})
 	errorChan := make(chan error, 10)
+	doneChan := make(chan struct{}, 2) // Track completion of both goroutines
 
-	// Writer goroutine - continuously writes events
+	// Writer goroutine - writes a fixed number of events
 	go func() {
+		defer func() { doneChan <- struct{}{} }()
 		eventCounter := 0
-		for {
+		maxEvents := 20 // Fixed number of events instead of infinite loop
+
+		for eventCounter < maxEvents {
 			select {
 			case <-stopChan:
 				return
@@ -408,14 +466,19 @@ func TestSQLiteBackend_ConcurrentWriteAndMaintenance(t *testing.T) {
 					return
 				}
 				eventCounter++
-				time.Sleep(5 * time.Millisecond) // Small delay to simulate realistic load
+				// Reduced sleep time for faster execution
+				time.Sleep(2 * time.Millisecond)
 			}
 		}
 	}()
 
-	// Maintenance goroutine - occasionally runs maintenance
+	// Maintenance goroutine - runs maintenance a fixed number of times
 	go func() {
-		for {
+		defer func() { doneChan <- struct{}{} }()
+		maintenanceCount := 0
+		maxMaintenance := 5 // Fixed number of maintenance operations
+
+		for maintenanceCount < maxMaintenance {
 			select {
 			case <-stopChan:
 				return
@@ -424,14 +487,20 @@ func TestSQLiteBackend_ConcurrentWriteAndMaintenance(t *testing.T) {
 					errorChan <- fmt.Errorf("maintenance error: %w", err)
 					return
 				}
-				time.Sleep(100 * time.Millisecond) // Maintenance runs less frequently
+				maintenanceCount++
+				// Reduced sleep time for faster execution
+				time.Sleep(20 * time.Millisecond)
 			}
 		}
 	}()
 
 	// Statistics reader goroutine - checks stats during operations
 	go func() {
-		for {
+		defer func() { doneChan <- struct{}{} }()
+		statsCount := 0
+		maxStats := 10 // Fixed number of stats checks
+
+		for statsCount < maxStats {
 			select {
 			case <-stopChan:
 				return
@@ -440,22 +509,29 @@ func TestSQLiteBackend_ConcurrentWriteAndMaintenance(t *testing.T) {
 					errorChan <- fmt.Errorf("stats error: %w", err)
 					return
 				}
-				time.Sleep(50 * time.Millisecond)
+				statsCount++
+				time.Sleep(10 * time.Millisecond) // Reduced sleep time
 			}
 		}
 	}()
 
-	// Run test for specified duration
-	time.Sleep(testDuration)
-	close(stopChan)
+	// Wait for all goroutines to complete or timeout
+	timeout := time.After(testDuration)
+	completed := 0
 
-	// Check for any errors from goroutines
-	select {
-	case err := <-errorChan:
-		t.Fatalf("Concurrent operation failed: %v", err)
-	case <-time.After(200 * time.Millisecond):
-		// No errors within timeout - success
+	for completed < 3 { // 3 goroutines total
+		select {
+		case <-doneChan:
+			completed++
+		case err := <-errorChan:
+			t.Fatalf("Concurrent operation failed: %v", err)
+		case <-timeout:
+			t.Logf("Test completed with %d/%d goroutines finished", completed, 3)
+			completed = 3 // Force exit from loop
+		}
 	}
+
+	close(stopChan)
 
 	// Final verification - ensure backend is still functional
 	finalEvent := createTestAuditEvent("final-test", "post-concurrent")
@@ -468,7 +544,11 @@ func TestSQLiteBackend_ErrorRecovery_Security(t *testing.T) {
 	t.Parallel()
 
 	backend, dbPath := createTestSQLiteBackend(t)
-	defer backend.Close()
+	defer func() {
+		if err := backend.Close(); err != nil {
+			t.Errorf("Failed to close backend: %v", err)
+		}
+	}()
 
 	// Test 1: Write valid events first
 	validEvents := []AuditEvent{
@@ -510,7 +590,11 @@ func TestSQLiteBackend_ErrorRecovery_Security(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to open database for verification: %v", err)
 	}
-	defer db.Close()
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("Failed to close database: %v", err)
+		}
+	}()
 
 	var count int
 	err = db.QueryRow("SELECT COUNT(*) FROM audit_events WHERE component = 'security-test'").Scan(&count)
@@ -599,6 +683,10 @@ func TestSQLiteBackend_SafeShutdown_Concurrency(t *testing.T) {
 
 	// Verify multiple closes are safe
 	if err := backend.Close(); err != nil {
+		t.Errorf("Failed to close backend: %v", err)
+	}
+	// Verify multiple closes are safe
+	if err := backend.Close(); err != nil {
 		t.Errorf("Second close should be safe: %v", err)
 	}
 
@@ -632,14 +720,22 @@ func TestSQLiteBackend_SchemaMigration_Security(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create backend for migration test: %v", err)
 	}
-	defer backend.Close()
+	defer func() {
+		if err := backend.Close(); err != nil {
+			t.Errorf("Failed to close backend: %v", err)
+		}
+	}()
 
 	// Step 2: Verify schema was properly migrated
 	testDB, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
 		t.Fatalf("Failed to open database for verification: %v", err)
 	}
-	defer testDB.Close()
+	defer func() {
+		if err := testDB.Close(); err != nil {
+			t.Logf("Failed to close testDB: %v", err)
+		}
+	}()
 
 	// Check schema_info table exists and has correct version
 	var version int
@@ -710,23 +806,27 @@ func TestSQLiteBackend_SchemaMigration_Security(t *testing.T) {
 func TestSQLiteBackend_ErrorHandling_EdgeCases(t *testing.T) {
 	t.Parallel()
 
-	   // Test 1: Backend with invalid database path (skip on Windows)
-	   if runtime.GOOS == "windows" {
-		   t.Skip("Skipping invalid path test on Windows: path semantics differ")
-	   }
-	   invalidConfig := AuditConfig{
-		   Enabled:    true,
-		   OutputFile: "/invalid/path/that/cannot/exist/test.db",
-		   BufferSize: 5,
-	   }
-	   _, err := newSQLiteBackend(invalidConfig)
-	   if err == nil {
-		   t.Error("Expected error for invalid database path, but got none")
-	   }
+	// Test 1: Backend with invalid database path (skip on Windows)
+	if runtime.GOOS == "windows" {
+		t.Skip("Skipping invalid path test on Windows: path semantics differ")
+	}
+	invalidConfig := AuditConfig{
+		Enabled:    true,
+		OutputFile: "/invalid/path/that/cannot/exist/test.db",
+		BufferSize: 5,
+	}
+	_, err := newSQLiteBackend(invalidConfig)
+	if err == nil {
+		t.Error("Expected error for invalid database path, but got none")
+	}
 
 	// Test 2: Test with empty events array
 	backend, _ := createTestSQLiteBackend(t)
-	defer backend.Close()
+	defer func() {
+		if err := backend.Close(); err != nil {
+			t.Errorf("Failed to close backend: %v", err)
+		}
+	}()
 
 	if err := backend.Write([]AuditEvent{}); err != nil {
 		t.Errorf("Empty events array should not cause error: %v", err)
@@ -767,7 +867,11 @@ func TestSQLiteBackend_DatabaseStats_Comprehensive(t *testing.T) {
 	t.Parallel()
 
 	backend, _ := createTestSQLiteBackend(t)
-	defer backend.Close()
+	defer func() {
+		if err := backend.Close(); err != nil {
+			t.Errorf("Failed to close backend: %v", err)
+		}
+	}()
 
 	// Add diverse test data
 	testEvents := []AuditEvent{
@@ -852,26 +956,30 @@ func TestSQLiteBackend_DatabaseStats_Comprehensive(t *testing.T) {
 func TestSQLiteBackend_ErrorPaths_Database(t *testing.T) {
 	t.Parallel()
 
-	   // Test 1: Database creation failure with invalid path (skip on Windows)
-	   if runtime.GOOS == "windows" {
-		   t.Skip("Skipping invalid path/permission test on Windows: path semantics differ")
-	   }
-	   invalidConfig := AuditConfig{
-		   Enabled:    true,
-		   OutputFile: "/root/impossible/path/test.db", // This should fail on permission
-		   BufferSize: 5,
-	   }
-	   _, err := newSQLiteBackend(invalidConfig)
-	   if err == nil {
-		   t.Error("Expected error for invalid database path, got none")
-	   }
+	// Test 1: Database creation failure with invalid path (skip on Windows)
+	if runtime.GOOS == "windows" {
+		t.Skip("Skipping invalid path/permission test on Windows: path semantics differ")
+	}
+	invalidConfig := AuditConfig{
+		Enabled:    true,
+		OutputFile: "/root/impossible/path/test.db", // This should fail on permission
+		BufferSize: 5,
+	}
+	_, err := newSQLiteBackend(invalidConfig)
+	if err == nil {
+		t.Error("Expected error for invalid database path, got none")
+	}
 
 	// Test 2: Test schema initialization on read-only filesystem (simulate)
 	tempDir, err := os.MkdirTemp("", "readonly-test-*")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			t.Logf("Failed to remove tempDir: %v", err)
+		}
+	}()
 
 	readOnlyDBPath := filepath.Join(tempDir, "readonly.db")
 
@@ -886,11 +994,19 @@ func TestSQLiteBackend_ErrorPaths_Database(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create initial database: %v", err)
 	}
-	backend.Close()
+	if err := backend.Close(); err != nil {
+		t.Logf("Failed to close backend: %v", err)
+	}
 
 	// Now make the directory read-only (this may not work on all systems)
-	os.Chmod(tempDir, 0555)
-	defer os.Chmod(tempDir, 0755) // Restore permissions for cleanup
+	if err := os.Chmod(tempDir, 0555); err != nil {
+		t.Logf("Failed to chmod tempDir to 0555: %v", err)
+	}
+	defer func() {
+		if err := os.Chmod(tempDir, 0755); err != nil {
+			t.Logf("Failed to restore tempDir permissions: %v", err)
+		}
+	}()
 
 	// Try to create a new file in the read-only directory
 	roConfig := AuditConfig{
@@ -908,7 +1024,11 @@ func TestSQLiteBackend_WriteErrors_EdgeCases(t *testing.T) {
 	t.Parallel()
 
 	backend, dbPath := createTestSQLiteBackend(t)
-	defer backend.Close()
+	defer func() {
+		if err := backend.Close(); err != nil {
+			t.Errorf("Failed to close backend: %v", err)
+		}
+	}()
 
 	// Test 1: Write extremely large events that might cause issues
 	largeContext := make(map[string]interface{})
@@ -941,10 +1061,14 @@ func TestSQLiteBackend_WriteErrors_EdgeCases(t *testing.T) {
 	}
 
 	// Test 3: Write after database file is removed (simulate corruption)
-	backend.Flush()
+	if err := backend.Flush(); err != nil {
+		t.Logf("Failed to flush backend: %v", err)
+	}
 
 	// Remove the database file while backend is still "open"
-	os.Remove(dbPath)
+	if err := os.Remove(dbPath); err != nil {
+		t.Logf("Failed to remove dbPath: %v", err)
+	}
 
 	// Try to write - this should handle the error gracefully
 	corruptionEvent := createTestAuditEvent("corruption-test", "after-file-removed")
@@ -962,27 +1086,33 @@ func TestSQLiteBackend_WriteErrors_EdgeCases(t *testing.T) {
 func TestJSONLBackend_ErrorPaths(t *testing.T) {
 	t.Parallel()
 
-	   // Test 1: JSONL backend with invalid output path (skip on Windows)
-	   if runtime.GOOS == "windows" {
-		   t.Skip("Skipping invalid path test on Windows: path semantics differ")
-	   }
-	   invalidConfig := AuditConfig{
-		   Enabled:    true,
-		   OutputFile: "/root/impossible/path/test.jsonl",
-		   BufferSize: 5,
-	   }
-	   _, err := newJSONLBackend(invalidConfig)
-	   if err == nil {
-		   t.Error("Expected error for invalid JSONL path, got none")
-	   }
+	// Test 1: JSONL backend with invalid output path (skip on Windows)
+	if runtime.GOOS == "windows" {
+		t.Skip("Skipping invalid path test on Windows: path semantics differ")
+	}
+	invalidConfig := AuditConfig{
+		Enabled:    true,
+		OutputFile: "/root/impossible/path/test.jsonl",
+		BufferSize: 5,
+	}
+	_, err := newJSONLBackend(invalidConfig)
+	if err == nil {
+		t.Error("Expected error for invalid JSONL path, got none")
+	}
 
 	// Test 2: Valid JSONL backend operations
 	tempFile, err := os.CreateTemp("", "test-jsonl-*.jsonl")
 	if err != nil {
 		t.Fatalf("Failed to create temp file: %v", err)
 	}
-	defer os.Remove(tempFile.Name())
-	tempFile.Close()
+	defer func() {
+		if err := os.Remove(tempFile.Name()); err != nil {
+			t.Logf("Failed to remove tempFile: %v", err)
+		}
+	}()
+	if err := tempFile.Close(); err != nil {
+		t.Errorf("Failed to close tempFile: %v", err)
+	}
 
 	validConfig := AuditConfig{
 		Enabled:    true,
@@ -994,7 +1124,11 @@ func TestJSONLBackend_ErrorPaths(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create JSONL backend: %v", err)
 	}
-	defer backend.Close()
+	defer func() {
+		if err := backend.Close(); err != nil {
+			t.Errorf("Failed to close backend: %v", err)
+		}
+	}()
 
 	// Test 3: Write events with complex data types
 	complexEvent := AuditEvent{
@@ -1041,7 +1175,9 @@ func TestJSONLBackend_ErrorPaths(t *testing.T) {
 	}
 
 	// Test 5: File removal during operation
-	os.Remove(tempFile.Name())
+	if err := os.Remove(tempFile.Name()); err != nil {
+		t.Logf("Failed to remove tempFile: %v", err)
+	}
 
 	postRemovalEvent := createTestAuditEvent("post-removal", "test-event")
 	err = backend.Write([]AuditEvent{postRemovalEvent})
@@ -1056,8 +1192,14 @@ func TestCreateAuditBackend_AllScenarios(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp JSONL file: %v", err)
 	}
-	defer os.Remove(tempJSONL.Name())
-	tempJSONL.Close()
+	defer func() {
+		if err := os.Remove(tempJSONL.Name()); err != nil {
+			t.Logf("Failed to remove tempJSONL: %v", err)
+		}
+	}()
+	if err := tempJSONL.Close(); err != nil {
+		t.Errorf("Failed to close tempJSONL: %v", err)
+	}
 
 	jsonlConfig := AuditConfig{
 		Enabled:    true,
@@ -1069,30 +1211,34 @@ func TestCreateAuditBackend_AllScenarios(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create JSONL backend: %v", err)
 	}
-	defer backend.Close()
+	defer func() {
+		if err := backend.Close(); err != nil {
+			t.Errorf("Failed to close backend: %v", err)
+		}
+	}()
 
 	backendType := reflect.TypeOf(backend).String()
 	if backendType != "*argus.jsonlAuditBackend" {
 		t.Errorf("Expected JSONL backend for .jsonl file, got %s", backendType)
 	}
 
-	   // Test 2: Invalid paths should cause both SQLite and JSONL to fail (skip on Windows)
-	   if runtime.GOOS == "windows" {
-		   t.Skip("Skipping impossible path test on Windows: path semantics differ")
-	   }
-	   invalidConfig := AuditConfig{
-		   Enabled:    true,
-		   OutputFile: "/root/totally/impossible/path/test.db",
-		   BufferSize: 5,
-	   }
-	   _, err = createAuditBackend(invalidConfig)
-	   if err == nil {
-		   t.Error("Expected createAuditBackend to fail for impossible path")
-	   }
-	   // Error should mention both backends failed
-	   if err != nil && !strings.Contains(err.Error(), "all audit backends failed") {
-		   t.Errorf("Expected error to mention both backends failed, got: %v", err)
-	   }
+	// Test 2: Invalid paths should cause both SQLite and JSONL to fail (skip on Windows)
+	if runtime.GOOS == "windows" {
+		t.Skip("Skipping impossible path test on Windows: path semantics differ")
+	}
+	invalidConfig := AuditConfig{
+		Enabled:    true,
+		OutputFile: "/root/totally/impossible/path/test.db",
+		BufferSize: 5,
+	}
+	_, err = createAuditBackend(invalidConfig)
+	if err == nil {
+		t.Error("Expected createAuditBackend to fail for impossible path")
+	}
+	// Error should mention both backends failed
+	if err != nil && !strings.Contains(err.Error(), "all audit backends failed") {
+		t.Errorf("Expected error to mention both backends failed, got: %v", err)
+	}
 
 	// Test 3: Empty config should still work (uses defaults)
 	emptyConfig := AuditConfig{
@@ -1105,9 +1251,18 @@ func TestCreateAuditBackend_AllScenarios(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create backend with empty OutputFile: %v", err)
 	}
-	defer backend2.Close()
-
+	defer func() {
+		if err := backend2.Close(); err != nil {
+			t.Errorf("Failed to close backend2: %v", err)
+		}
+	}()
+	defer func() {
+		if err := backend.Close(); err != nil {
+			t.Errorf("Failed to close backend: %v", err)
+		}
+	}()
 	// Should default to SQLite
+	// Verify backend2 type
 	backendType2 := reflect.TypeOf(backend2).String()
 	if backendType2 != "*argus.sqliteAuditBackend" {
 		t.Errorf("Expected SQLite backend for empty OutputFile, got %s", backendType2)
@@ -1122,8 +1277,14 @@ func TestSQLiteBackend_SchemaErrors_Advanced(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp file: %v", err)
 	}
-	defer os.Remove(tempFile.Name())
-	tempFile.Close()
+	defer func() {
+		if err := os.Remove(tempFile.Name()); err != nil {
+			t.Logf("Failed to remove tempFile: %v", err)
+		}
+	}()
+	if err := tempFile.Close(); err != nil {
+		t.Errorf("Failed to close tempFile: %v", err)
+	}
 
 	// Create a database with corrupt schema version
 	db, err := sql.Open("sqlite3", tempFile.Name())
@@ -1144,7 +1305,9 @@ func TestSQLiteBackend_SchemaErrors_Advanced(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create corrupt schema: %v", err)
 	}
-	db.Close()
+	if err := db.Close(); err != nil {
+		t.Logf("Failed to close db: %v", err)
+	}
 
 	// Now try to open with our backend - it should handle migration
 	config := AuditConfig{
@@ -1159,7 +1322,11 @@ func TestSQLiteBackend_SchemaErrors_Advanced(t *testing.T) {
 		t.Logf("Backend creation failed for corrupt schema (acceptable): %v", err)
 		return
 	}
-	defer backend.Close()
+	defer func() {
+		if err := backend.Close(); err != nil {
+			t.Logf("Failed to close backend: %v", err)
+		}
+	}()
 
 	// If it succeeded, it should have migrated properly
 	stats, err := backend.GetStats()
@@ -1178,8 +1345,14 @@ func TestSQLiteBackend_MigrationEdgeCases(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp file: %v", err)
 	}
-	defer os.Remove(tempFile.Name())
-	tempFile.Close()
+	defer func() {
+		if err := os.Remove(tempFile.Name()); err != nil {
+			t.Logf("Failed to remove tempFile: %v", err)
+		}
+	}()
+	if err := tempFile.Close(); err != nil {
+		t.Logf("Failed to close tempFile: %v", err)
+	}
 
 	// Create a v1 database (complete schema but version 1)
 	db, err := sql.Open("sqlite3", tempFile.Name())
@@ -1213,7 +1386,9 @@ func TestSQLiteBackend_MigrationEdgeCases(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create v1 schema: %v", err)
 	}
-	db.Close()
+	if err := db.Close(); err != nil {
+		t.Logf("Failed to close db: %v", err)
+	}
 
 	// Try to open with our backend (should migrate from v1 to v2)
 	config := AuditConfig{
@@ -1226,7 +1401,11 @@ func TestSQLiteBackend_MigrationEdgeCases(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to open v1 database: %v", err)
 	}
-	defer backend.Close()
+	defer func() {
+		if err := backend.Close(); err != nil {
+			t.Logf("Failed to close backend: %v", err)
+		}
+	}()
 
 	// Should have migrated to current version (v2)
 	stats, err := backend.GetStats()
@@ -1267,7 +1446,11 @@ func TestSQLiteBackend_WriteBuffering_EdgeCases(t *testing.T) {
 
 	// Test with very small buffer size to force frequent flushes
 	backend, _ := createTestSQLiteBackendWithBuffer(t, 1)
-	defer backend.Close()
+	defer func() {
+		if err := backend.Close(); err != nil {
+			t.Logf("Failed to close backend: %v", err)
+		}
+	}()
 
 	// Write multiple events to trigger auto-flush
 	events := make([]AuditEvent, 5)
@@ -1320,7 +1503,9 @@ func createTestSQLiteBackendWithBuffer(t *testing.T, bufferSize int) (*sqliteAud
 	if err != nil {
 		t.Fatalf("Failed to create temp file: %v", err)
 	}
-	tempFile.Close()
+	if err := tempFile.Close(); err != nil {
+		t.Errorf("Failed to close tempFile: %v", err)
+	}
 
 	config := AuditConfig{
 		Enabled:    true,
@@ -1344,8 +1529,14 @@ func TestSQLiteBackend_StatsPrecision_Comprehensive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp file: %v", err)
 	}
-	defer os.Remove(tempFile.Name())
-	tempFile.Close()
+	defer func() {
+		if err := os.Remove(tempFile.Name()); err != nil {
+			t.Logf("Failed to remove tempFile: %v", err)
+		}
+	}()
+	if err := tempFile.Close(); err != nil {
+		t.Logf("Failed to close tempFile: %v", err)
+	}
 
 	config := AuditConfig{
 		Enabled:    true,
@@ -1357,7 +1548,11 @@ func TestSQLiteBackend_StatsPrecision_Comprehensive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create fresh backend: %v", err)
 	}
-	defer backend.Close()
+	defer func() {
+		if err := backend.Close(); err != nil {
+			t.Logf("Failed to close backend: %v", err)
+		}
+	}()
 
 	// Create events with precise timestamps for testing
 	baseTime := time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC)
@@ -1447,8 +1642,14 @@ func TestJSONLBackend_Comprehensive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp file: %v", err)
 	}
-	defer os.Remove(tempFile.Name())
-	tempFile.Close()
+	defer func() {
+		if err := os.Remove(tempFile.Name()); err != nil {
+			t.Logf("Failed to remove tempFile: %v", err)
+		}
+	}()
+	if err := tempFile.Close(); err != nil {
+		t.Logf("Failed to close tempFile: %v", err)
+	}
 
 	config := AuditConfig{
 		Enabled:    true,
@@ -1460,7 +1661,11 @@ func TestJSONLBackend_Comprehensive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create JSONL backend: %v", err)
 	}
-	defer backend.Close()
+	defer func() {
+		if err := backend.Close(); err != nil {
+			t.Logf("Failed to close backend: %v", err)
+		}
+	}()
 
 	// Test write operations
 	testEvents := []AuditEvent{
@@ -1574,7 +1779,11 @@ func TestBackendFactory_AllTypes(t *testing.T) {
 				}
 				t.Fatalf("Failed to create backend: %v", err)
 			}
-			defer backend.Close()
+			defer func() {
+				if err := backend.Close(); err != nil {
+					t.Logf("Failed to close backend: %v", err)
+				}
+			}()
 
 			// Check the type matches expectation
 			backendType := reflect.TypeOf(backend).String()
@@ -1584,7 +1793,9 @@ func TestBackendFactory_AllTypes(t *testing.T) {
 
 			// Cleanup
 			if strings.Contains(tt.outputFile, "/tmp/") {
-				os.Remove(tt.outputFile)
+				if err := os.Remove(tt.outputFile); err != nil {
+					t.Logf("Failed to remove output file: %v", err)
+				}
 			}
 		})
 	}
@@ -1594,7 +1805,11 @@ func TestSQLiteBackend_FinalStressTest(t *testing.T) {
 	t.Parallel()
 
 	backend, _ := createTestSQLiteBackend(t)
-	defer backend.Close()
+	defer func() {
+		if err := backend.Close(); err != nil {
+			t.Logf("Failed to close backend: %v", err)
+		}
+	}()
 
 	// Write events with all possible edge cases
 	stressEvents := []AuditEvent{

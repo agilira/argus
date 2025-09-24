@@ -202,9 +202,13 @@ func (ctx *SecurityTestContext) Cleanup() {
 	// Restore environment variables
 	for key, originalValue := range ctx.originalEnv {
 		if originalValue == "" {
-			os.Unsetenv(key)
+			if err := os.Unsetenv(key); err != nil {
+				ctx.t.Errorf("Failed to unset env %s: %v", key, err)
+			}
 		} else {
-			os.Setenv(key, originalValue)
+			if err := os.Setenv(key, originalValue); err != nil {
+				ctx.t.Errorf("Failed to restore env %s: %v", key, err)
+			}
 		}
 	}
 
@@ -294,7 +298,11 @@ func TestSecurity_PathTraversalAttacks(t *testing.T) {
 				PollInterval: 100 * time.Millisecond,
 				Audit:        AuditConfig{Enabled: false}, // Disable audit to focus on core vulnerability
 			})
-			defer watcher.Close()
+			defer func() {
+				if err := watcher.Close(); err != nil {
+					t.Logf("Failed to close watcher: %v", err)
+				}
+			}()
 
 			// SECURITY TEST: Attempt to watch a file with malicious path
 			// Expected behavior: This should fail with appropriate error
@@ -309,9 +317,13 @@ func TestSecurity_PathTraversalAttacks(t *testing.T) {
 				t.Logf("SECURITY CRITICAL: Path traversal was not blocked for: %s", attack.description)
 
 				// If watch succeeded, test if it actually accesses the system file
-				watcher.Start()
+				if err := watcher.Start(); err != nil {
+					t.Logf("Failed to start watcher: %v", err)
+				}
 				time.Sleep(200 * time.Millisecond) // Allow some processing time
-				watcher.Stop()
+				if err := watcher.Stop(); err != nil {
+					t.Errorf("Failed to stop watcher: %v", err)
+				}
 
 				// Log detailed security analysis
 				t.Errorf("SECURITY VULNERABILITY CONFIRMED: Argus accepted malicious path '%s' which could lead to unauthorized file access. Attack: %s",
@@ -384,7 +396,11 @@ func TestSecurity_PathValidationBypass(t *testing.T) {
 				PollInterval: 100 * time.Millisecond,
 				Audit:        AuditConfig{Enabled: false},
 			})
-			defer watcher.Close()
+			defer func() {
+				if err := watcher.Close(); err != nil {
+					t.Errorf("Failed to close watcher: %v", err)
+				}
+			}()
 
 			// SECURITY TEST: Attempt path validation bypass
 			err := watcher.Watch(bypass.path, func(event ChangeEvent) {
@@ -429,7 +445,11 @@ func TestSecurity_ResourceExhaustionAttacks(t *testing.T) {
 			MaxWatchedFiles: 5, // Intentionally low limit for testing
 			Audit:           AuditConfig{Enabled: false},
 		})
-		defer watcher.Close()
+		defer func() {
+			if err := watcher.Close(); err != nil {
+				t.Errorf("Failed to close watcher: %v", err)
+			}
+		}()
 
 		// Add files up to the limit
 		for i := 0; i < 5; i++ {
@@ -484,7 +504,11 @@ func TestSecurity_ResourceExhaustionAttacks(t *testing.T) {
 			PollInterval: 100 * time.Millisecond,
 			Audit:        AuditConfig{Enabled: false},
 		})
-		defer watcher.Close()
+		defer func() {
+			if err := watcher.Close(); err != nil {
+				t.Logf("Failed to close watcher: %v", err)
+			}
+		}()
 
 		// SECURITY TEST: Watch large file and measure resource usage
 		var memBefore, memAfter uint64
@@ -501,7 +525,9 @@ func TestSecurity_ResourceExhaustionAttacks(t *testing.T) {
 		})
 
 		if err == nil {
-			watcher.Start()
+			if err := watcher.Start(); err != nil {
+				t.Logf("Failed to start watcher: %v", err)
+			}
 
 			// Trigger file change to test parsing memory usage
 			ctx.CreateMaliciousFile("large_config.json", append(largeConfig, []byte(" ")...), 0644)
@@ -511,7 +537,9 @@ func TestSecurity_ResourceExhaustionAttacks(t *testing.T) {
 			// Measure memory after
 			memAfter = getCurrentMemoryUsage()
 
-			watcher.Stop()
+			if err := watcher.Stop(); err != nil {
+				t.Errorf("Failed to stop watcher: %v", err)
+			}
 
 			// SECURITY ANALYSIS: Check for reasonable memory usage
 			memDiff := memAfter - memBefore
@@ -530,7 +558,11 @@ func TestSecurity_ResourceExhaustionAttacks(t *testing.T) {
 			MaxWatchedFiles: 100,
 			Audit:           AuditConfig{Enabled: false},
 		})
-		defer watcher.Close()
+		defer func() {
+			if err := watcher.Close(); err != nil {
+				t.Logf("Failed to close watcher: %v", err)
+			}
+		}()
 
 		// Create many files and watch them to test FD usage
 		for i := 0; i < 50; i++ { // Test with moderate number
@@ -542,9 +574,13 @@ func TestSecurity_ResourceExhaustionAttacks(t *testing.T) {
 				break
 			}
 		} // Start intensive polling to test FD management
-		watcher.Start()
+		if err := watcher.Start(); err != nil {
+			t.Logf("Failed to start watcher: %v", err)
+		}
 		time.Sleep(1 * time.Second) // Allow intensive polling
-		watcher.Stop()
+		if err := watcher.Stop(); err != nil {
+			t.Logf("Failed to stop watcher: %v", err)
+		}
 
 		// SECURITY CHECK: Watcher should still be functional
 		testFile := ctx.CreateMaliciousFile("fd_recovery_test.txt", []byte("test"), 0644)

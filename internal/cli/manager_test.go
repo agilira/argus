@@ -36,7 +36,11 @@ func TestManagerWithAudit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create audit logger: %v", err)
 	}
-	defer auditLogger.Close()
+	defer func() {
+		if err := auditLogger.Close(); err != nil {
+			t.Logf("Failed to close auditLogger: %v", err)
+		}
+	}()
 
 	// Test fluent interface - separate manager creation and validation
 	baseManager := NewManager()

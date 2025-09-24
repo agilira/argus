@@ -1,3 +1,9 @@
+// Package main demonstrates advanced configuration validation using Argus.
+//
+// Copyright (c) 2025 AGILira - A. Giordano
+// Series: an AGILira fragment
+// SPDX-License-Identifier: MPL-2.0
+
 package main
 
 import (

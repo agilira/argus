@@ -23,7 +23,11 @@ func TestBoreasLite_PathLengths(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(tempDir1)
+	defer func() {
+		if err := os.RemoveAll(tempDir1); err != nil {
+			t.Logf("Failed to remove tempDir1: %v", err)
+		}
+	}()
 
 	shortFile := filepath.Join(tempDir1, "file.json")
 	t.Logf("Test 1 - Short path: %s (len=%d)", shortFile, len(shortFile))
@@ -35,7 +39,11 @@ func TestBoreasLite_PathLengths(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(tempDir2)
+	defer func() {
+		if err := os.RemoveAll(tempDir2); err != nil {
+			t.Logf("Failed to remove tempDir2: %v", err)
+		}
+	}()
 
 	mediumFile := filepath.Join(tempDir2, "file_with_somewhat_longer_name_for_testing.json")
 	t.Logf("Test 2 - Medium path: %s (len=%d)", mediumFile, len(mediumFile))
@@ -54,7 +62,11 @@ func TestBoreasLite_PathLengths(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(tempDir3)
+	defer func() {
+		if err := os.RemoveAll(tempDir3); err != nil {
+			t.Logf("Failed to remove tempDir3: %v", err)
+		}
+	}()
 
 	// Create a filename that gets us close to 109 characters
 	baseLength := len(tempDir3) + 1     // +1 for path separator
@@ -92,21 +104,27 @@ func testPath(t *testing.T, filePath, testName string) {
 		PollInterval: 200 * time.Millisecond, // Slower for CI
 		CacheTTL:     100 * time.Millisecond,
 	})
-	defer watcher.Stop()
+	defer func() {
+		if err := watcher.Stop(); err != nil {
+			t.Logf("Failed to stop watcher: %v", err)
+		}
+	}()
 
 	var events []ChangeEvent
 	var eventsMutex sync.Mutex
 
-	if err := watcher.Watch(filePath, func(event ChangeEvent) {
+	err := watcher.Watch(filePath, func(event ChangeEvent) {
 		eventsMutex.Lock()
 		events = append(events, event)
 		eventsMutex.Unlock()
 		t.Logf("%s - Event: Path=%s", testName, event.Path)
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("%s failed to watch: %v", testName, err)
 	}
-
-	watcher.Start()
+	if err := watcher.Start(); err != nil {
+		t.Fatalf("%s failed to start watcher: %v", testName, err)
+	}
 	time.Sleep(300 * time.Millisecond) // Longer setup for CI
 
 	// Clear initial events (like integration test)

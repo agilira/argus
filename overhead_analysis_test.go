@@ -20,7 +20,11 @@ func BenchmarkArgus_PerLogEntryOverhead(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			b.Logf("Failed to remove tempDir: %v", err)
+		}
+	}()
 
 	configFile := filepath.Join(tempDir, "config.json")
 	if err := os.WriteFile(configFile, []byte(`{"level": "info"}`), 0644); err != nil {
@@ -57,14 +61,22 @@ func benchmarkSingleLogEntryWithArgus(b *testing.B, configFile string) {
 	}
 
 	watcher := New(*config.WithDefaults())
-	defer watcher.Stop()
+	defer func() {
+		if err := watcher.Stop(); err != nil {
+			b.Logf("Failed to stop watcher: %v", err)
+		}
+	}()
 
 	var configReloads atomic.Int64
-	watcher.Watch(configFile, func(event ChangeEvent) {
+	if err := watcher.Watch(configFile, func(event ChangeEvent) {
 		configReloads.Add(1)
-	})
+	}); err != nil {
+		b.Fatalf("Failed to watch configFile: %v", err)
+	}
 
-	watcher.Start()
+	if err := watcher.Start(); err != nil {
+		b.Fatalf("Failed to start watcher: %v", err)
+	}
 	time.Sleep(50 * time.Millisecond) // Stabilization
 
 	// Simulates the same logging operation but with Argus active
@@ -88,7 +100,11 @@ func BenchmarkArgus_HTTPRequestOverhead(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			b.Logf("Failed to remove tempDir: %v", err)
+		}
+	}()
 
 	configFile := filepath.Join(tempDir, "config.json")
 	if err := os.WriteFile(configFile, []byte(`{"level": "info"}`), 0644); err != nil {
@@ -138,16 +154,24 @@ func benchmarkHTTPRequestWithArgus(b *testing.B, configFile string) {
 	}
 
 	watcher := New(*config.WithDefaults())
-	defer watcher.Stop()
+	defer func() {
+		if err := watcher.Stop(); err != nil {
+			b.Logf("Failed to stop watcher: %v", err)
+		}
+	}()
 
 	var configReloads atomic.Int64
-	watcher.Watch(configFile, func(event ChangeEvent) {
+	if err := watcher.Watch(configFile, func(event ChangeEvent) {
 		configReloads.Add(1)
 		// Simulates the cost of reconfiguring the logger in Iris
 		time.Sleep(100 * time.Microsecond) // 0.1ms typical for reload config
-	})
+	}); err != nil {
+		b.Fatalf("Failed to watch config file: %v", err)
+	}
 
-	watcher.Start()
+	if err := watcher.Start(); err != nil {
+		b.Fatalf("Failed to start watcher: %v", err)
+	}
 	time.Sleep(100 * time.Millisecond) // Stabilization
 
 	var requestCount atomic.Int64
@@ -177,7 +201,11 @@ func BenchmarkArgus_ThroughputImpact(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			b.Logf("Failed to remove tempDir: %v", err)
+		}
+	}()
 
 	configFile := filepath.Join(tempDir, "config.json")
 	if err := os.WriteFile(configFile, []byte(`{"level": "info"}`), 0644); err != nil {
@@ -234,14 +262,22 @@ func benchmarkThroughputWithArgus(b *testing.B, configFile string, targetRPS int
 	}
 
 	watcher := New(*config.WithDefaults())
-	defer watcher.Stop()
+	defer func() {
+		if err := watcher.Stop(); err != nil {
+			b.Logf("Failed to stop watcher: %v", err)
+		}
+	}()
 
 	var configReloads atomic.Int64
-	watcher.Watch(configFile, func(event ChangeEvent) {
+	if err := watcher.Watch(configFile, func(event ChangeEvent) {
 		configReloads.Add(1)
-	})
+	}); err != nil {
+		b.Fatalf("Failed to watch config file: %v", err)
+	}
 
-	watcher.Start()
+	if err := watcher.Start(); err != nil {
+		b.Fatalf("Failed to start watcher: %v", err)
+	}
 	time.Sleep(50 * time.Millisecond) // Stabilization
 
 	var processed atomic.Int64

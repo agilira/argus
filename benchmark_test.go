@@ -172,18 +172,32 @@ func BenchmarkWatcherGetStatOptimized(b *testing.B) {
 	if err != nil {
 		b.Fatalf("Failed to create temp file: %v", err)
 	}
-	defer os.Remove(tmpFile.Name())
-	tmpFile.Close()
+       defer func() {
+	       if err := os.Remove(tmpFile.Name()); err != nil {
+		       b.Errorf("Failed to remove tmpFile: %v", err)
+	       }
+       }()
+       if err := tmpFile.Close(); err != nil {
+	       b.Errorf("Failed to close tmpFile: %v", err)
+       }
 
 	watcher := New(Config{CacheTTL: time.Hour}) // Long TTL for cache hit testing
-	defer watcher.Stop()
+       defer func() {
+	       if err := watcher.Stop(); err != nil {
+		       b.Errorf("Failed to stop watcher: %v", err)
+	       }
+       }()
 
 	// Prime the cache
-	watcher.getStat(tmpFile.Name())
+	if _, err := watcher.getStat(tmpFile.Name()); err != nil {
+		b.Logf("Failed to get stat: %v", err)
+	}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		watcher.getStat(tmpFile.Name()) // Should be cache hit
+		if _, err := watcher.getStat(tmpFile.Name()); err != nil {
+			b.Logf("Failed to get stat: %v", err)
+		} // Should be cache hit
 	}
 }
 
@@ -193,15 +207,27 @@ func BenchmarkWatcherGetStatCacheMiss(b *testing.B) {
 	if err != nil {
 		b.Fatalf("Failed to create temp file: %v", err)
 	}
-	defer os.Remove(tmpFile.Name())
-	tmpFile.Close()
+       defer func() {
+	       if err := os.Remove(tmpFile.Name()); err != nil {
+		       b.Errorf("Failed to remove tmpFile: %v", err)
+	       }
+       }()
+       if err := tmpFile.Close(); err != nil {
+	       b.Errorf("Failed to close tmpFile: %v", err)
+       }
 
 	watcher := New(Config{CacheTTL: 0}) // No caching - always miss
-	defer watcher.Stop()
+       defer func() {
+	       if err := watcher.Stop(); err != nil {
+		       b.Errorf("Failed to stop watcher: %v", err)
+	       }
+       }()
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		watcher.getStat(tmpFile.Name()) // Always cache miss
+		if _, err := watcher.getStat(tmpFile.Name()); err != nil {
+			b.Logf("Failed to get stat: %v", err)
+		} // Always cache miss
 	}
 }
 
@@ -210,7 +236,11 @@ func BenchmarkWatcherPollFiles(b *testing.B) {
 	if err != nil {
 		b.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+       defer func() {
+	       if err := os.RemoveAll(tmpDir); err != nil {
+		       b.Errorf("Failed to remove tmpDir: %v", err)
+	       }
+       }()
 
 	// Create test files
 	for i := 0; i < 5; i++ {
@@ -221,13 +251,19 @@ func BenchmarkWatcherPollFiles(b *testing.B) {
 	}
 
 	watcher := New(Config{PollInterval: time.Millisecond})
-	defer watcher.Stop()
+       defer func() {
+	       if err := watcher.Stop(); err != nil {
+		       b.Errorf("Failed to stop watcher: %v", err)
+	       }
+       }()
 
 	// Add some files to watch
 	files, _ := os.ReadDir(tmpDir)
 	for _, file := range files {
 		if !file.IsDir() {
-			watcher.Watch(tmpDir+"/"+file.Name(), func(event ChangeEvent) {})
+			if err := watcher.Watch(tmpDir+"/"+file.Name(), func(event ChangeEvent) {}); err != nil {
+				b.Logf("Failed to watch file: %v", err)
+			}
 		}
 	}
 
