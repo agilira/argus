@@ -21,11 +21,11 @@ func TestConfig_ValidateDetailed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-       defer func() {
-	       if err := os.RemoveAll(tempDir); err != nil {
-		       t.Logf("Failed to remove tempDir: %v", err)
-	       }
-       }()
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			t.Logf("Failed to remove tempDir: %v", err)
+		}
+	}()
 
 	tests := []struct {
 		name             string
@@ -155,11 +155,11 @@ func TestConfig_ValidateAuditConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-       defer func() {
-	       if err := os.RemoveAll(tempDir); err != nil {
-		       t.Logf("Failed to remove tempDir: %v", err)
-	       }
-       }()
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			t.Logf("Failed to remove tempDir: %v", err)
+		}
+	}()
 
 	tests := []struct {
 		name             string
@@ -295,11 +295,11 @@ func TestConfig_Validate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-       defer func() {
-	       if err := os.RemoveAll(tempDir); err != nil {
-		       t.Logf("Failed to remove tempDir: %v", err)
-	       }
-       }()
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			t.Logf("Failed to remove tempDir: %v", err)
+		}
+	}()
 
 	tests := []struct {
 		name      string
@@ -352,11 +352,11 @@ func TestValidateEnvironmentConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-       defer func() {
-	       if err := os.RemoveAll(tempDir); err != nil {
-		       t.Logf("Failed to remove tempDir: %v", err)
-	       }
-       }()
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			t.Logf("Failed to remove tempDir: %v", err)
+		}
+	}()
 
 	// Save current environment
 	originalEnv := make(map[string]string)
@@ -372,23 +372,23 @@ func TestValidateEnvironmentConfig(t *testing.T) {
 	}
 
 	// Clean environment for test
-       defer func() {
-	       for _, env := range []string{
-		       "ARGUS_POLL_INTERVAL",
-		       "ARGUS_CACHE_TTL",
-		       "ARGUS_MAX_WATCHED_FILES",
-		       "ARGUS_AUDIT_OUTPUT_FILE",
-	       } {
-		       if err := os.Unsetenv(env); err != nil {
-			       t.Logf("Failed to unset env %s: %v", env, err)
-		       }
-	       }
-	       for env, val := range originalEnv {
-		       if err := os.Setenv(env, val); err != nil {
-			       t.Logf("Failed to restore env %s: %v", env, err)
-		       }
-	       }
-       }()
+	defer func() {
+		for _, env := range []string{
+			"ARGUS_POLL_INTERVAL",
+			"ARGUS_CACHE_TTL",
+			"ARGUS_MAX_WATCHED_FILES",
+			"ARGUS_AUDIT_OUTPUT_FILE",
+		} {
+			if err := os.Unsetenv(env); err != nil {
+				t.Logf("Failed to unset env %s: %v", env, err)
+			}
+		}
+		for env, val := range originalEnv {
+			if err := os.Setenv(env, val); err != nil {
+				t.Logf("Failed to restore env %s: %v", env, err)
+			}
+		}
+	}()
 
 	tests := []struct {
 		name    string
@@ -437,9 +437,9 @@ func TestValidateEnvironmentConfig(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Set environment variables
 			for key, value := range tt.envVars {
-		       if err := os.Setenv(key, value); err != nil {
-			       t.Logf("Failed to set env %s: %v", key, err)
-		       }
+				if err := os.Setenv(key, value); err != nil {
+					t.Logf("Failed to set env %s: %v", key, err)
+				}
 			}
 
 			err := ValidateEnvironmentConfig()
@@ -449,9 +449,9 @@ func TestValidateEnvironmentConfig(t *testing.T) {
 
 			// Clean up environment variables
 			for key := range tt.envVars {
-		       if err := os.Unsetenv(key); err != nil {
-			       t.Logf("Failed to unset env %s: %v", key, err)
-		       }
+				if err := os.Unsetenv(key); err != nil {
+					t.Logf("Failed to unset env %s: %v", key, err)
+				}
 			}
 		})
 	}
@@ -463,11 +463,11 @@ func TestValidateConfigFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-       defer func() {
-	       if err := os.RemoveAll(tempDir); err != nil {
-		       t.Logf("Failed to remove tempDir: %v", err)
-	       }
-       }()
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			t.Logf("Failed to remove tempDir: %v", err)
+		}
+	}()
 
 	// Create an audit directory for cross-platform compatibility
 	auditDir := filepath.Join(tempDir, "audit")
@@ -530,11 +530,11 @@ func TestValidationResult_Complete(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-       defer func() {
-	       if err := os.RemoveAll(tempDir); err != nil {
-		       t.Logf("Failed to remove tempDir: %v", err)
-	       }
-       }()
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			t.Logf("Failed to remove tempDir: %v", err)
+		}
+	}()
 
 	config := &Config{
 		PollInterval:         5 * time.Millisecond,    // Error: too small

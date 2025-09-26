@@ -51,11 +51,15 @@ func demoSingleEventStrategy() {
 	writeFile(configFile, `{"mode": "production", "debug": false}`)
 
 	// Callback ultra-veloce
-	watcher.Watch(configFile, func(event argus.ChangeEvent) {
+	if err := watcher.Watch(configFile, func(event argus.ChangeEvent) {
 		fmt.Printf("  ⚡ ULTRA-FAST: Config changed: %s\n", filepath.Base(event.Path))
-	})
+	}); err != nil {
+		log.Printf("Warning: failed to watch ultra-fast config: %v", err)
+	}
 
-	watcher.Start()
+	if err := watcher.Start(); err != nil {
+		log.Fatalf("Failed to start ultra-fast watcher: %v", err)
+	}
 	time.Sleep(20 * time.Millisecond)
 
 	// Test modifica
@@ -85,12 +89,16 @@ func demoSmallBatchStrategy() {
 		filePath := filepath.Join(tempDir, filename)
 		writeFile(filePath, fmt.Sprintf(`{"service": "%s", "port": %d}`, filename[:len(filename)-5], 8000+i))
 
-		watcher.Watch(filePath, func(event argus.ChangeEvent) {
+		if err := watcher.Watch(filePath, func(event argus.ChangeEvent) {
 			fmt.Printf("  📦 BATCH: Service config updated: %s\n", filepath.Base(event.Path))
-		})
+		}); err != nil {
+			log.Printf("Warning: failed to watch batch file %s: %v", filename, err)
+		}
 	}
 
-	watcher.Start()
+	if err := watcher.Start(); err != nil {
+		log.Fatalf("Failed to start batch watcher: %v", err)
+	}
 	time.Sleep(30 * time.Millisecond)
 
 	// Test modifica multipla
@@ -124,12 +132,16 @@ func demoLargeBatchStrategy() {
 		filePath := filepath.Join(tempDir, filename)
 		writeFile(filePath, fmt.Sprintf(`{"id": %d, "status": "active"}`, i))
 
-		watcher.Watch(filePath, func(event argus.ChangeEvent) {
+		if err := watcher.Watch(filePath, func(event argus.ChangeEvent) {
 			fmt.Printf("  🚀 BULK: Bulk service updated: %s\n", filepath.Base(event.Path))
-		})
+		}); err != nil {
+			log.Printf("Warning: failed to watch bulk file %s: %v", filename, err)
+		}
 	}
 
-	watcher.Start()
+	if err := watcher.Start(); err != nil {
+		log.Fatalf("Failed to start bulk watcher: %v", err)
+	}
 	time.Sleep(60 * time.Millisecond)
 
 	// Test modifica bulk
@@ -157,15 +169,19 @@ func demoAutoStrategy() {
 	tempDir := createTempDir("auto_demo")
 	defer os.RemoveAll(tempDir)
 
-	watcher.Start()
+	if err := watcher.Start(); err != nil {
+		log.Fatalf("Failed to start auto-adaptive watcher: %v", err)
+	}
 
 	// Fase 1: Inizia con 1 file (dovrebbe usare SingleEvent)
 	fmt.Printf("  🧠 AUTO: Fase 1 - Single file (auto-SingleEvent)\n")
 	configFile := filepath.Join(tempDir, "main.json")
 	writeFile(configFile, `{"files": 1}`)
-	watcher.Watch(configFile, func(event argus.ChangeEvent) {
+	if err := watcher.Watch(configFile, func(event argus.ChangeEvent) {
 		fmt.Printf("    Auto-adapted: %s\n", filepath.Base(event.Path))
-	})
+	}); err != nil {
+		log.Printf("Warning: failed to watch main config: %v", err)
+	}
 
 	writeFile(configFile, `{"files": 1, "updated": true}`)
 	time.Sleep(50 * time.Millisecond)
@@ -176,9 +192,11 @@ func demoAutoStrategy() {
 		filename := fmt.Sprintf("service_%d.json", i)
 		filePath := filepath.Join(tempDir, filename)
 		writeFile(filePath, fmt.Sprintf(`{"service": %d}`, i))
-		watcher.Watch(filePath, func(event argus.ChangeEvent) {
+		if err := watcher.Watch(filePath, func(event argus.ChangeEvent) {
 			fmt.Printf("    Auto-adapted: %s\n", filepath.Base(event.Path))
-		})
+		}); err != nil {
+			log.Printf("Warning: failed to watch file %s: %v", filename, err)
+		}
 	}
 
 	// Test modifica
@@ -202,7 +220,7 @@ func createTempDir(prefix string) string {
 }
 
 func writeFile(path, content string) {
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
 		log.Fatal(err)
 	}
 }

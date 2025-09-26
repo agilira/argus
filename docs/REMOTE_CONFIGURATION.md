@@ -278,6 +278,76 @@ go func() {
 }()
 ```
 
+## Remote Configuration (v1.0.2+)
+
+### Automatic Fallback System
+
+The new `RemoteConfig` struct provides enterprise-grade distributed configuration with automatic fallback capabilities:
+
+```go
+type RemoteConfig struct {
+    Enabled      bool          // Enable remote configuration
+    PrimaryURL   string        // Primary remote endpoint  
+    FallbackURL  string        // Secondary remote endpoint
+    LocalPath    string        // Local fallback file
+    Timeout      time.Duration // Request timeout
+    MaxRetries   int           // Retry attempts
+    RetryDelay   time.Duration // Exponential backoff base
+    SyncInterval time.Duration // Sync frequency
+}
+```
+
+### Quick Setup
+
+```go
+// Enterprise setup with full fallback
+remoteManager := argus.NewRemoteConfigWithFallback(
+    "https://consul.prod:8500/v1/kv/app/config",     // Primary
+    "https://consul.backup:8500/v1/kv/app/config",   // Fallback  
+    "/etc/myapp/emergency-config.json",              // Local
+)
+
+watcher := argus.New(argus.Config{
+    Remote: remoteManager.Config(),
+})
+
+// Graceful shutdown for production
+defer watcher.GracefulShutdown(30 * time.Second)
+```
+
+### Fallback Sequence
+
+1. **Primary URL** - Try main remote source (Consul, etcd, HTTP API)
+2. **Fallback URL** - Try backup remote source (if configured)
+3. **Local Path** - Load local configuration file (if configured)
+4. **Error** - All sources failed, propagate error
+
+### Production Features
+
+- **Zero-allocation hot path**: No GC pressure during config loading
+- **Exponential backoff**: Intelligent retry with overflow protection  
+- **Atomic updates**: Thread-safe configuration swapping
+- **Audit integration**: Full enterprise audit logging
+- **Health monitoring**: Endpoint availability tracking
+- **Timeout control**: Prevent hanging requests in production
+
+### Kubernetes Integration
+
+```yaml
+# ConfigMap with fallback configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-remote-config
+data:
+  primary-url: "https://consul.cluster.local:8500/v1/kv/app/config"
+  fallback-url: "https://consul-backup.cluster.local:8500/v1/kv/app/config" 
+  local-path: "/etc/config/fallback.json"
+  timeout: "10s"
+  max-retries: "3"
+  sync-interval: "5m"
+```
+
 ---
 
 Argus • an AGILira fragment

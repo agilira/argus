@@ -6418,25 +6418,179 @@ func TestRemoteConfigWaitForRetry(t *testing.T) {
 	}
 }
 
-// TestRemoteConfigShouldStopRetrying tests shouldStopRetrying function
+// TestRemoteConfigShouldStopRetrying tests shouldStopRetrying function with comprehensive error scenarios
 func TestRemoteConfigShouldStopRetrying(t *testing.T) {
-	// Test context.Canceled
-	if !shouldStopRetrying(context.Canceled) {
-		t.Error("shouldStopRetrying should return true for context.Canceled")
+	tests := []struct {
+		name        string
+		err         error
+		shouldStop  bool
+		description string
+	}{
+		// Context errors - should stop
+		{
+			name:        "context_canceled",
+			err:         context.Canceled,
+			shouldStop:  true,
+			description: "Context cancellation should stop retrying",
+		},
+		{
+			name:        "context_deadline_exceeded",
+			err:         context.DeadlineExceeded,
+			shouldStop:  true,
+			description: "Context timeout should stop retrying",
+		},
+
+		// HTTP 4xx client errors - should stop (non-recoverable)
+		{
+			name:        "http_401_unauthorized",
+			err:         fmt.Errorf("request failed: 401 Unauthorized"),
+			shouldStop:  true,
+			description: "401 errors indicate authentication issues - should not retry",
+		},
+		{
+			name:        "http_403_forbidden",
+			err:         fmt.Errorf("request failed: 403 Forbidden"),
+			shouldStop:  true,
+			description: "403 errors indicate permission issues - should not retry",
+		},
+		{
+			name:        "http_404_not_found",
+			err:         fmt.Errorf("request failed: 404 Not Found"),
+			shouldStop:  true,
+			description: "404 errors indicate resource doesn't exist - should not retry",
+		},
+		{
+			name:        "http_400_bad_request",
+			err:         fmt.Errorf("HTTP error: 400 Bad Request"),
+			shouldStop:  true,
+			description: "400 errors indicate client error - should not retry",
+		},
+		{
+			name:        "http_429_rate_limit",
+			err:         fmt.Errorf("rate limited: 429 Too Many Requests"),
+			shouldStop:  true,
+			description: "429 errors typically indicate configuration issues",
+		},
+
+		// Authentication/authorization errors - should stop
+		{
+			name:        "authentication_failed",
+			err:         fmt.Errorf("authentication failed"),
+			shouldStop:  true,
+			description: "Authentication failures should not be retried",
+		},
+		{
+			name:        "invalid_credentials",
+			err:         fmt.Errorf("invalid credentials provided"),
+			shouldStop:  true,
+			description: "Invalid credentials should not be retried",
+		},
+		{
+			name:        "access_denied",
+			err:         fmt.Errorf("access denied to resource"),
+			shouldStop:  true,
+			description: "Access denied should not be retried",
+		},
+		{
+			name:        "ssl_certificate_problem",
+			err:         fmt.Errorf("SSL certificate problem: unable to get local issuer certificate"),
+			shouldStop:  true,
+			description: "SSL certificate issues should not be retried",
+		},
+
+		// Permanent server errors - should stop
+		{
+			name:        "http_501_not_implemented",
+			err:         fmt.Errorf("server error: 501 Not Implemented"),
+			shouldStop:  true,
+			description: "501 errors indicate server doesn't support the functionality",
+		},
+		{
+			name:        "http_505_version_not_supported",
+			err:         fmt.Errorf("server error: 505 HTTP Version Not Supported"),
+			shouldStop:  true,
+			description: "505 errors indicate permanent protocol issues",
+		},
+
+		// Recoverable errors - should continue retrying
+		{
+			name:        "http_500_internal_error",
+			err:         fmt.Errorf("server error: 500 Internal Server Error"),
+			shouldStop:  false,
+			description: "500 errors are temporary server issues - should retry",
+		},
+		{
+			name:        "http_502_bad_gateway",
+			err:         fmt.Errorf("server error: 502 Bad Gateway"),
+			shouldStop:  false,
+			description: "502 errors are temporary proxy issues - should retry",
+		},
+		{
+			name:        "http_503_service_unavailable",
+			err:         fmt.Errorf("server error: 503 Service Unavailable"),
+			shouldStop:  false,
+			description: "503 errors are temporary availability issues - should retry",
+		},
+		{
+			name:        "http_504_gateway_timeout",
+			err:         fmt.Errorf("server error: 504 Gateway Timeout"),
+			shouldStop:  false,
+			description: "504 errors are temporary timeout issues - should retry",
+		},
+		{
+			name:        "connection_refused",
+			err:         fmt.Errorf("connection refused"),
+			shouldStop:  false,
+			description: "Connection refused is often temporary - should retry",
+		},
+		{
+			name:        "network_timeout",
+			err:         fmt.Errorf("network timeout occurred"),
+			shouldStop:  false,
+			description: "Network timeouts are temporary issues - should retry",
+		},
+		{
+			name:        "dns_resolution_failed",
+			err:         fmt.Errorf("DNS resolution failed"),
+			shouldStop:  false,
+			description: "DNS failures are often temporary - should retry",
+		},
+		{
+			name:        "generic_error",
+			err:         fmt.Errorf("some other random error"),
+			shouldStop:  false,
+			description: "Generic errors should be retried by default",
+		},
+
+		// Edge cases
+		{
+			name:        "nil_error",
+			err:         nil,
+			shouldStop:  false,
+			description: "Nil error should not stop retrying",
+		},
+		{
+			name:        "case_insensitive_401",
+			err:         fmt.Errorf("REQUEST FAILED: 401 UNAUTHORIZED"),
+			shouldStop:  true,
+			description: "HTTP error detection should be case-insensitive",
+		},
+		{
+			name:        "mixed_case_forbidden",
+			err:         fmt.Errorf("Access is Forbidden for this resource"),
+			shouldStop:  true,
+			description: "Auth error detection should be case-insensitive",
+		},
 	}
 
-	// Test context.DeadlineExceeded
-	if !shouldStopRetrying(context.DeadlineExceeded) {
-		t.Error("shouldStopRetrying should return true for context.DeadlineExceeded")
-	}
-
-	// Test other errors
-	if shouldStopRetrying(fmt.Errorf("some other error")) {
-		t.Error("shouldStopRetrying should return false for other errors")
-	}
-
-	if shouldStopRetrying(nil) {
-		t.Error("shouldStopRetrying should return false for nil error")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := shouldStopRetrying(tt.err)
+			if result != tt.shouldStop {
+				t.Errorf("shouldStopRetrying(%v) = %v, want %v. %s",
+					tt.err, result, tt.shouldStop, tt.description)
+			}
+		})
 	}
 }
 

@@ -80,6 +80,30 @@ Stops the file watching process and cleans up resources.
 
 **Returns:** `error` - Error if watcher was not running
 
+##### `GracefulShutdown(timeout time.Duration) error`
+
+Performs a graceful shutdown with timeout control. Enterprise feature for production deployments requiring controlled shutdown behavior.
+
+**Parameters:**
+- `timeout time.Duration`: Maximum time to wait for graceful shutdown
+
+**Returns:** `error` - Error if shutdown times out or watcher was not running
+
+**Example:**
+```go
+// Graceful shutdown with 30 second timeout (Kubernetes)
+err := watcher.GracefulShutdown(30 * time.Second)
+if err != nil {
+    log.Printf("Graceful shutdown failed: %v", err)
+}
+```
+
+**Use Cases:**
+- Kubernetes pod termination handling
+- Docker container shutdown hooks  
+- Production service graceful restarts
+- Integration testing cleanup
+
 ##### `IsRunning() bool`
 
 Returns whether the watcher is currently active.
@@ -105,6 +129,7 @@ type Config struct {
     ErrorHandler         ErrorHandler
     OptimizationStrategy OptimizationStrategy
     BoreasLiteCapacity   int64
+    Remote               RemoteConfig
 }
 ```
 
@@ -141,6 +166,114 @@ Strategy for optimizing performance based on workload.
 Ring buffer size for event processing (must be power of 2).
 - **Default:** Auto-calculated based on strategy
 - **Range:** 64-4096
+
+##### `Remote RemoteConfig`
+
+Enterprise remote configuration with automatic fallback capabilities.
+- **Default:** Disabled for backward compatibility
+- **Purpose:** Distributed configuration management with resilient fallback
+
+---
+
+### RemoteConfig
+
+Enterprise-grade remote configuration management with automatic fallback sequence.
+
+```go
+type RemoteConfig struct {
+    Enabled     bool
+    PrimaryURL  string
+    FallbackURL string
+    LocalPath   string
+    Timeout     time.Duration
+    MaxRetries  int
+    RetryDelay  time.Duration
+    SyncInterval time.Duration
+}
+```
+
+#### Fields
+
+##### `Enabled bool`
+
+Enables remote configuration loading with fallback sequence.
+- **Default:** `false`
+- **Note:** Must be explicitly enabled for enterprise features
+
+##### `PrimaryURL string`
+
+Primary remote configuration endpoint (Consul, etcd, HTTP API).
+- **Required:** When `Enabled` is true
+- **Example:** `"https://consul.internal:8500/v1/kv/app/config"`
+
+##### `FallbackURL string`
+
+Secondary remote configuration endpoint for failover scenarios.
+- **Optional:** Provides additional resilience
+- **Example:** `"https://backup-consul.internal:8500/v1/kv/app/config"`
+
+##### `LocalPath string`
+
+Local file path for last-resort fallback when remote endpoints fail.
+- **Optional:** Final fallback in the sequence  
+- **Example:** `"/etc/myapp/config.json"`
+
+##### `Timeout time.Duration`
+
+Maximum time to wait for remote configuration loading.
+- **Default:** `10 * time.Second`
+- **Range:** 1s-300s
+
+##### `MaxRetries int`
+
+Maximum retry attempts for failed remote requests.
+- **Default:** `3`
+- **Range:** 0-10
+
+##### `RetryDelay time.Duration`
+
+Base delay for exponential backoff retry strategy.
+- **Default:** `1 * time.Second`
+- **Pattern:** `RetryDelay * 2^(attempt-1)`
+
+##### `SyncInterval time.Duration`
+
+Interval for periodic remote configuration synchronization.
+- **Default:** `5 * time.Minute`  
+- **Range:** 1m-24h
+
+#### Methods
+
+##### `NewRemoteConfigWithFallback(primaryURL, fallbackURL, localPath string) *RemoteConfigManager`
+
+Creates a new RemoteConfig manager with automatic fallback sequence for enterprise deployments.
+
+**Parameters:**
+- `primaryURL string`: Primary remote configuration endpoint
+- `fallbackURL string`: Secondary endpoint (can be empty)  
+- `localPath string`: Local fallback file path (can be empty)
+
+**Returns:** `*RemoteConfigManager` - Configured remote config manager
+
+**Example:**
+```go
+remoteManager := argus.NewRemoteConfigWithFallback(
+    "https://consul.internal:8500/v1/kv/app/config",
+    "https://backup-consul.internal:8500/v1/kv/app/config", 
+    "/etc/myapp/fallback.json",
+)
+
+config := argus.Config{
+    Remote: remoteManager.Config(),
+}
+watcher := argus.New(config)
+```
+
+**Fallback Sequence:**
+1. **Primary URL** → Try primary remote endpoint
+2. **Fallback URL** → Try secondary remote endpoint  
+3. **Local Path** → Load local configuration file
+4. **Error** → All sources failed
 
 #### Methods
 
@@ -548,6 +681,46 @@ Argus is fully thread-safe and designed for concurrent use:
 - **Callbacks:** Executed sequentially to prevent race conditions
 - **Statistics:** Atomic operations ensure consistent reads
 - **Configuration:** Immutable after watcher creation
+
+---
+
+## Global Utility Functions
+
+### Remote Configuration
+
+##### `NewRemoteConfigWithFallback(primaryURL, fallbackURL, localPath string) *RemoteConfigManager`
+
+Creates a new RemoteConfigManager with automatic fallback sequence for enterprise deployments.
+
+**Parameters:**
+- `primaryURL string`: Primary remote configuration endpoint (required)
+- `fallbackURL string`: Secondary endpoint for failover (optional, can be empty)  
+- `localPath string`: Local fallback file path (optional, can be empty)
+
+**Returns:** `*RemoteConfigManager` - Configured remote config manager
+
+**Fallback Sequence:**
+1. **Primary URL** → Try primary remote endpoint
+2. **Fallback URL** → Try secondary remote endpoint (if provided)
+3. **Local Path** → Load local configuration file (if provided)
+4. **Error** → All sources failed
+
+**Example:**
+```go
+// Full enterprise setup with all fallback layers
+remoteManager := argus.NewRemoteConfigWithFallback(
+    "https://consul.prod:8500/v1/kv/app/config",
+    "https://consul.backup:8500/v1/kv/app/config", 
+    "/etc/myapp/fallback.json",
+)
+
+// Use with watcher
+watcher := argus.New(argus.Config{
+    Remote: remoteManager.Config(),
+})
+```
+
+---
 
 ## License
 

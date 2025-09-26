@@ -17,8 +17,17 @@ This tutorial demonstrates how to create a custom remote configuration provider 
 ## Prerequisites
 
 - Go 1.21 or later
-- Basic understanding of HTTP clients
-- Familiarity with Argus configuration system
+- Basic understanding of HTTP         case <-ticker.C:
+            if currentConfig, err := h.Load(ctx, configURL); err == nil {
+                if !argus.ConfigEquals(lastConfig, currentConfig) {
+                    lastConfig = currentConfig
+                    select {
+                    case configChan <- currentConfig:
+                    case <-ctx.Done():
+                        return
+                    }
+                }
+            }amiliarity with Argus configuration system
 
 ## Provider Interface
 
@@ -244,7 +253,7 @@ func (h *HTTPProvider) watchConfig(ctx context.Context, configURL string, config
             }
 
             // Check if configuration changed
-            if !configEqual(lastConfig, currentConfig) {
+            if !argus.ConfigEquals(lastConfig, currentConfig) {
                 lastConfig = currentConfig
                 select {
                 case configChan <- currentConfig:
@@ -257,21 +266,6 @@ func (h *HTTPProvider) watchConfig(ctx context.Context, configURL string, config
             return
         }
     }
-}
-
-// configEqual compares two configurations for equality
-func configEqual(a, b map[string]interface{}) bool {
-    if len(a) != len(b) {
-        return false
-    }
-
-    for key, valueA := range a {
-        if valueB, exists := b[key]; !exists || fmt.Sprintf("%v", valueA) != fmt.Sprintf("%v", valueB) {
-            return false
-        }
-    }
-
-    return true
 }
 ```
 
@@ -765,17 +759,7 @@ func (h *HTTPProvider) HealthCheck(ctx context.Context, configURL string) error 
     return nil
 }
 
-func configEqual(a, b map[string]interface{}) bool {
-    if len(a) != len(b) {
-        return false
-    }
-    for key, valueA := range a {
-        if valueB, exists := b[key]; !exists || fmt.Sprintf("%v", valueA) != fmt.Sprintf("%v", valueB) {
-            return false
-        }
-    }
-    return true
-}
+
 
 func main() {
     // Register the HTTP provider
@@ -806,6 +790,9 @@ This tutorial demonstrates how to create a fully functional HTTP provider for Ar
 4. **Validate URLs**: Ensure robust input validation
 5. **Test Thoroughly**: Create comprehensive tests for all functionality
 6. **Document Usage**: Provide clear examples and usage instructions
+7. **Use Argus Utilities**: Leverage `argus.ConfigEquals()` for configuration comparison instead of implementing your own
+
+Note: This tutorial uses `argus.ConfigEquals()` for comparing configurations. This is the recommended approach to avoid code duplication and ensure consistent behavior across all providers.
 
 Your users can now create their own providers following this pattern and extend Argus with any remote configuration source they need!
 

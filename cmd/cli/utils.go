@@ -52,7 +52,13 @@ func (m *Manager) parseExplicitFormat(formatStr string) argus.ConfigFormat {
 // loadConfig loads and parses a configuration file with the specified format.
 // Performance: File I/O bound, zero allocations for parsing with pre-allocated buffers.
 func (m *Manager) loadConfig(filePath string, format argus.ConfigFormat) (map[string]interface{}, error) {
+	// SECURITY: Validate path to prevent directory traversal attacks
+	if err := argus.ValidateSecurePath(filePath); err != nil {
+		return nil, fmt.Errorf("security validation failed: %w", err)
+	}
+
 	// Read file content
+	// #nosec G304 -- Path validation performed above with ValidateSecurePath
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file: %w", err)

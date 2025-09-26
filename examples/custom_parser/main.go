@@ -86,18 +86,17 @@ debug: false
 `
 
 	configFile := "/tmp/demo_config.yaml"
-       err := os.WriteFile(configFile, []byte(configContent), 0600)
-       if err != nil {
-	       log.Fatalf("Failed to create config file: %v", err)
-       }
-       defer func() {
-	       if removeErr := os.Remove(configFile); removeErr != nil {
-		       log.Printf("Failed to remove config file: %v", removeErr)
-	       }
-       }()
+	err := os.WriteFile(configFile, []byte(configContent), 0600)
+	if err != nil {
+		log.Fatalf("Failed to create config file: %v", err)
+	}
+	defer func() {
+		if removeErr := os.Remove(configFile); removeErr != nil {
+			log.Printf("Failed to remove config file: %v", removeErr)
+		}
+	}()
 
 	fmt.Printf("📄 Created demo config: %s\n\n", configFile)
-
 
 	// Step 1: Parse with built-in parser
 	fmt.Println("Step 1: Parsing with built-in parser")
@@ -109,14 +108,13 @@ debug: false
 	if err != nil {
 		log.Fatalf("Failed to create watcher: %v", err)
 	}
-       defer func() {
-	       if err := watcher1.Stop(); err != nil {
-		       log.Printf("Failed to stop watcher1: %v", err)
-	       }
-       }()
+	defer func() {
+		if err := watcher1.Stop(); err != nil {
+			log.Printf("Failed to stop watcher1: %v", err)
+		}
+	}()
 
 	time.Sleep(100 * time.Millisecond) // Give it time to read initial config
-
 
 	// Step 2: Register custom parser and parse again
 	fmt.Println("\nStep 2: Registering custom parser")
@@ -130,31 +128,29 @@ debug: false
 
 	fmt.Println("   Custom parser registered.")
 
-       // Create new watcher that will use the custom parser
-       watcher2, err := argus.UniversalConfigWatcher(configFile, func(config map[string]interface{}) {
-	       fmt.Printf("   Custom parser result:\n")
-	       for k, v := range config {
-		       fmt.Printf("      %s: %v\n", k, v)
-	       }
-       })
+	// Create new watcher that will use the custom parser
+	watcher2, err := argus.UniversalConfigWatcher(configFile, func(config map[string]interface{}) {
+		fmt.Printf("   Custom parser result:\n")
+		for k, v := range config {
+			fmt.Printf("      %s: %v\n", k, v)
+		}
+	})
 	if err != nil {
 		log.Fatalf("Failed to create watcher with custom parser: %v", err)
 	}
-       defer func() {
-	       if err := watcher2.Stop(); err != nil {
-		       log.Printf("Failed to stop watcher2: %v", err)
-	       }
-       }()
+	defer func() {
+		if err := watcher2.Stop(); err != nil {
+			log.Printf("Failed to stop watcher2: %v", err)
+		}
+	}()
 
 	time.Sleep(100 * time.Millisecond) // Give it time to read initial config
-
 
 	// Step 3: Compare parser behaviors
 	fmt.Println("\nStep 3: Key differences")
 	fmt.Println("   Built-in: Fast, simple, minimal dependencies")
 	fmt.Println("   Custom:   Full spec compliance, advanced features")
 	fmt.Println("   Priority: Custom parsers are tried first, built-in as fallback")
-
 
 	// Step 4: Update config to show live reloading
 	fmt.Println("\nStep 4: Testing live reload")
@@ -171,13 +167,12 @@ environment: staging
 debug: true
 `
 
-       err = os.WriteFile(configFile, []byte(updatedContent), 0600)
-       if err != nil {
-	       log.Printf("Failed to update config: %v", err)
-       }
+	err = os.WriteFile(configFile, []byte(updatedContent), 0600)
+	if err != nil {
+		log.Printf("Failed to update config: %v", err)
+	}
 
 	time.Sleep(200 * time.Millisecond) // Give watchers time to detect changes
-
 
 	fmt.Println("\nDemo completed.")
 	fmt.Println("\nKey points:")

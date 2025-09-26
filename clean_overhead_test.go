@@ -20,11 +20,11 @@ func BenchmarkClean_MinimalOverhead(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-       defer func() {
-	       if err := os.RemoveAll(tempDir); err != nil {
-		       b.Errorf("Failed to remove tempDir: %v", err)
-	       }
-       }()
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			b.Errorf("Failed to remove tempDir: %v", err)
+		}
+	}()
 
 	configFile := filepath.Join(tempDir, "config.json")
 	if err := os.WriteFile(configFile, []byte(`{"level": "info"}`), 0644); err != nil {
@@ -64,11 +64,11 @@ func benchmarkWithArgusClean(b *testing.B, configFile string) {
 	}
 
 	watcher := New(*config.WithDefaults())
-       defer func() {
-	       if err := watcher.Stop(); err != nil {
-		       b.Errorf("Failed to stop watcher: %v", err)
-	       }
-       }()
+	defer func() {
+		if err := watcher.Stop(); err != nil {
+			b.Errorf("Failed to stop watcher: %v", err)
+		}
+	}()
 
 	// Simple callback without shared atomics
 	if err := watcher.Watch(configFile, func(event ChangeEvent) {

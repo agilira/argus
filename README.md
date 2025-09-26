@@ -13,11 +13,14 @@ High-performance configuration management library for Go applications with zero-
 
 
 ### Key Features
+
 - **Universal Format Support**: JSON, YAML, TOML, HCL, INI, Properties with auto-detection
 - **ConfigWriter System**: Atomic configuration file updates with type-safe operations
 - **Ultra-Fast CLI**: [Orpheus](https://github.com/agilira/orpheus)-powered CLI 7x-53x faster 
 - **Secure by Design**: Red-team tested against path traversal, injection, DoS and resource exhaustion attacks
 - **Zero-Allocation Design**: Pre-allocated buffers eliminate GC pressure in hot paths
+- **Remote Config**: Distributed configuration with automatic fallback (Consul/etcd → Local)
+- **Graceful Shutdown**: Timeout-controlled shutdown for Kubernetes and production deployments
 - **OpenTelemetry Ready**: Async tracing and metrics with zero contamination of core library
 - **Type-Safe Binding**: Zero-reflection configuration binding with fluent API (1.6M ops/sec)
 - **Adaptive Optimization**: Four strategies (SingleEvent, SmallBatch, LargeBatch, Auto) 
@@ -57,6 +60,23 @@ watcher, err := argus.UniversalConfigWatcher("config.yaml",
 
 watcher.Start()
 defer watcher.Stop()
+```
+
+### Remote Configuration
+```go
+// Distributed configuration with automatic fallback
+remoteManager := argus.NewRemoteConfigWithFallback(
+    "https://consul.internal:8500/v1/kv/app/config",  // Primary
+    "https://backup-consul.internal:8500/v1/kv/app/config", // Fallback
+    "/etc/myapp/fallback.json", // Local fallback
+)
+
+watcher := argus.New(argus.Config{
+    Remote: remoteManager.Config(),
+})
+
+// Graceful shutdown for Kubernetes deployments
+defer watcher.GracefulShutdown(30 * time.Second)
 ```
 
 ### CLI Usage

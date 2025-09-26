@@ -140,6 +140,8 @@ func runDemo(logger AuditInterface) {
 	fmt.Printf("  20 events in %v (%.0f/sec)\n",
 		duration, 20.0/duration.Seconds())
 
-	logger.Flush()
+	if err := logger.Flush(); err != nil {
+		log.Printf("Warning: failed to flush logger: %v", err)
+	}
 	fmt.Println("Demo completed")
 }

@@ -631,5 +631,5 @@ func GetEnvBoolWithDefault(key string, defaultValue bool) bool {
 // This prevents path traversal attacks via audit configuration environment variables.
 func validateSecureAuditPath(path string) error {
 	// Reuse the comprehensive path validation from the main security function
-	return validateSecurePath(path)
+	return ValidateSecurePath(path)
 }

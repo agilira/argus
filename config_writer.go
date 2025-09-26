@@ -229,16 +229,16 @@ func (w *ConfigWriter) WriteConfigAs(filePath string) error {
 	// Write to target file atomically
 	tempPath := filePath + ".tmp." + fmt.Sprintf("%d", time.Now().UnixNano())
 
-	if err := os.WriteFile(tempPath, serialized, 0644); err != nil {
+	if err := os.WriteFile(tempPath, serialized, 0600); err != nil {
 		return errors.Wrap(err, ErrCodeIOError, fmt.Sprintf("failed to write temp file: %v", err))
 	}
 
-       if err := os.Rename(tempPath, filePath); err != nil {
-	       if removeErr := os.Remove(tempPath); removeErr != nil {
-		       fmt.Printf("Failed to cleanup temp file %s: %v\n", tempPath, removeErr)
-	       }
-	       return errors.Wrap(err, ErrCodeIOError, fmt.Sprintf("failed to rename temp file: %v", err))
-       }
+	if err := os.Rename(tempPath, filePath); err != nil {
+		if removeErr := os.Remove(tempPath); removeErr != nil {
+			fmt.Printf("Failed to cleanup temp file %s: %v\n", tempPath, removeErr)
+		}
+		return errors.Wrap(err, ErrCodeIOError, fmt.Sprintf("failed to rename temp file: %v", err))
+	}
 
 	// Audit logging for file export operations (optional)
 	if w.auditLogger != nil {
@@ -594,17 +594,17 @@ func (w *ConfigWriter) atomicWrite(data []byte) error {
 	tempPath := filepath.Join(dir, "."+base+".tmp."+fmt.Sprintf("%d", time.Now().UnixNano()))
 
 	// Write to temporary file
-	if err := os.WriteFile(tempPath, data, 0644); err != nil {
+	if err := os.WriteFile(tempPath, data, 0600); err != nil {
 		return fmt.Errorf("failed to write temp file: %w", err)
 	}
 
 	// Atomic rename
-       if err := os.Rename(tempPath, w.filePath); err != nil {
-	       if removeErr := os.Remove(tempPath); removeErr != nil {
-		       fmt.Printf("Failed to cleanup temp file %s: %v\n", tempPath, removeErr)
-	       }
-	       return fmt.Errorf("failed to rename temp file: %w", err)
-       }
+	if err := os.Rename(tempPath, w.filePath); err != nil {
+		if removeErr := os.Remove(tempPath); removeErr != nil {
+			fmt.Printf("Failed to cleanup temp file %s: %v\n", tempPath, removeErr)
+		}
+		return fmt.Errorf("failed to rename temp file: %w", err)
+	}
 
 	return nil
 }
@@ -691,21 +691,21 @@ func hashConfig(config map[string]interface{}) uint64 {
 func hashValue(h hash.Hash64, v interface{}) {
 	switch val := v.(type) {
 	case nil:
-		h.Write([]byte("nil"))
+		_, _ = h.Write([]byte("nil")) // #nosec G104 -- hash.Write never fails
 	case bool:
 		if val {
-			h.Write([]byte("true"))
+			_, _ = h.Write([]byte("true")) // #nosec G104 -- hash.Write never fails
 		} else {
-			h.Write([]byte("false"))
+			_, _ = h.Write([]byte("false")) // #nosec G104 -- hash.Write never fails
 		}
 	case int:
-		h.Write([]byte(fmt.Sprintf("%d", val)))
+		_, _ = h.Write([]byte(fmt.Sprintf("%d", val))) // #nosec G104 -- hash.Write never fails
 	case int64:
-		h.Write([]byte(fmt.Sprintf("%d", val)))
+		_, _ = h.Write([]byte(fmt.Sprintf("%d", val))) // #nosec G104 -- hash.Write never fails
 	case float64:
-		h.Write([]byte(fmt.Sprintf("%f", val)))
+		_, _ = h.Write([]byte(fmt.Sprintf("%f", val))) // #nosec G104 -- hash.Write never fails
 	case string:
-		h.Write([]byte(val))
+		_, _ = h.Write([]byte(val)) // #nosec G104 -- hash.Write never fails
 	case map[string]interface{}:
 		// Sort keys for consistent hashing
 		keys := make([]string, 0, len(val))
@@ -714,7 +714,7 @@ func hashValue(h hash.Hash64, v interface{}) {
 		}
 
 		for _, k := range keys {
-			h.Write([]byte(k))
+			_, _ = h.Write([]byte(k)) // #nosec G104 -- hash.Write never fails
 			hashValue(h, val[k])
 		}
 	case []interface{}:
@@ -722,7 +722,7 @@ func hashValue(h hash.Hash64, v interface{}) {
 			hashValue(h, item)
 		}
 	default:
-		h.Write([]byte(fmt.Sprintf("%v", val)))
+		_, _ = h.Write([]byte(fmt.Sprintf("%v", val))) // #nosec G104 -- hash.Write never fails
 	}
 }
 

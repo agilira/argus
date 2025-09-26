@@ -157,6 +157,130 @@ type Config struct {
 	// - LargeBatch: 256+ (high throughput)
 	// Default: 0 (auto-calculated based on strategy)
 	BoreasLiteCapacity int64
+
+	// Remote configuration with automatic fallback capabilities
+	// When enabled, provides distributed configuration management with local fallback
+	// Default: Disabled for backward compatibility
+	Remote RemoteConfig
+}
+
+// RemoteConfig defines distributed configuration management with automatic fallback.
+// This struct enables enterprise-grade remote configuration loading with resilient
+// fallback capabilities for production deployments where configuration comes from
+// distributed systems (Consul, etcd, Redis) but local fallback is required.
+//
+// The RemoteConfig system implements the following fallback sequence:
+// 1. Attempt to load from PrimaryURL (e.g., consul://prod-consul/myapp/config)
+// 2. On failure, attempt FallbackURL if configured (e.g., consul://backup-consul/myapp/config)
+// 3. On complete remote failure, load from FallbackPath (e.g., /etc/myapp/fallback-config.json)
+// 4. Continue with SyncInterval for automatic recovery when remote systems recover
+//
+// Zero-allocation design: All URLs and paths are pre-parsed and cached during
+// initialization to avoid allocations during runtime operations.
+//
+// Production deployment patterns:
+//
+//	// Consul with local fallback (recommended)
+//	Remote: RemoteConfig{
+//	    Enabled:      true,
+//	    PrimaryURL:   "consul://prod-consul:8500/config/myapp",
+//	    FallbackPath: "/etc/myapp/config.json",
+//	    SyncInterval: 30 * time.Second,
+//	    Timeout:      10 * time.Second,
+//	}
+//
+//	// Multi-datacenter setup with remote fallback
+//	Remote: RemoteConfig{
+//	    Enabled:      true,
+//	    PrimaryURL:   "consul://dc1-consul:8500/config/myapp",
+//	    FallbackURL:  "consul://dc2-consul:8500/config/myapp",
+//	    FallbackPath: "/etc/myapp/emergency-config.json",
+//	    SyncInterval: 60 * time.Second,
+//	}
+//
+//	// Redis with backup Redis
+//	Remote: RemoteConfig{
+//	    Enabled:     true,
+//	    PrimaryURL:  "redis://prod-redis:6379/0/myapp:config",
+//	    FallbackURL: "redis://backup-redis:6379/0/myapp:config",
+//	    SyncInterval: 15 * time.Second,
+//	}
+//
+// Thread safety: RemoteConfig operations are thread-safe and can be called
+// concurrently from multiple goroutines without external synchronization.
+//
+// Error handling: Failed remote loads automatically trigger fallback sequence.
+// Applications receive the most recent successful configuration and error notifications
+// through the standard ErrorHandler mechanism.
+//
+// Monitoring integration: All remote configuration operations generate audit events
+// for monitoring, alerting, and compliance tracking in production environments.
+type RemoteConfig struct {
+	// Enabled controls whether remote configuration loading is active
+	// Default: false (for backward compatibility)
+	// When false, all other RemoteConfig fields are ignored
+	Enabled bool `json:"enabled" yaml:"enabled" toml:"enabled"`
+
+	// PrimaryURL is the main remote configuration source
+	// Supports all registered remote providers (consul://, redis://, etcd://, http://, https://)
+	// Examples:
+	//   - "consul://prod-consul:8500/config/myapp?datacenter=dc1"
+	//   - "redis://prod-redis:6379/0/myapp:config"
+	//   - "etcd://prod-etcd:2379/config/myapp"
+	//   - "https://config-api.company.com/api/v1/config/myapp"
+	// Required when Enabled=true
+	PrimaryURL string `json:"primary_url" yaml:"primary_url" toml:"primary_url"`
+
+	// FallbackURL is an optional secondary remote configuration source
+	// Used when PrimaryURL fails but before falling back to local file
+	// Should typically be a different instance/datacenter of the same system
+	// Examples:
+	//   - "consul://backup-consul:8500/config/myapp"
+	//   - "redis://backup-redis:6379/0/myapp:config"
+	// Optional: can be empty to skip remote fallback
+	FallbackURL string `json:"fallback_url,omitempty" yaml:"fallback_url,omitempty" toml:"fallback_url,omitempty"`
+
+	// FallbackPath is a local file path used when all remote sources fail
+	// This provides the ultimate fallback for high-availability deployments
+	// The file should contain a valid configuration in JSON, YAML, or TOML format
+	// Examples:
+	//   - "/etc/myapp/emergency-config.json"
+	//   - "/opt/myapp/fallback-config.yaml"
+	//   - "./config/local-fallback.toml"
+	// Recommended: Always configure for production deployments
+	FallbackPath string `json:"fallback_path,omitempty" yaml:"fallback_path,omitempty" toml:"fallback_path,omitempty"`
+
+	// SyncInterval controls how often to check for remote configuration updates
+	// This applies to all remote sources (primary and fallback)
+	// Shorter intervals provide faster updates but increase system load
+	// Default: 30 seconds (good balance for most applications)
+	// Production considerations:
+	//   - High-frequency apps: 10-15 seconds
+	//   - Standard apps: 30-60 seconds
+	//   - Batch jobs: 5+ minutes
+	SyncInterval time.Duration `json:"sync_interval" yaml:"sync_interval" toml:"sync_interval"`
+
+	// Timeout controls the maximum time to wait for each remote configuration request
+	// Applied to both primary and fallback URL requests
+	// Should be shorter than SyncInterval to allow for fallback attempts
+	// Default: 10 seconds (allows for network latency and processing)
+	// Production recommendations:
+	//   - Local network: 5-10 seconds
+	//   - Cross-datacenter: 10-20 seconds
+	//   - Internet-based: 20-30 seconds
+	Timeout time.Duration `json:"timeout" yaml:"timeout" toml:"timeout"`
+
+	// MaxRetries controls retry attempts for failed remote requests
+	// Applied per URL (primary/fallback) before moving to next fallback level
+	// Default: 2 (total of 3 attempts: initial + 2 retries)
+	// Higher values increase reliability but also increase latency during failures
+	MaxRetries int `json:"max_retries" yaml:"max_retries" toml:"max_retries"`
+
+	// RetryDelay is the base delay between retry attempts
+	// Uses exponential backoff: attempt N waits RetryDelay * 2^N
+	// Default: 1 second (results in 1s, 2s, 4s... delays)
+	// Should be balanced with Timeout to ensure retries fit within timeout window
+	RetryDelay time.Duration `json:"retry_delay" yaml:"retry_delay" toml:"retry_delay"`
 }
 
 // fileStat represents cached file statistics for efficient os.Stat() caching.
@@ -202,6 +326,7 @@ type Watcher struct {
 	auditLogger *AuditLogger
 
 	running   atomic.Bool
+	stopped   atomic.Bool // Tracks if explicitly stopped vs just not started
 	stopCh    chan struct{}
 	stoppedCh chan struct{}
 	ctx       context.Context
@@ -275,6 +400,11 @@ func (w *Watcher) Watch(path string, callback UpdateCallback) error {
 		return errors.New(ErrCodeInvalidConfig, "callback cannot be nil")
 	}
 
+	// Check if watcher was explicitly stopped (not just not started)
+	if w.stopped.Load() {
+		return errors.New(ErrCodeWatcherStopped, "cannot add watch to stopped watcher")
+	}
+
 	// Validate and secure the path
 	absPath, err := w.validateAndSecurePath(path)
 	if err != nil {
@@ -290,7 +420,7 @@ func (w *Watcher) Watch(path string, callback UpdateCallback) error {
 // validateAndSecurePath validates path security and returns absolute path
 func (w *Watcher) validateAndSecurePath(path string) (string, error) {
 	// SECURITY FIX: Validate path before processing to prevent path traversal attacks
-	if err := validateSecurePath(path); err != nil {
+	if err := ValidateSecurePath(path); err != nil {
 		// AUDIT: Log security event for path traversal attempt
 		w.auditLogger.LogSecurityEvent("path_traversal_attempt", "Rejected malicious file path",
 			map[string]interface{}{
@@ -308,7 +438,7 @@ func (w *Watcher) validateAndSecurePath(path string) (string, error) {
 	}
 
 	// SECURITY: Double-check absolute path after resolution
-	if err := validateSecurePath(absPath); err != nil {
+	if err := ValidateSecurePath(absPath); err != nil {
 		w.auditLogger.LogSecurityEvent("path_traversal_attempt", "Rejected malicious absolute path",
 			map[string]interface{}{
 				"rejected_path": absPath,
@@ -318,6 +448,38 @@ func (w *Watcher) validateAndSecurePath(path string) (string, error) {
 		return "", errors.Wrap(err, ErrCodeInvalidConfig, "resolved path is unsafe").
 			WithContext("absolute_path", absPath).
 			WithContext("original_path", path)
+	}
+
+	// SECURITY: Check for symlink traversal attacks
+	// If the path is a symlink, verify that its target is also safe
+	if info, err := os.Lstat(absPath); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		target, err := filepath.EvalSymlinks(absPath)
+		if err != nil {
+			// If we can't resolve the symlink target, reject it for security
+			w.auditLogger.LogSecurityEvent("symlink_traversal_attempt", "Symlink target resolution failed",
+				map[string]interface{}{
+					"symlink_path": absPath,
+					"reason":       err.Error(),
+				})
+			return "", errors.Wrap(err, ErrCodeInvalidConfig, "cannot resolve symlink target").
+				WithContext("symlink_path", absPath)
+		}
+
+		// Validate the symlink target
+		if err := ValidateSecurePath(target); err != nil {
+			w.auditLogger.LogSecurityEvent("symlink_traversal_attempt", "Symlink points to dangerous target",
+				map[string]interface{}{
+					"symlink_path": absPath,
+					"target_path":  target,
+					"reason":       err.Error(),
+				})
+			return "", errors.Wrap(err, ErrCodeInvalidConfig, "symlink target is unsafe").
+				WithContext("symlink_path", absPath).
+				WithContext("target_path", target)
+		}
+
+		// Update absPath to the resolved target for consistency
+		absPath = target
 	}
 
 	// Validate symlinks
@@ -335,7 +497,7 @@ func (w *Watcher) validateSymlinks(absPath, originalPath string) error {
 	realPath, err := filepath.EvalSymlinks(absPath)
 	if err == nil && realPath != absPath {
 		// Path contains symlinks - validate the resolved target
-		if err := validateSecurePath(realPath); err != nil {
+		if err := ValidateSecurePath(realPath); err != nil {
 			w.auditLogger.LogSecurityEvent("symlink_traversal_attempt", "Symlink points to unsafe location",
 				map[string]interface{}{
 					"symlink_path":  absPath,
@@ -459,6 +621,7 @@ func (w *Watcher) Stop() error {
 		return errors.New(ErrCodeWatcherStopped, "watcher is not running")
 	}
 
+	w.stopped.Store(true) // Mark as explicitly stopped
 	w.cancel()
 	close(w.stopCh)
 	<-w.stoppedCh
@@ -483,6 +646,102 @@ func (w *Watcher) IsRunning() bool {
 // Implements the common Close() interface for easy integration with defer statements
 func (w *Watcher) Close() error {
 	return w.Stop()
+}
+
+// GracefulShutdown performs a graceful shutdown with timeout control.
+// This method provides production-grade shutdown capabilities with deterministic timeout handling,
+// ensuring all resources are properly cleaned up without hanging indefinitely.
+//
+// The method performs the following shutdown sequence:
+// 1. Signals shutdown intent to all goroutines via context cancellation
+// 2. Waits for all file polling operations to complete
+// 3. Flushes all pending audit events to persistent storage
+// 4. Closes BoreasLite ring buffer and releases memory
+// 5. Cleans up file descriptors and other system resources
+//
+// Zero-allocation design: Uses pre-allocated channels and avoids heap allocations
+// during the shutdown process to maintain performance characteristics even during termination.
+//
+// Example usage:
+//
+//	watcher := argus.New(config)
+//	defer watcher.GracefulShutdown(30 * time.Second) // 30s timeout for Kubernetes
+//
+//	// Kubernetes deployment
+//	watcher := argus.New(config)
+//	defer watcher.GracefulShutdown(time.Duration(terminationGracePeriodSeconds) * time.Second)
+//
+//	// CI/CD pipelines
+//	watcher := argus.New(config)
+//	defer watcher.GracefulShutdown(10 * time.Second) // Fast shutdown for tests
+//
+// Parameters:
+//   - timeout: Maximum time to wait for graceful shutdown. If exceeded, the method returns
+//     an error but resources are still cleaned up in the background.
+//
+// Returns:
+//   - nil if shutdown completed within timeout
+//   - ErrCodeWatcherStopped if watcher was already stopped
+//   - ErrCodeWatcherBusy if shutdown timeout was exceeded (resources still cleaned up)
+//
+// Thread-safety: Safe to call from multiple goroutines. First caller wins, subsequent
+// calls return immediately with appropriate status.
+//
+// Production considerations:
+//   - Kubernetes: Use terminationGracePeriodSeconds - 5s to allow for signal propagation
+//   - Docker: Typically 10-30 seconds is sufficient
+//   - CI/CD: Use shorter timeouts (5-10s) for faster test cycles
+//   - Load balancers: Ensure timeout exceeds health check intervals
+func (w *Watcher) GracefulShutdown(timeout time.Duration) error {
+	// Fast path: Check if already stopped without allocations
+	if !w.running.Load() {
+		return errors.New(ErrCodeWatcherStopped, "watcher is not running")
+	}
+
+	// Pre-validate timeout to avoid work if invalid
+	if timeout <= 0 {
+		return errors.New(ErrCodeInvalidConfig, "graceful shutdown timeout must be positive")
+	}
+
+	// Create timeout context - this is the only allocation we make
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	// Channel for shutdown completion signaling (buffered to avoid blocking)
+	// Pre-allocated with capacity 1 to prevent goroutine leaks
+	done := make(chan error, 1)
+
+	// Execute shutdown in separate goroutine to respect timeout
+	go func() {
+		// Use existing Stop() method which handles all cleanup logic
+		// This avoids code duplication and maintains consistency
+		err := w.Stop()
+		select {
+		case done <- err:
+			// Successfully sent result
+		default:
+			// Channel full (timeout already occurred), ignore
+			// The shutdown still completes in background for resource safety
+		}
+	}()
+
+	// Wait for completion or timeout
+	// Zero additional allocations in this critical path
+	select {
+	case err := <-done:
+		// Shutdown completed within timeout
+		if err != nil {
+			// Wrap the error to provide context about graceful shutdown
+			return errors.Wrap(err, ErrCodeWatcherStopped, "graceful shutdown encountered error")
+		}
+		return nil
+
+	case <-ctx.Done():
+		// Timeout exceeded - return error but allow background cleanup to continue
+		// This ensures resources are eventually freed even if timeout is too short
+		return errors.New(ErrCodeWatcherBusy,
+			fmt.Sprintf("graceful shutdown timeout (%v) exceeded, cleanup continuing in background", timeout))
+	}
 }
 
 // WatchedFiles returns the number of currently watched files
@@ -732,26 +991,36 @@ func (w *Watcher) GetCacheStats() CacheStats {
 // SECURITY: PATH VALIDATION AND SANITIZATION FUNCTIONS
 // =============================================================================
 
-// validateSecurePath validates that a file path is safe from path traversal attacks.
+// ValidateSecurePath validates that a file path is safe from path traversal attacks.
 //
 // SECURITY PURPOSE: Prevents directory traversal attacks (CWE-22) by rejecting
 // paths that contain dangerous patterns or attempt to escape the intended directory.
 //
 // This function implements multiple layers of protection:
-// 1. Pattern-based detection of traversal sequences
+// 1. Pattern-based detection of traversal sequences (case-insensitive)
 // 2. URL decoding to catch encoded attacks
 // 3. Normalization attacks prevention
 // 4. System file protection
 // 5. Device name filtering (Windows)
 //
+// SECURITY NOTICE: All validation is performed case-insensitively to ensure
+// consistent protection across different file systems and OS configurations.
+//
 // CRITICAL: This function must be called on ALL user-provided paths before
 // any file operations to prevent security vulnerabilities.
-func validateSecurePath(path string) error {
+//
+// This function is exported to allow external packages to use the same
+// security validation logic as the core Argus library.
+func ValidateSecurePath(path string) error {
 	if path == "" {
 		return errors.New(ErrCodeInvalidConfig, "empty path not allowed")
 	}
 
-	// SECURITY CHECK 1: Detect common path traversal patterns
+	// Normalize path to lowercase for consistent security validation
+	// This prevents case-based bypass attempts on case-insensitive file systems
+	lowerPath := strings.ToLower(path)
+
+	// SECURITY CHECK 1: Detect common path traversal patterns (case-insensitive)
 	// These patterns are dangerous regardless of OS
 	dangerousPatterns := []string{
 		"..",   // Parent directory reference
@@ -763,7 +1032,7 @@ func validateSecurePath(path string) error {
 	}
 
 	for _, pattern := range dangerousPatterns {
-		if strings.Contains(path, pattern) {
+		if strings.Contains(lowerPath, pattern) {
 			return errors.New(ErrCodeInvalidConfig, "path contains dangerous traversal pattern: "+pattern)
 		}
 	}
@@ -771,8 +1040,7 @@ func validateSecurePath(path string) error {
 	// SECURITY CHECK 2: URL decoding to catch encoded attacks
 	// Attackers often URL-encode traversal sequences to bypass filters
 
-	// First, check for URL-encoded dangerous patterns in original path
-	lowerOriginalPath := strings.ToLower(path)
+	// Check for URL-encoded dangerous patterns using normalized path
 	urlPatterns := []string{
 		"%2e%2e",      // ".." encoded
 		"%252e%252e",  // ".." double encoded
@@ -789,7 +1057,7 @@ func validateSecurePath(path string) error {
 	}
 
 	for _, pattern := range urlPatterns {
-		if strings.Contains(lowerOriginalPath, pattern) {
+		if strings.Contains(lowerPath, pattern) {
 			return errors.New(ErrCodeInvalidConfig, "path contains URL-encoded traversal pattern: "+pattern)
 		}
 	}
@@ -811,7 +1079,7 @@ func validateSecurePath(path string) error {
 
 	// SECURITY CHECK 3: System file protection
 	// Prevent access to known sensitive system files and directories
-	lowerPath := strings.ToLower(path)
+	// Using already normalized lowerPath for consistency
 	sensitiveFiles := []string{
 		"/etc/passwd",
 		"/etc/shadow",
@@ -820,6 +1088,8 @@ func validateSecurePath(path string) error {
 		"/sys/",
 		"/dev/",
 		"windows/system32",
+		"windows\\system32",   // Windows backslash variant
+		"\\windows\\system32", // Absolute Windows path
 		"program files",
 		"system volume information",
 		".ssh/",

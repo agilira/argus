@@ -31,6 +31,7 @@ import (
 	goerrors "errors"
 	"fmt"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -304,9 +305,123 @@ func waitForRetry(ctx context.Context, delay time.Duration) error {
 	}
 }
 
-// shouldStopRetrying checks if we should stop retrying
+// shouldStopRetrying determines if retry attempts should be stopped based on error type.
+//
+// This function implements intelligent retry logic by categorizing errors into:
+// 1. Context errors (canceled/timeout) - stop retrying
+// 2. HTTP client errors (4xx) - stop retrying as they indicate permanent issues
+// 3. Specific HTTP server errors that are not recoverable - stop retrying
+// 4. Network and temporary errors - continue retrying
+//
+// Returns true if retrying should be stopped, false if it should continue.
 func shouldStopRetrying(err error) bool {
-	return goerrors.Is(err, context.Canceled) || goerrors.Is(err, context.DeadlineExceeded)
+	if err == nil {
+		return false
+	}
+
+	// Context cancellation or timeout - stop immediately
+	if goerrors.Is(err, context.Canceled) || goerrors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+
+	// Check for HTTP-specific errors that are not recoverable
+	if isNonRecoverableHTTPError(err) {
+		return true
+	}
+
+	// For all other errors (network, temporary, etc.), continue retrying
+	return false
+}
+
+// isNonRecoverableHTTPError checks if an error represents an HTTP error
+// that should not be retried (client errors and specific server errors).
+func isNonRecoverableHTTPError(err error) bool {
+	// Convert error to string for pattern matching
+	// This approach works with most HTTP client implementations
+	errStr := strings.ToLower(err.Error())
+
+	// HTTP 4xx client errors - these indicate permanent configuration issues
+	clientErrors := []string{
+		"400 bad request",
+		"401 unauthorized",
+		"402 payment required",
+		"403 forbidden",
+		"404 not found",
+		"405 method not allowed",
+		"406 not acceptable",
+		"407 proxy authentication required",
+		"408 request timeout",
+		"409 conflict",
+		"410 gone",
+		"411 length required",
+		"412 precondition failed",
+		"413 payload too large",
+		"414 uri too long",
+		"415 unsupported media type",
+		"416 range not satisfiable",
+		"417 expectation failed",
+		"418 i'm a teapot", // RFC 2324
+		"421 misdirected request",
+		"422 unprocessable entity",
+		"423 locked",
+		"424 failed dependency",
+		"425 too early",
+		"426 upgrade required",
+		"428 precondition required",
+		"429 too many requests", // Rate limiting - could be recoverable, but usually indicates config issue
+		"431 request header fields too large",
+		"451 unavailable for legal reasons",
+	}
+
+	// Check for client error patterns
+	for _, clientError := range clientErrors {
+		if strings.Contains(errStr, clientError) {
+			return true
+		}
+	}
+
+	// Specific server errors that indicate permanent issues
+	permanentServerErrors := []string{
+		"501 not implemented",
+		"505 http version not supported",
+		"506 variant also negotiates",
+		"507 insufficient storage",
+		"508 loop detected",
+		"510 not extended",
+		"511 network authentication required",
+	}
+
+	// Check for permanent server error patterns
+	for _, serverError := range permanentServerErrors {
+		if strings.Contains(errStr, serverError) {
+			return true
+		}
+	}
+
+	// Authentication and authorization related errors (various formats)
+	authErrors := []string{
+		"authentication failed",
+		"unauthorized access",
+		"invalid credentials",
+		"access denied",
+		"permission denied",
+		"forbidden",
+		"invalid api key",
+		"invalid token",
+		"token expired",
+		"certificate verify failed",
+		"ssl certificate problem",
+		"tls handshake failure",
+	}
+
+	// Check for authentication/authorization error patterns
+	for _, authError := range authErrors {
+		if strings.Contains(errStr, authError) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // WatchRemoteConfig starts watching a remote configuration source for changes
@@ -402,8 +517,32 @@ func checkForChanges(ctx context.Context, provider RemoteConfigProvider, configU
 	return nil
 }
 
-// configEquals performs a basic equality check for configurations
-func configEquals(config1, config2 map[string]interface{}) bool {
+// ConfigEquals performs a basic equality check for configurations.
+// This utility function compares two configuration maps for equality by comparing
+// their keys and values. It uses string representation for value comparison,
+// making it suitable for basic configuration comparison needs.
+//
+// Example:
+//
+//	config1 := map[string]interface{}{"key": "value", "count": 42}
+//	config2 := map[string]interface{}{"key": "value", "count": 42}
+//	if argus.ConfigEquals(config1, config2) {
+//	    log.Println("Configurations are identical")
+//	}
+//
+// Note: This function uses string comparison for values, so it may not handle
+// complex nested structures or type-sensitive comparisons perfectly.
+// For production use cases requiring deep equality, consider using reflect.DeepEqual
+// or specialized comparison libraries.
+func ConfigEquals(config1, config2 map[string]interface{}) bool {
+	// Handle nil cases
+	if config1 == nil && config2 == nil {
+		return true
+	}
+	if config1 == nil || config2 == nil {
+		return false
+	}
+
 	if len(config1) != len(config2) {
 		return false
 	}
@@ -415,6 +554,11 @@ func configEquals(config1, config2 map[string]interface{}) bool {
 	}
 
 	return true
+}
+
+// configEquals is an internal alias for backward compatibility
+func configEquals(config1, config2 map[string]interface{}) bool {
+	return ConfigEquals(config1, config2)
 }
 
 // HealthCheckRemoteProvider performs a health check on a remote configuration provider

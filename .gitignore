@@ -95,7 +95,6 @@ ultimate_deadlock_test.go
 validation_strategy.md
 realistic_benchmark_test.go
 scalability_test.go
-cmd/
 tests/
 production_overhead_test.go
 capacity_test.txt

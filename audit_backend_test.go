@@ -1862,3 +1862,166 @@ func TestSQLiteBackend_FinalStressTest(t *testing.T) {
 		t.Errorf("Expected at least %d events, got %d", len(stressEvents), stats.TotalEvents)
 	}
 }
+
+// TestSQLiteBackend_CloseAutomaticallyFlushes tests that Close() calls Flush() automatically
+// to ensure data integrity when using the backend directly without AuditLogger.
+func TestSQLiteBackend_CloseAutomaticallyFlushes(t *testing.T) {
+	// Create temporary database
+	tmpFile, err := os.CreateTemp("", "argus_test_close_flush_*.db")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer func() {
+		if err := os.Remove(tmpFile.Name()); err != nil {
+			t.Logf("Failed to remove temp file: %v", err)
+		}
+	}()
+	if err := tmpFile.Close(); err != nil {
+		t.Fatalf("Failed to close temp file: %v", err)
+	}
+
+	config := AuditConfig{
+		Enabled:    true,
+		OutputFile: tmpFile.Name(),
+		MinLevel:   AuditInfo,
+	}
+
+	backend, err := newSQLiteBackend(config)
+	if err != nil {
+		t.Fatalf("Failed to create backend: %v", err)
+	}
+
+	// Write some test events
+	testEvents := []AuditEvent{
+		{
+			Timestamp: time.Now(),
+			Level:     AuditInfo,
+			Event:     "test_operation_1",
+			Component: "test",
+			FilePath:  "",
+			Context:   map[string]interface{}{"key": "value1"},
+		},
+		{
+			Timestamp: time.Now(),
+			Level:     AuditWarn,
+			Event:     "test_operation_2",
+			Component: "test",
+			FilePath:  "",
+			Context:   map[string]interface{}{"key": "value2"},
+		},
+	}
+
+	err = backend.Write(testEvents)
+	if err != nil {
+		t.Fatalf("Failed to write events: %v", err)
+	}
+
+	// Verify events are in WAL (not yet in main DB)
+	// We can't directly check WAL state, but we can verify data exists before close
+	stats, err := backend.GetStats()
+	if err != nil {
+		t.Fatalf("Failed to get stats before close: %v", err)
+	}
+	if stats.TotalEvents < int64(len(testEvents)) {
+		t.Errorf("Expected at least %d events before close, got %d", len(testEvents), stats.TotalEvents)
+	}
+
+	// Close should automatically call Flush()
+	err = backend.Close()
+	if err != nil {
+		t.Fatalf("Failed to close backend: %v", err)
+	}
+
+	// Verify data integrity by reopening the database
+	// If Flush() was not called, data might be lost
+	newBackend, err := newSQLiteBackend(config)
+	if err != nil {
+		t.Fatalf("Failed to reopen backend: %v", err)
+	}
+	defer func() {
+		if err := newBackend.Close(); err != nil {
+			t.Logf("Failed to close new backend: %v", err)
+		}
+	}()
+
+	// Check that all events are still there
+	newStats, err := newBackend.GetStats()
+	if err != nil {
+		t.Fatalf("Failed to get stats after reopen: %v", err)
+	}
+
+	if newStats.TotalEvents < int64(len(testEvents)) {
+		t.Errorf("Data integrity issue: Expected at least %d events after reopen, got %d. "+
+			"This suggests Close() did not call Flush() properly.",
+			len(testEvents), newStats.TotalEvents)
+	}
+
+	// Additional verification: manually query the database
+	db, err := sql.Open("sqlite3", tmpFile.Name()+"?cache=shared&mode=rwc")
+	if err != nil {
+		t.Fatalf("Failed to open database for verification: %v", err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Logf("Failed to close database: %v", err)
+		}
+	}()
+
+	var count int
+	err = db.QueryRow("SELECT COUNT(*) FROM audit_events").Scan(&count)
+	if err != nil {
+		t.Fatalf("Failed to count events in database: %v", err)
+	}
+
+	if count < len(testEvents) {
+		t.Errorf("Database verification failed: Expected at least %d events in database, got %d. "+
+			"This confirms that Close() did not properly flush WAL data.",
+			len(testEvents), count)
+	}
+}
+
+// TestSQLiteBackend_CloseMultipleTimes tests that Close() is safe to call multiple times
+func TestSQLiteBackend_CloseMultipleTimes(t *testing.T) {
+	// Create temporary database
+	tmpFile, err := os.CreateTemp("", "argus_test_close_multiple_*.db")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer func() {
+		if err := os.Remove(tmpFile.Name()); err != nil {
+			t.Logf("Failed to remove temp file: %v", err)
+		}
+	}()
+	if err := tmpFile.Close(); err != nil {
+		t.Fatalf("Failed to close temp file: %v", err)
+	}
+
+	config := AuditConfig{
+		Enabled:    true,
+		OutputFile: tmpFile.Name(),
+		MinLevel:   AuditInfo,
+	}
+
+	backend, err := newSQLiteBackend(config)
+	if err != nil {
+		t.Fatalf("Failed to create backend: %v", err)
+	}
+
+	// First close
+	err = backend.Close()
+	if err != nil {
+		t.Errorf("First close failed: %v", err)
+	}
+
+	// Second close should not cause errors
+	err = backend.Close()
+	if err != nil {
+		t.Errorf("Second close failed: %v", err)
+	}
+
+	// Third close should still be safe
+	err = backend.Close()
+	if err != nil {
+		t.Errorf("Third close failed: %v", err)
+	}
+}

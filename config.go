@@ -57,6 +57,7 @@ func (c *Config) WithDefaults() *Config {
 	config.setFileDefaults()
 	config.setAuditDefaults()
 	config.setBoreasLiteDefaults()
+	config.setRemoteConfigDefaults()
 
 	return &config
 }
@@ -133,4 +134,48 @@ func (c *Config) nextPowerOfTwo(capacity int64) int64 {
 		return result
 	}
 	return capacity
+}
+
+// setRemoteConfigDefaults sets default values for remote configuration
+func (c *Config) setRemoteConfigDefaults() {
+	// Remote config is disabled by default for backward compatibility
+	if !c.Remote.Enabled {
+		return
+	}
+
+	// Set timing defaults for remote operations
+	if c.Remote.SyncInterval <= 0 {
+		c.Remote.SyncInterval = 30 * time.Second // Balanced default
+	}
+
+	if c.Remote.Timeout <= 0 {
+		c.Remote.Timeout = 10 * time.Second // Allow for network latency
+	}
+
+	if c.Remote.MaxRetries < 0 {
+		c.Remote.MaxRetries = 2 // Total 3 attempts (initial + 2 retries)
+	}
+
+	if c.Remote.RetryDelay <= 0 {
+		c.Remote.RetryDelay = 1 * time.Second // Exponential backoff base
+	}
+
+	// Validation: Timeout should allow for retries
+	// Safe calculation to prevent integer overflow
+	var maxRetryTime time.Duration
+	if c.Remote.MaxRetries > 30 {
+		// Cap exponential growth to prevent overflow
+		maxRetryTime = c.Remote.RetryDelay * time.Duration(1<<30)
+	} else {
+		maxRetryTime = c.Remote.RetryDelay * time.Duration(1<<c.Remote.MaxRetries) // 2^MaxRetries
+	}
+	if c.Remote.Timeout <= maxRetryTime {
+		// Adjust timeout to accommodate retry attempts
+		c.Remote.Timeout = maxRetryTime + (5 * time.Second) // Extra buffer
+	}
+
+	// Validation: SyncInterval should be longer than timeout to prevent overlap
+	if c.Remote.SyncInterval <= c.Remote.Timeout {
+		c.Remote.SyncInterval = c.Remote.Timeout + (10 * time.Second) // Prevent overlap
+	}
 }

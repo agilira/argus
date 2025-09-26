@@ -127,6 +127,12 @@ func createUniversalWatchCallback(format ConfigFormat, callback func(config map[
 
 // readAndParseConfig reads and parses a config file
 func readAndParseConfig(path string, format ConfigFormat) (map[string]interface{}, error) {
+	// SECURITY: Validate path to prevent directory traversal attacks
+	if err := ValidateSecurePath(path); err != nil {
+		return nil, err
+	}
+
+	// #nosec G304 -- Path validation performed above with ValidateSecurePath
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, errors.Wrap(err, ErrCodeFileNotFound, "failed to read config file")

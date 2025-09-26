@@ -54,18 +54,37 @@ func main() {
 
 ```go
 // Watch for configuration changes
-watcher, err := argus.WatchRemoteConfig("redis://localhost:6379/0/myapp:config", 
-    func(config map[string]interface{}) {
+configChan, err := argus.WatchRemoteConfig("redis://localhost:6379/0/myapp:config")
+if err != nil {
+    log.Fatal(err)
+}
+
+// Process configuration changes
+go func() {
+    for config := range configChan {
         log.Printf("Configuration updated: %+v", config)
         // Your application logic here
+    }
+}()
+
+// Keep the application running
+select {}
+```
+
+#### Alternative: Using UniversalConfigWatcher with Callback
+
+For file-based configs with callback API, use `UniversalConfigWatcher`:
+
+```go
+// For local file watching with callback API
+watcher, err := argus.UniversalConfigWatcher("config.json", 
+    func(config map[string]interface{}) {
+        log.Printf("Configuration updated: %+v", config)
     })
 if err != nil {
     log.Fatal(err)
 }
 defer watcher.Stop()
-
-// Keep the application running
-select {}
 ```
 
 ## 🔧 Redis Setup

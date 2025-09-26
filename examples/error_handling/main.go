@@ -34,8 +34,14 @@ func main() {
 
 	// Create temporary directory for testing
 	tempDir := "/tmp/argus_error_demo"
-	os.MkdirAll(tempDir, 0755)
-	defer os.RemoveAll(tempDir)
+	if err := os.MkdirAll(tempDir, 0750); err != nil { // Changed to 0750 for gosec
+		log.Fatalf("Failed to create temp directory: %v", err)
+	}
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			log.Printf("Failed to cleanup temp directory: %v", err)
+		}
+	}()
 
 	// Test 1: Custom Error Handler
 	fmt.Println("\n1️⃣  Testing Custom Error Handler:")
@@ -70,7 +76,9 @@ func testCustomErrorHandler(tempDir string) {
 
 	// Create a valid config first
 	validConfig := `{"service": "test", "port": 8080}`
-	os.WriteFile(configFile, []byte(validConfig), 0644)
+	if err := os.WriteFile(configFile, []byte(validConfig), 0600); err != nil {
+		log.Fatalf("Failed to write config file: %v", err)
+	}
 
 	// Create custom error handler that demonstrates go-errors usage
 	errorHandler := func(err error, filepath string) {
@@ -108,7 +116,9 @@ func testCustomErrorHandler(tempDir string) {
 
 	// Now write invalid JSON to trigger error
 	invalidConfig := `{"service": "test", "port": INVALID_JSON}`
-	os.WriteFile(configFile, []byte(invalidConfig), 0644)
+	if err := os.WriteFile(configFile, []byte(invalidConfig), 0600); err != nil {
+		log.Fatalf("Failed to write config file: %v", err)
+	}
 
 	// Give error handler time to be called
 	time.Sleep(200 * time.Millisecond)
@@ -159,7 +169,9 @@ key: value
   invalid_indentation: bad
 badly_formatted: {
 `
-	os.WriteFile(configFile, []byte(invalidYAML), 0644)
+	if err := os.WriteFile(configFile, []byte(invalidYAML), 0600); err != nil {
+		log.Fatalf("Failed to write config file: %v", err)
+	}
 
 	// Error handler for parse errors
 	errorHandler := func(err error, filepath string) {
@@ -200,7 +212,9 @@ func testDefaultErrorHandler(tempDir string) {
 
 	// Create invalid JSON
 	invalidConfig := `{"service": "test", "port": invalid}`
-	os.WriteFile(configFile, []byte(invalidConfig), 0644)
+	if err := os.WriteFile(configFile, []byte(invalidConfig), 0600); err != nil {
+		log.Fatalf("Failed to write config file: %v", err)
+	}
 
 	fmt.Println("   📝 Using default error handler (logs to stderr):")
 

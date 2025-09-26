@@ -768,6 +768,14 @@ func (s *sqliteAuditBackend) GetStats() (*AuditDatabaseStats, error) {
 //
 // This method ensures proper cleanup of prepared statements and database
 // connections. It is safe to call multiple times.
+// Close releases all resources and performs final cleanup.
+//
+// CRITICAL: This method automatically performs a final Flush() to ensure all
+// pending data in WAL (Write-Ahead Logging) mode is committed to the database
+// before closing the connection. This guarantees data integrity even when
+// the backend is used directly without going through AuditLogger.Close().
+//
+// The method is safe to call multiple times and is thread-safe.
 func (s *sqliteAuditBackend) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -777,6 +785,15 @@ func (s *sqliteAuditBackend) Close() error {
 	}
 
 	var errors []error
+
+	// CRITICAL: Perform final flush to ensure data integrity
+	// This ensures all WAL data is committed before closing the connection
+	// We temporarily unlock to allow Flush() to acquire read lock
+	s.mu.Unlock()
+	if err := s.Flush(); err != nil {
+		errors = append(errors, fmt.Errorf("failed to flush audit backend during close: %w", err))
+	}
+	s.mu.Lock()
 
 	// Close prepared statement
 	if s.insertStmt != nil {
