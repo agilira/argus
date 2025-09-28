@@ -12,8 +12,11 @@ package cli
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/agilira/argus"
 )
@@ -61,7 +64,10 @@ func (m *Manager) loadConfig(filePath string, format argus.ConfigFormat) (map[st
 	// #nosec G304 -- Path validation performed above with ValidateSecurePath
 	data, err := os.ReadFile(filePath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read file: %w", err)
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("configuration file does not exist: %s", filePath)
+		}
+		return nil, fmt.Errorf("failed to read file %s: %w", filePath, err)
 	}
 
 	// Parse using fast parsers (zero allocations)
@@ -157,4 +163,84 @@ func (m *Manager) generateTemplate(templateType string) map[string]interface{} {
 			},
 		}
 	}
+}
+
+// parseExtendedDuration parses duration strings with extended units (d, w).
+// Supports all Go standard units (ns, us, ms, s, m, h) plus:
+// - d: days (24 hours)
+// - w: weeks (7 days)
+//
+// Examples: "30d", "2w", "7d", "24h", "5m", "30s"
+func parseExtendedDuration(s string) (time.Duration, error) {
+	// First try standard Go parsing
+	if d, err := time.ParseDuration(s); err == nil {
+		return d, nil
+	}
+
+	// Handle extended units
+	re := regexp.MustCompile(`^(\d+)(d|w)$`)
+	matches := re.FindStringSubmatch(s)
+
+	if len(matches) != 3 {
+		// If it doesn't match our extended pattern, return original error
+		_, err := time.ParseDuration(s)
+		return 0, err
+	}
+
+	value, err := strconv.ParseInt(matches[1], 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid duration value: %s", matches[1])
+	}
+
+	unit := matches[2]
+	switch unit {
+	case "d":
+		return time.Duration(value) * 24 * time.Hour, nil
+	case "w":
+		return time.Duration(value) * 7 * 24 * time.Hour, nil
+	default:
+		return 0, fmt.Errorf("unknown unit: %s", unit)
+	}
+}
+
+// checkFileWriteable verifies if a file can be written to.
+// Returns error if file exists but is not writable (e.g., read-only permissions).
+func checkFileWriteable(filePath string) error {
+	// Check if file exists
+	info, err := os.Stat(filePath)
+	if os.IsNotExist(err) {
+		// File doesn't exist - check if directory is writable
+		return checkDirectoryWriteable(filepath.Dir(filePath))
+	}
+	if err != nil {
+		return fmt.Errorf("cannot stat file: %w", err)
+	}
+
+	// File exists - check if it's writable
+	mode := info.Mode()
+	if mode&0200 == 0 {
+		return fmt.Errorf("file is read-only (mode: %v)", mode)
+	}
+
+	return nil
+}
+
+// checkDirectoryWriteable verifies if a directory can be written to.
+func checkDirectoryWriteable(dirPath string) error {
+	info, err := os.Stat(dirPath)
+	if err != nil {
+		return fmt.Errorf("cannot access directory %s: %w", dirPath, err)
+	}
+
+	if !info.IsDir() {
+		return fmt.Errorf("%s is not a directory", dirPath)
+	}
+
+	// Check directory write permissions
+	mode := info.Mode()
+	if mode&0200 == 0 {
+		return fmt.Errorf("directory is not writable (mode: %v)", mode)
+	}
+
+	return nil
 }

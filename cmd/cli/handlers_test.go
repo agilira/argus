@@ -147,8 +147,10 @@ func TestHandleConfigGet_ErrorCases(t *testing.T) {
 			t.Error("Expected error for nonexistent file, got nil")
 		}
 
-		// Verify error type is meaningful
-		if !strings.Contains(err.Error(), "no such file") && !strings.Contains(err.Error(), "cannot find") {
+		// Verify error type is meaningful - updated after bug fix
+		if !strings.Contains(err.Error(), "no such file") &&
+			!strings.Contains(err.Error(), "cannot find") &&
+			!strings.Contains(err.Error(), "does not exist") {
 			t.Errorf("Error message should indicate file not found, got: %v", err)
 		}
 	})

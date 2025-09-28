@@ -12,6 +12,7 @@ package cli
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/agilira/argus"
@@ -36,6 +37,10 @@ func (m *Manager) handleConfigGet(ctx *orpheus.Context) error {
 	format := m.detectFormat(filePath, ctx.GetFlagString("format"))
 	config, err := m.loadConfig(filePath, format)
 	if err != nil {
+		// Provide more specific error message for common issues
+		if strings.Contains(err.Error(), "does not exist") {
+			return errors.Wrap(err, argus.ErrCodeIOError, fmt.Sprintf("configuration file not found: %s", filePath))
+		}
 		return errors.Wrap(err, argus.ErrCodeIOError, "failed to load configuration")
 	}
 
@@ -65,6 +70,11 @@ func (m *Manager) handleConfigSet(ctx *orpheus.Context) error {
 	// Audit command execution (optional)
 	if m.auditLogger != nil {
 		m.auditLogger.LogFileWatch("cli_config_set", filePath)
+	}
+
+	// Security check: verify file is writable before modifying
+	if err := checkFileWriteable(filePath); err != nil {
+		return errors.Wrap(err, argus.ErrCodeIOError, fmt.Sprintf("cannot write to file %s", filePath))
 	}
 
 	// Detect format and load configuration
@@ -109,10 +119,19 @@ func (m *Manager) handleConfigDelete(ctx *orpheus.Context) error {
 		m.auditLogger.LogFileWatch("cli_config_delete", filePath)
 	}
 
+	// Security check: verify file is writable before modifying
+	if err := checkFileWriteable(filePath); err != nil {
+		return errors.Wrap(err, argus.ErrCodeIOError, fmt.Sprintf("cannot write to file %s", filePath))
+	}
+
 	// Detect format and load configuration
 	format := m.detectFormat(filePath, ctx.GetFlagString("format"))
 	config, err := m.loadConfig(filePath, format)
 	if err != nil {
+		// Provide more specific error message for common issues
+		if strings.Contains(err.Error(), "does not exist") {
+			return errors.Wrap(err, argus.ErrCodeIOError, fmt.Sprintf("configuration file not found: %s", filePath))
+		}
 		return errors.Wrap(err, argus.ErrCodeIOError, "failed to load configuration")
 	}
 
@@ -151,6 +170,10 @@ func (m *Manager) handleConfigList(ctx *orpheus.Context) error {
 	format := m.detectFormat(filePath, ctx.GetFlagString("format"))
 	config, err := m.loadConfig(filePath, format)
 	if err != nil {
+		// Provide more specific error message for common issues
+		if strings.Contains(err.Error(), "does not exist") {
+			return errors.Wrap(err, argus.ErrCodeIOError, fmt.Sprintf("configuration file not found: %s", filePath))
+		}
 		return errors.Wrap(err, argus.ErrCodeIOError, "failed to load configuration")
 	}
 
@@ -201,15 +224,20 @@ func (m *Manager) handleConfigConvert(ctx *orpheus.Context) error {
 		return errors.Wrap(err, argus.ErrCodeIOError, "failed to load input configuration")
 	}
 
-	// Create writer for output format
-	writer, err := argus.NewConfigWriterWithAudit(outputPath, toFormat, config, m.auditLogger)
+	// Create writer for output format using dummy path (we'll use WriteConfigAs)
+	writer, err := argus.NewConfigWriterWithAudit(inputPath, toFormat, config, m.auditLogger)
 	if err != nil {
 		return errors.Wrap(err, argus.ErrCodeConfigWriterError, "failed to create config writer")
 	}
 
-	// Write in new format
-	if err := writer.WriteConfig(); err != nil {
+	// Use WriteConfigAs to force write to output path (bypasses hash check)
+	if err := writer.WriteConfigAs(outputPath); err != nil {
 		return errors.Wrap(err, argus.ErrCodeIOError, "failed to write output configuration")
+	}
+
+	// Verify the file was actually created
+	if _, err := os.Stat(outputPath); os.IsNotExist(err) {
+		return errors.New(argus.ErrCodeIOError, fmt.Sprintf("conversion failed: output file not created at %s", outputPath))
 	}
 
 	fmt.Printf("Converted %s (%s) -> %s (%s)\n",
@@ -294,8 +322,8 @@ func (m *Manager) handleWatch(ctx *orpheus.Context) error {
 	intervalStr := ctx.GetFlagString("interval")
 	verbose := ctx.GetFlagBool("verbose")
 
-	// Parse duration string
-	interval, err := time.ParseDuration(intervalStr)
+	// Parse duration string (supports extended units: d, w)
+	interval, err := parseExtendedDuration(intervalStr)
 	if err != nil {
 		return errors.New(argus.ErrCodeInvalidConfig, fmt.Sprintf("invalid interval: %v", err))
 	}
