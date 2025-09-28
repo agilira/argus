@@ -182,6 +182,9 @@ func BenchmarkWatcherGetStatOptimized(b *testing.B) {
 	}
 
 	watcher := New(Config{CacheTTL: time.Hour}) // Long TTL for cache hit testing
+	if err := watcher.Start(); err != nil {
+		b.Fatalf("Failed to start watcher: %v", err)
+	}
 	defer func() {
 		if err := watcher.Stop(); err != nil {
 			b.Errorf("Failed to stop watcher: %v", err)
@@ -217,6 +220,9 @@ func BenchmarkWatcherGetStatCacheMiss(b *testing.B) {
 	}
 
 	watcher := New(Config{CacheTTL: 0}) // No caching - always miss
+	if err := watcher.Start(); err != nil {
+		b.Fatalf("Failed to start watcher: %v", err)
+	}
 	defer func() {
 		if err := watcher.Stop(); err != nil {
 			b.Errorf("Failed to stop watcher: %v", err)
@@ -251,6 +257,9 @@ func BenchmarkWatcherPollFiles(b *testing.B) {
 	}
 
 	watcher := New(Config{PollInterval: time.Millisecond})
+	if err := watcher.Start(); err != nil {
+		b.Fatalf("Failed to start watcher: %v", err)
+	}
 	defer func() {
 		if err := watcher.Stop(); err != nil {
 			b.Errorf("Failed to stop watcher: %v", err)

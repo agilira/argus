@@ -95,6 +95,21 @@ func NewRemoteConfigManager(config *RemoteConfig, watcher *Watcher) (*RemoteConf
 		}
 	}
 
+	// Validate and set SyncInterval with safe default
+	if config.SyncInterval <= 0 {
+		config.SyncInterval = 30 * time.Second // Safe default to prevent NewTicker panic
+	}
+
+	// Validate Timeout with safe default
+	if config.Timeout <= 0 {
+		config.Timeout = 10 * time.Second // Safe default
+	}
+
+	// Ensure Timeout is not longer than SyncInterval
+	if config.Timeout >= config.SyncInterval {
+		config.Timeout = config.SyncInterval / 2
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 
 	manager := &RemoteConfigManager{
