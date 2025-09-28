@@ -13,7 +13,10 @@ package argus
 
 import (
 	"bufio"
+	"fmt"
 	"strings"
+
+	"github.com/agilira/go-errors"
 )
 
 // parseHCL parses HCL (HashiCorp Configuration Language) with support for blocks, nested structures, and arrays.
@@ -184,25 +187,48 @@ func parseINI(data []byte) (map[string]interface{}, error) {
 	lines := strings.Split(string(data), "\n")
 	currentSection := ""
 
-	for _, line := range lines {
+	for lineNum, line := range lines {
+		originalLine := line
 		line = strings.TrimSpace(line)
+
+		// Skip empty lines and comments
 		if line == "" || strings.HasPrefix(line, ";") || strings.HasPrefix(line, "#") {
 			continue
 		}
 
-		// Check for section header
+		// Check for section header with validation
 		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
-			currentSection = strings.Trim(line, "[]") + "."
+			// Validate section header format
+			if err := validateINISection(originalLine, lineNum+1); err != nil {
+				return nil, err
+			}
+
+			sectionName := strings.Trim(line, "[]")
+			if sectionName == "" {
+				return nil, errors.New(ErrCodeInvalidConfig,
+					fmt.Sprintf("invalid INI syntax at line %d: empty section name in '%s'",
+						lineNum+1, originalLine))
+			}
+
+			currentSection = sectionName + "."
 			continue
 		}
 
+		// Handle key=value pairs with validation
 		parts := strings.SplitN(line, "=", 2)
 		if len(parts) != 2 {
-			continue
+			return nil, errors.New(ErrCodeInvalidConfig,
+				fmt.Sprintf("invalid INI syntax at line %d: missing equals separator in '%s'",
+					lineNum+1, originalLine))
 		}
 
 		key := strings.TrimSpace(parts[0])
 		value := strings.TrimSpace(parts[1])
+
+		// Validate key format
+		if err := validateINIKey(key, lineNum+1); err != nil {
+			return nil, err
+		}
 
 		// Prefix with section if we have one
 		if currentSection != "" {
@@ -222,22 +248,53 @@ func parseINI(data []byte) (map[string]interface{}, error) {
 func parseProperties(data []byte) (map[string]interface{}, error) {
 	config := make(map[string]interface{})
 	scanner := bufio.NewScanner(strings.NewReader(string(data)))
+	lineNum := 0
 
 	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
+		lineNum++
+		originalLine := scanner.Text()
+		line := strings.TrimSpace(originalLine)
+
+		// Skip empty lines and comments
 		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "!") {
 			continue
 		}
 
-		parts := strings.SplitN(line, "=", 2)
-		if len(parts) != 2 {
-			continue
+		// Handle key=value pairs with validation (Java Properties supports =, :, and space separators)
+		var key, value string
+		var found bool
+
+		// Try different separators in order of preference: =, :, space
+		for _, sep := range []string{"=", ":", " "} {
+			if strings.Contains(line, sep) {
+				parts := strings.SplitN(line, sep, 2)
+				if len(parts) == 2 {
+					key = strings.TrimSpace(parts[0])
+					value = strings.TrimSpace(parts[1])
+					found = true
+					break
+				}
+			}
 		}
 
-		key := strings.TrimSpace(parts[0])
-		value := strings.TrimSpace(parts[1])
+		if !found {
+			return nil, errors.New(ErrCodeInvalidConfig,
+				fmt.Sprintf("invalid Properties syntax at line %d: missing key-value separator (=, :, or space) in '%s'",
+					lineNum, originalLine))
+		}
+
+		// Validate key format
+		if err := validatePropertiesKey(key, lineNum); err != nil {
+			return nil, err
+		}
 
 		config[key] = parseValue(value)
+	}
+
+	// Check for scanner errors
+	if err := scanner.Err(); err != nil {
+		return nil, errors.New(ErrCodeInvalidConfig,
+			fmt.Sprintf("error reading Properties file: %v", err))
 	}
 
 	return config, nil
