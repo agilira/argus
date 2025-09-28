@@ -557,32 +557,53 @@ debug: false
 	})
 
 	t.Run("config_init_default", func(t *testing.T) {
-		newPath := filepath.Join(fixture.tempDir, "new.json")
+		// FIXED: Use relative path to avoid working directory issues
+		// The RunCLI changes to tempDir, so use relative path from there
+		relativePath := "new.json"
+		absolutePath := filepath.Join(fixture.tempDir, relativePath)
 
 		// Ensure the file doesn't exist before we start
-		_, err := os.Stat(newPath)
+		_, err := os.Stat(absolutePath)
 		if err == nil {
-			t.Fatalf("File should not exist before init: %s", newPath)
+			t.Fatalf("File should not exist before init: %s", absolutePath)
 		}
 
-		_, err = fixture.RunCLI("config", "init", newPath)
+		// Use relative path since RunCLI changes to tempDir
+		_, err = fixture.RunCLI("config", "init", relativePath)
 		if err != nil {
 			t.Errorf("Config init failed: %v", err)
 			return
 		}
 
-		// Wait and retry file existence check (fix for potential filesystem delays)
+		// Check using absolute path for verification
+		newPath := absolutePath
+
+		// FIXED: Robust file creation check with reasonable timeout
 		var fileExists bool
-		for i := 0; i < 50; i++ { // Increased retries for robustness
+		var lastErr error
+
+		// Try for up to 500ms (should be more than enough for file creation)
+		for i := 0; i < 10; i++ {
 			if _, err := os.Stat(newPath); err == nil {
 				fileExists = true
 				break
+			} else {
+				lastErr = err
 			}
-			time.Sleep(2 * time.Millisecond) // Small delay between checks
+			time.Sleep(50 * time.Millisecond)
 		}
 
 		if !fileExists {
-			// Debug information for failure diagnosis
+			// More comprehensive debug information
+			t.Logf("File check error: %v", lastErr)
+
+			// Check if working directory issue
+			currentWd, _ := os.Getwd()
+			t.Logf("Current working directory: %s", currentWd)
+			t.Logf("Expected file path: %s", newPath)
+			t.Logf("Fixture temp directory: %s", fixture.tempDir)
+
+			// Check directory contents
 			if entries, err := os.ReadDir(filepath.Dir(newPath)); err == nil {
 				var fileNames []string
 				for _, entry := range entries {
@@ -590,12 +611,24 @@ debug: false
 				}
 				t.Logf("Directory contents after init: %v", fileNames)
 			}
+
+			// Also check current working directory if different
+			if currentWd != filepath.Dir(newPath) {
+				if entries, err := os.ReadDir(currentWd); err == nil {
+					var fileNames []string
+					for _, entry := range entries {
+						fileNames = append(fileNames, entry.Name())
+					}
+					t.Logf("Current directory contents: %v", fileNames)
+				}
+			}
+
 			t.Errorf("File was not created by init command: %s", newPath)
 			return
 		}
 
 		// Should be valid and readable
-		_, err = fixture.RunCLI("config", "validate", newPath)
+		_, err = fixture.RunCLI("config", "validate", relativePath) // Use same relative path
 		if err != nil {
 			t.Errorf("Init file not valid: %v", err)
 		}

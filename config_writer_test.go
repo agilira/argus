@@ -356,3 +356,311 @@ func TestConfigWriter_WriteConfig_Properties(t *testing.T) {
 		t.Error("Expected flattened key 'app.debug=true' not found")
 	}
 }
+
+// TestConfigWriter_MissingCoverage tests previously uncovered functions
+func TestConfigWriter_MissingCoverage(t *testing.T) {
+	tempDir := t.TempDir()
+
+	t.Run("WriteConfigAs", func(t *testing.T) {
+		configPath := filepath.Join(tempDir, "source.json")
+		targetPath := filepath.Join(tempDir, "target.json")
+
+		writer, err := NewConfigWriter(configPath, FormatJSON, nil)
+		if err != nil {
+			t.Fatalf("Failed to create ConfigWriter: %v", err)
+		}
+
+		// Set some test data
+		err = writer.SetValue("app.name", "test-app")
+		if err != nil {
+			t.Fatalf("Failed to set value: %v", err)
+		}
+
+		// Test WriteConfigAs with empty path (should fail)
+		err = writer.WriteConfigAs("")
+		if err == nil {
+			t.Error("WriteConfigAs with empty path should fail")
+		}
+
+		// Test successful WriteConfigAs
+		err = writer.WriteConfigAs(targetPath)
+		if err != nil {
+			t.Fatalf("WriteConfigAs failed: %v", err)
+		}
+
+		// Verify target file exists and has correct content
+		if _, err := os.Stat(targetPath); err != nil {
+			t.Errorf("Target file was not created: %v", err)
+		}
+
+		// Read and verify content
+		data, err := os.ReadFile(targetPath)
+		if err != nil {
+			t.Fatalf("Failed to read target file: %v", err)
+		}
+
+		var config map[string]interface{}
+		err = json.Unmarshal(data, &config)
+		if err != nil {
+			t.Fatalf("Failed to parse target config: %v", err)
+		}
+
+		if appData, ok := config["app"].(map[string]interface{}); !ok {
+			t.Error("Expected app object in target config")
+		} else if name, ok := appData["name"].(string); !ok || name != "test-app" {
+			t.Errorf("Expected app.name=test-app, got %v", name)
+		}
+	})
+
+	t.Run("GetConfig", func(t *testing.T) {
+		configPath := filepath.Join(tempDir, "getconfig.json")
+
+		writer, err := NewConfigWriter(configPath, FormatJSON, nil)
+		if err != nil {
+			t.Fatalf("Failed to create ConfigWriter: %v", err)
+		}
+
+		// Set some test data including nested structures
+		err = writer.SetValue("app.name", "test-app")
+		if err != nil {
+			t.Fatalf("Failed to set app.name: %v", err)
+		}
+
+		err = writer.SetValue("database.host", "localhost")
+		if err != nil {
+			t.Fatalf("Failed to set database.host: %v", err)
+		}
+
+		// Get config copy
+		configCopy := writer.GetConfig()
+
+		// Verify copy has correct content
+		if appData, ok := configCopy["app"].(map[string]interface{}); !ok {
+			t.Error("Expected app object in config copy")
+		} else if name, ok := appData["name"].(string); !ok || name != "test-app" {
+			t.Errorf("Expected app.name=test-app in copy, got %v", name)
+		}
+
+		// Verify it's a deep copy by modifying the copy and checking original
+		if appData, ok := configCopy["app"].(map[string]interface{}); ok {
+			appData["name"] = "modified-app"
+		}
+
+		// Original should be unchanged
+		originalValue := writer.GetValue("app.name")
+		if originalValue != "test-app" {
+			t.Errorf("Original config was modified when copy was changed: %v", originalValue)
+		}
+	})
+
+	t.Run("Reset", func(t *testing.T) {
+		configPath := filepath.Join(tempDir, "reset.json")
+
+		// Create initial config file
+		initialConfig := map[string]interface{}{
+			"app": map[string]interface{}{
+				"name":    "initial-app",
+				"version": "1.0.0",
+			},
+			"database": map[string]interface{}{
+				"host": "initial-host",
+				"port": 5432,
+			},
+		}
+
+		data, err := json.Marshal(initialConfig)
+		if err != nil {
+			t.Fatalf("Failed to marshal initial config: %v", err)
+		}
+
+		err = os.WriteFile(configPath, data, 0600)
+		if err != nil {
+			t.Fatalf("Failed to write initial config file: %v", err)
+		}
+
+		// Create writer and modify it
+		writer, err := NewConfigWriter(configPath, FormatJSON, nil)
+		if err != nil {
+			t.Fatalf("Failed to create ConfigWriter: %v", err)
+		}
+
+		// Modify the config
+		err = writer.SetValue("app.name", "modified-app")
+		if err != nil {
+			t.Fatalf("Failed to modify config: %v", err)
+		}
+
+		// Verify modification
+		if writer.GetValue("app.name") != "modified-app" {
+			t.Error("Config was not modified as expected")
+		}
+
+		// Reset should restore original values
+		err = writer.Reset()
+		if err != nil {
+			t.Fatalf("Reset failed: %v", err)
+		}
+
+		// Verify reset worked
+		if writer.GetValue("app.name") != "initial-app" {
+			t.Errorf("Reset did not restore original value: got %v, expected initial-app", writer.GetValue("app.name"))
+		}
+
+		if writer.GetValue("app.version") != "1.0.0" {
+			t.Errorf("Reset did not restore version: got %v, expected 1.0.0", writer.GetValue("app.version"))
+		}
+	})
+
+	t.Run("Reset_NonExistentFile", func(t *testing.T) {
+		nonExistentPath := filepath.Join(tempDir, "nonexistent.json")
+
+		writer, err := NewConfigWriter(nonExistentPath, FormatJSON, nil)
+		if err != nil {
+			t.Fatalf("Failed to create ConfigWriter: %v", err)
+		}
+
+		// Set some data
+		err = writer.SetValue("test.key", "test-value")
+		if err != nil {
+			t.Fatalf("Failed to set test value: %v", err)
+		}
+
+		// Reset should succeed and clear config when file doesn't exist
+		err = writer.Reset()
+		if err == nil {
+			// Success case - file doesn't exist, config should be empty
+			if len(writer.GetConfig()) != 0 {
+				t.Errorf("Config should be empty after reset of nonexistent file, got %v", writer.GetConfig())
+			}
+		} else {
+			// Error case - should still result in empty config according to Reset implementation
+			if len(writer.GetConfig()) != 0 {
+				t.Errorf("Config should be empty after failed reset, got %v", writer.GetConfig())
+			}
+			t.Logf("Reset returned expected error for nonexistent file: %v", err)
+		}
+	})
+}
+
+// TestDeepCopySlice tests the deepCopySlice function specifically
+func TestDeepCopySlice(t *testing.T) {
+	t.Run("nil_slice", func(t *testing.T) {
+		result := deepCopySlice(nil)
+		if result != nil {
+			t.Errorf("Expected nil for nil input, got %v", result)
+		}
+	})
+
+	t.Run("empty_slice", func(t *testing.T) {
+		input := []interface{}{}
+		result := deepCopySlice(input)
+		if len(result) != 0 {
+			t.Errorf("Expected empty slice, got length %d", len(result))
+		}
+	})
+
+	t.Run("simple_values", func(t *testing.T) {
+		input := []interface{}{"string", 42, true, 3.14}
+		result := deepCopySlice(input)
+
+		if len(result) != len(input) {
+			t.Errorf("Expected length %d, got %d", len(input), len(result))
+		}
+
+		for i, v := range input {
+			if result[i] != v {
+				t.Errorf("Expected %v at index %d, got %v", v, i, result[i])
+			}
+		}
+	})
+
+	t.Run("nested_maps", func(t *testing.T) {
+		nestedMap := map[string]interface{}{
+			"inner":  "value",
+			"number": 123,
+		}
+		input := []interface{}{
+			"string",
+			nestedMap,
+			42,
+		}
+
+		result := deepCopySlice(input)
+
+		// Verify structure
+		if len(result) != 3 {
+			t.Fatalf("Expected length 3, got %d", len(result))
+		}
+
+		// Check deep copy by modifying original map
+		nestedMap["inner"] = "modified"
+
+		// Result should not be affected
+		if resultMap, ok := result[1].(map[string]interface{}); !ok {
+			t.Error("Expected map at index 1")
+		} else if inner, ok := resultMap["inner"].(string); !ok || inner != "value" {
+			t.Errorf("Deep copy failed: expected 'value', got %v", inner)
+		}
+	})
+
+	t.Run("nested_slices", func(t *testing.T) {
+		nestedSlice := []interface{}{"nested", 456}
+		input := []interface{}{
+			"string",
+			nestedSlice,
+			42,
+		}
+
+		result := deepCopySlice(input)
+
+		// Verify structure
+		if len(result) != 3 {
+			t.Fatalf("Expected length 3, got %d", len(result))
+		}
+
+		// Check deep copy by modifying original slice
+		nestedSlice[0] = "modified"
+
+		// Result should not be affected
+		if resultSlice, ok := result[1].([]interface{}); !ok {
+			t.Error("Expected slice at index 1")
+		} else if first, ok := resultSlice[0].(string); !ok || first != "nested" {
+			t.Errorf("Deep copy failed: expected 'nested', got %v", first)
+		}
+	})
+
+	t.Run("complex_nested_structure", func(t *testing.T) {
+		input := []interface{}{
+			map[string]interface{}{
+				"level1": map[string]interface{}{
+					"level2": []interface{}{
+						"deep_value",
+						map[string]interface{}{
+							"level3": "deepest",
+						},
+					},
+				},
+			},
+		}
+
+		result := deepCopySlice(input)
+
+		// Verify deep copy worked
+		if len(result) != 1 {
+			t.Fatalf("Expected length 1, got %d", len(result))
+		}
+
+		// Navigate to deepest level and verify
+		if topMap, ok := result[0].(map[string]interface{}); !ok {
+			t.Error("Expected map at top level")
+		} else if level1, ok := topMap["level1"].(map[string]interface{}); !ok {
+			t.Error("Expected level1 map")
+		} else if level2, ok := level1["level2"].([]interface{}); !ok {
+			t.Error("Expected level2 slice")
+		} else if level3Map, ok := level2[1].(map[string]interface{}); !ok {
+			t.Error("Expected map at level2[1]")
+		} else if deepest, ok := level3Map["level3"].(string); !ok || deepest != "deepest" {
+			t.Errorf("Expected 'deepest', got %v", deepest)
+		}
+	})
+}
