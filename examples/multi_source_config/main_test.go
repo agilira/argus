@@ -22,7 +22,7 @@ import (
 // TestMultiSourceConfigLoading tests the core multi-source functionality
 func TestMultiSourceConfigLoading(t *testing.T) {
 	// Clean up any existing environment variables
-	cleanup := cleanupEnvironment(t)
+	cleanup := cleanupEnvironment()
 	defer cleanup()
 
 	t.Run("file_with_env_override", func(t *testing.T) {
@@ -97,7 +97,7 @@ func TestMultiSourceConfigLoading(t *testing.T) {
 
 // TestMultipleFormatSupport tests loading different configuration formats
 func TestMultipleFormatSupport(t *testing.T) {
-	cleanup := cleanupEnvironment(t)
+	cleanup := cleanupEnvironment()
 	defer cleanup()
 
 	testCases := []struct {
@@ -177,7 +177,7 @@ max_watched_files=200
 
 // TestGracefulFallbackBehavior tests error handling and fallback scenarios
 func TestGracefulFallbackBehavior(t *testing.T) {
-	cleanup := cleanupEnvironment(t)
+	cleanup := cleanupEnvironment()
 	defer cleanup()
 
 	t.Run("nonexistent_file", func(t *testing.T) {
@@ -241,7 +241,7 @@ func TestGracefulFallbackBehavior(t *testing.T) {
 
 // TestSecurityValidation tests path security validation
 func TestSecurityValidation(t *testing.T) {
-	cleanup := cleanupEnvironment(t)
+	cleanup := cleanupEnvironment()
 	defer cleanup()
 
 	t.Run("path_traversal_protection", func(t *testing.T) {
@@ -275,7 +275,7 @@ func TestWatcherIntegration(t *testing.T) {
 		t.Skip("Skipping watcher integration test in short mode")
 	}
 
-	cleanup := cleanupEnvironment(t)
+	cleanup := cleanupEnvironment()
 	defer cleanup()
 
 	t.Run("watcher_with_multisource_config", func(t *testing.T) {
@@ -356,7 +356,7 @@ func TestWatcherIntegration(t *testing.T) {
 
 // TestEnvironmentVariablePrecedence tests various environment variable scenarios
 func TestEnvironmentVariablePrecedence(t *testing.T) {
-	cleanup := cleanupEnvironment(t)
+	cleanup := cleanupEnvironment()
 	defer cleanup()
 
 	t.Run("comprehensive_env_precedence", func(t *testing.T) {
@@ -439,7 +439,7 @@ func TestEnvironmentVariablePrecedence(t *testing.T) {
 
 // BenchmarkMultiSourceLoading benchmarks the performance of multi-source loading
 func BenchmarkMultiSourceLoading(b *testing.B) {
-	cleanup := cleanupEnvironment(nil)
+	cleanup := cleanupEnvironment()
 	defer cleanup()
 
 	// Create test config file
@@ -474,7 +474,7 @@ func BenchmarkMultiSourceLoading(b *testing.B) {
 }
 
 // Helper function to clean up environment variables
-func cleanupEnvironment(t *testing.T) func() {
+func cleanupEnvironment() func() {
 	// List of all Argus environment variables
 	envVars := []string{
 		"ARGUS_POLL_INTERVAL",
