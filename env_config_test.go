@@ -8,6 +8,7 @@ package argus
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -706,4 +707,213 @@ func TestConvertEnvToConfigErrorHandling(t *testing.T) {
 	if config.BoreasLiteCapacity != 256 {
 		t.Errorf("Expected BoreasLiteCapacity to be 256, got %d", config.BoreasLiteCapacity)
 	}
+}
+
+// TestLoadConfigFromFile tests the new file loading functionality in LoadConfigMultiSource
+func TestLoadConfigFromFile(t *testing.T) {
+	// Test 1: Valid configuration file
+	t.Run("valid_json_file", func(t *testing.T) {
+		// Create temporary JSON config file
+		tempDir := t.TempDir()
+		configFile := filepath.Join(tempDir, "test_config.json")
+
+		configContent := `{
+			"poll_interval": "10s",
+			"cache_ttl": "5s",
+			"max_watched_files": 50,
+			"audit": {
+				"enabled": true,
+				"min_level": "info"
+			}
+		}`
+
+		if err := os.WriteFile(configFile, []byte(configContent), 0644); err != nil {
+			t.Fatalf("Failed to create test config file: %v", err)
+		}
+
+		// Test LoadConfigMultiSource with real file
+		config, err := LoadConfigMultiSource(configFile)
+		if err != nil {
+			t.Fatalf("LoadConfigMultiSource should succeed with valid file: %v", err)
+		}
+
+		if config == nil {
+			t.Fatal("LoadConfigMultiSource should return non-nil config")
+		}
+
+		// For now, since we haven't implemented full binding,
+		// we just verify the file was processed without error
+		// TODO: Add specific field verification once Config binding is implemented
+	})
+
+	// Test 2: YAML configuration file
+	t.Run("valid_yaml_file", func(t *testing.T) {
+		tempDir := t.TempDir()
+		configFile := filepath.Join(tempDir, "test_config.yaml")
+
+		configContent := `
+poll_interval: 15s
+cache_ttl: 7s
+max_watched_files: 75
+audit:
+  enabled: true
+  min_level: warn
+`
+
+		if err := os.WriteFile(configFile, []byte(configContent), 0644); err != nil {
+			t.Fatalf("Failed to create test YAML config file: %v", err)
+		}
+
+		config, err := LoadConfigMultiSource(configFile)
+		if err != nil {
+			t.Fatalf("LoadConfigMultiSource should succeed with valid YAML file: %v", err)
+		}
+
+		if config == nil {
+			t.Fatal("LoadConfigMultiSource should return non-nil config")
+		}
+	})
+
+	// Test 3: Invalid configuration file (malformed JSON)
+	t.Run("invalid_json_file", func(t *testing.T) {
+		tempDir := t.TempDir()
+		configFile := filepath.Join(tempDir, "invalid_config.json")
+
+		// Malformed JSON
+		configContent := `{"invalid": json without quotes}`
+
+		if err := os.WriteFile(configFile, []byte(configContent), 0644); err != nil {
+			t.Fatalf("Failed to create test config file: %v", err)
+		}
+
+		// Should gracefully fallback to defaults when file is invalid
+		config, err := LoadConfigMultiSource(configFile)
+		if err != nil {
+			t.Fatalf("LoadConfigMultiSource should gracefully handle invalid files: %v", err)
+		}
+
+		if config == nil {
+			t.Fatal("LoadConfigMultiSource should return defaults when file is invalid")
+		}
+	})
+
+	// Test 4: Non-existent file
+	t.Run("nonexistent_file", func(t *testing.T) {
+		config, err := LoadConfigMultiSource("/path/to/nonexistent/file.json")
+		if err != nil {
+			t.Fatalf("LoadConfigMultiSource should handle non-existent files gracefully: %v", err)
+		}
+
+		if config == nil {
+			t.Fatal("LoadConfigMultiSource should return defaults when file doesn't exist")
+		}
+	})
+
+	// Test 5: Unsupported file format
+	t.Run("unsupported_format", func(t *testing.T) {
+		tempDir := t.TempDir()
+		configFile := filepath.Join(tempDir, "config.unknown")
+
+		if err := os.WriteFile(configFile, []byte("some content"), 0644); err != nil {
+			t.Fatalf("Failed to create test config file: %v", err)
+		}
+
+		// Should fallback to defaults when format is unsupported
+		config, err := LoadConfigMultiSource(configFile)
+		if err != nil {
+			t.Fatalf("LoadConfigMultiSource should handle unsupported formats gracefully: %v", err)
+		}
+
+		if config == nil {
+			t.Fatal("LoadConfigMultiSource should return defaults when format is unsupported")
+		}
+	})
+
+	// Test 6: File loading with environment override
+	t.Run("file_with_env_override", func(t *testing.T) {
+		tempDir := t.TempDir()
+		configFile := filepath.Join(tempDir, "config_with_env.json")
+
+		configContent := `{"poll_interval": "10s"}`
+		if err := os.WriteFile(configFile, []byte(configContent), 0644); err != nil {
+			t.Fatalf("Failed to create test config file: %v", err)
+		}
+
+		// Set environment variable to override
+		if err := os.Setenv("ARGUS_POLL_INTERVAL", "5s"); err != nil {
+			t.Fatalf("Failed to set ARGUS_POLL_INTERVAL: %v", err)
+		}
+		defer func() {
+			if err := os.Unsetenv("ARGUS_POLL_INTERVAL"); err != nil {
+				t.Logf("Failed to unset ARGUS_POLL_INTERVAL: %v", err)
+			}
+		}()
+
+		config, err := LoadConfigMultiSource(configFile)
+		if err != nil {
+			t.Fatalf("LoadConfigMultiSource should succeed: %v", err)
+		}
+
+		// Environment should override file (precedence test)
+		if config.PollInterval != 5*time.Second {
+			t.Errorf("Expected environment override (5s), got %v", config.PollInterval)
+		}
+	})
+}
+
+// TestLoadConfigFromFileFunction tests the internal loadConfigFromFile function
+func TestLoadConfigFromFileFunction(t *testing.T) {
+	// Test security validation
+	t.Run("security_validation", func(t *testing.T) {
+		// Test path traversal attempt
+		_, err := loadConfigFromFile("../../../etc/passwd")
+		if err == nil {
+			t.Error("loadConfigFromFile should reject path traversal attempts")
+		}
+	})
+
+	// Test format detection
+	t.Run("format_detection", func(t *testing.T) {
+		tempDir := t.TempDir()
+
+		// Test various formats
+		formats := map[string]string{
+			"config.json": `{"test": "value"}`,
+			"config.yaml": "test: value\n",
+			"config.toml": `test = "value"`,
+			"config.ini":  "[section]\ntest=value\n",
+		}
+
+		for filename, content := range formats {
+			filePath := filepath.Join(tempDir, filename)
+			if err := os.WriteFile(filePath, []byte(content), 0644); err != nil {
+				t.Fatalf("Failed to create %s: %v", filename, err)
+			}
+
+			config, err := loadConfigFromFile(filePath)
+			if err != nil {
+				t.Errorf("loadConfigFromFile failed for %s: %v", filename, err)
+			}
+
+			if config == nil {
+				t.Errorf("loadConfigFromFile returned nil config for %s", filename)
+			}
+		}
+	})
+
+	// Test error handling for invalid files
+	t.Run("invalid_file_handling", func(t *testing.T) {
+		tempDir := t.TempDir()
+
+		// Test invalid JSON
+		invalidJSON := filepath.Join(tempDir, "invalid.json")
+		if err := os.WriteFile(invalidJSON, []byte(`{invalid json`), 0644); err != nil {
+			t.Fatalf("Failed to create invalid JSON file: %v", err)
+		}
+
+		_, err := loadConfigFromFile(invalidJSON)
+		if err == nil {
+			t.Error("loadConfigFromFile should return error for invalid JSON")
+		}
+	})
 }

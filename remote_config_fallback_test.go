@@ -685,9 +685,9 @@ func TestLoadWithFallbackChain(t *testing.T) {
 		// Test when everything fails - no fallback file
 		remoteConfig := &RemoteConfig{
 			Enabled:      true,
-			PrimaryURL:   "failing://primary-server/config.json",  // Will fail
-			FallbackURL:  "failing://fallback-server/config.json", // Will also fail
-			FallbackPath: "/nonexistent/path/config.json",         // Will also fail
+			PrimaryURL:   "test://failing-primary-server/config.json",  // Will fail (failing provider)
+			FallbackURL:  "test://failing-fallback-server/config.json", // Will also fail
+			FallbackPath: "C:\\nonexistent\\path\\config.json",         // Will also fail
 			SyncInterval: time.Minute,
 		}
 

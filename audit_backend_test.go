@@ -1278,8 +1278,19 @@ func TestSQLiteBackend_SchemaErrors_Advanced(t *testing.T) {
 		t.Fatalf("Failed to create temp file: %v", err)
 	}
 	defer func() {
-		if err := os.Remove(tempFile.Name()); err != nil {
-			t.Logf("Failed to remove tempFile: %v", err)
+		// On Windows, file removal might fail if the file is still in use
+		// Try multiple times with small delays
+		for i := 0; i < 3; i++ {
+			if err := os.Remove(tempFile.Name()); err != nil {
+				if i == 2 { // Last attempt
+					t.Logf("Failed to remove tempFile after 3 attempts: %v", err)
+				} else {
+					time.Sleep(10 * time.Millisecond)
+					continue
+				}
+			} else {
+				break // Success
+			}
 		}
 	}()
 	if err := tempFile.Close(); err != nil {
@@ -1308,6 +1319,11 @@ func TestSQLiteBackend_SchemaErrors_Advanced(t *testing.T) {
 	if err := db.Close(); err != nil {
 		t.Logf("Failed to close db: %v", err)
 	}
+
+	// On Windows, we need to ensure the database connection is fully closed
+	// before we can remove the file. Add a small delay to allow cleanup.
+	runtime.GC()                      // Force garbage collection to close any remaining connections
+	time.Sleep(10 * time.Millisecond) // Small delay for Windows file handle cleanup
 
 	// Now try to open with our backend - it should handle migration
 	config := AuditConfig{

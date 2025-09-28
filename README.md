@@ -35,19 +35,35 @@ go get github.com/agilira/argus
 
 ## Quick Start
 
-### Configuration Management
+### Multi-Source Configuration Loading
 ```go
 import "github.com/agilira/argus"
 
-// Load and bind configuration
-cfg := argus.New()
-cfg.AddFile("config.yaml")
-cfg.AddEnv("APP")
-
-var config AppConfig
-if err := cfg.Load(&config); err != nil {
+// Load with automatic precedence: ENV vars > File > Defaults
+config, err := argus.LoadConfigMultiSource("config.yaml")
+if err != nil {
     log.Fatal(err)
 }
+
+watcher := argus.New(*config)
+```
+
+### Type-Safe Configuration Binding
+```go
+// Ultra-fast zero-reflection binding (1.6M ops/sec)
+var (
+    dbHost     string
+    dbPort     int
+    enableSSL  bool
+    timeout    time.Duration
+)
+
+err := argus.BindFromConfig(parsedConfig).
+    BindString(&dbHost, "database.host", "localhost").
+    BindInt(&dbPort, "database.port", 5432).
+    BindBool(&enableSSL, "database.ssl", true).
+    BindDuration(&timeout, "database.timeout", 30*time.Second).
+    Apply()
 ```
 
 ### Real-Time Configuration Updates

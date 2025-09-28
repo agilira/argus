@@ -20,6 +20,7 @@ package argus
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -348,6 +349,37 @@ func validateRemoteURL(url string) error {
 
 // isRelativePathSafe checks if a relative path is safe (no traversal attempts).
 func isRelativePathSafe(path string) bool {
+	if path == "" {
+		return false
+	}
+
+	// Must not start with / (Unix-style absolute path)
+	if len(path) > 0 && path[0] == '/' {
+		return false
+	}
+
 	clean := filepath.Clean(path)
-	return clean == path && !filepath.IsAbs(clean) && clean[0] != '.'
+
+	// Must be relative (not absolute)
+	if filepath.IsAbs(clean) {
+		return false
+	}
+
+	// Must not start with . (current directory or hidden files)
+	if len(clean) > 0 && clean[0] == '.' {
+		return false
+	}
+
+	// Must not contain path traversal (..)
+	if strings.Contains(clean, "..") {
+		return false
+	}
+
+	// On Windows, filepath.Clean converts forward slashes to backslashes
+	// We need to normalize both paths for comparison
+	normalizedOriginal := filepath.ToSlash(path)
+	normalizedClean := filepath.ToSlash(clean)
+
+	// Clean path should match original (no normalization needed)
+	return normalizedClean == normalizedOriginal
 }
