@@ -557,26 +557,24 @@ debug: false
 	})
 
 	t.Run("config_init_default", func(t *testing.T) {
-		// FIXED: Use relative path to avoid working directory issues
-		// The RunCLI changes to tempDir, so use relative path from there
-		relativePath := "new.json"
-		absolutePath := filepath.Join(fixture.tempDir, relativePath)
+		// Use absolute path to ensure file is created in temp directory
+		filePath := filepath.Join(fixture.tempDir, "new.json")
 
 		// Ensure the file doesn't exist before we start
-		_, err := os.Stat(absolutePath)
+		_, err := os.Stat(filePath)
 		if err == nil {
-			t.Fatalf("File should not exist before init: %s", absolutePath)
+			t.Fatalf("File should not exist before init: %s", filePath)
 		}
 
-		// Use relative path since RunCLI changes to tempDir
-		_, err = fixture.RunCLI("config", "init", relativePath)
+		// Use absolute path to ensure correct location
+		_, err = fixture.RunCLI("config", "init", filePath)
 		if err != nil {
 			t.Errorf("Config init failed: %v", err)
 			return
 		}
 
-		// Check using absolute path for verification
-		newPath := absolutePath
+		// Check if file was created
+		newPath := filePath
 
 		// FIXED: Robust file creation check with reasonable timeout
 		var fileExists bool
@@ -628,7 +626,7 @@ debug: false
 		}
 
 		// Should be valid and readable
-		_, err = fixture.RunCLI("config", "validate", relativePath) // Use same relative path
+		_, err = fixture.RunCLI("config", "validate", filePath)
 		if err != nil {
 			t.Errorf("Init file not valid: %v", err)
 		}
