@@ -8,7 +8,7 @@ on:
 
 jobs:
   ci:
-    uses: agilira/workflow/.github/workflows/go-ci-full.yml@v1.0.2
+    uses: agilira/workflow/.github/workflows/go-ci-full.yml@v1
     with:
       go-version: 'stable'
       gosec-config: '.gosec.json'
