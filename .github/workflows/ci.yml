@@ -1,0 +1,14 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  ci:
+    uses: agilira/workflow/.github/workflows/go-ci-full.yml@v1.0.0
+    with:
+      go-version: 'stable'
+      gosec-config: '.gosec.json'

@@ -1,0 +1,50 @@
+version: 2
+updates:
+  # Enable version updates for Go modules
+  - package-ecosystem: "gomod"
+    # Look for go.mod in the root directory
+    directory: "/"
+    # Check for updates daily
+    schedule:
+      interval: "daily"
+      time: "09:00"
+      timezone: "Europe/Rome"
+    # Group updates to reduce PR noise
+    groups:
+      agilira:
+        patterns:
+          - "github.com/agilira/*"
+      testing:
+        patterns:
+          - "github.com/stretchr/testify"
+          - "github.com/go-test/*"
+      security:
+        patterns:
+          - "golang.org/x/crypto"
+          - "golang.org/x/net"
+          - "golang.org/x/sys"
+    # Auto-merge minor and patch updates for trusted dependencies
+    open-pull-requests-limit: 5
+    reviewers:
+      - "agilira"
+    assignees:
+      - "agilira"
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+
+  # Enable version updates for GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "daily"
+      time: "09:00"
+      timezone: "Europe/Rome"
+    open-pull-requests-limit: 3
+    reviewers:
+      - "agilira"
+    assignees:
+      - "agilira"
+    commit-message:
+      prefix: "ci"
+      include: "scope"

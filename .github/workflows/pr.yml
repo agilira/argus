@@ -1,0 +1,12 @@
+name: PR Quick Check
+
+on:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  pr-check:
+    uses: agilira/workflow/.github/workflows/go-pr-quick.yml@v1.0.0
+    with:
+      go-version: 'stable'
+      gosec-excludes: 'G104,G306,G301'

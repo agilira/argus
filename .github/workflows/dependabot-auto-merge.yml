@@ -1,0 +1,8 @@
+name: Dependabot auto-merge
+on: pull_request_target
+
+jobs:
+  dependabot:
+    uses: agilira/workflow/.github/workflows/dependabot-auto-merge.yml@v1.0.0
+    with:
+      ci-check-name: "ci"

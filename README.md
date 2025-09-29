@@ -1,7 +1,7 @@
 # Argus — Dynamic Configuration Framework for Go
 ### an AGILira fragment
 
-High-performance configuration management library for Go applications with zero-allocation performance, universal format support (JSON, YAML, TOML, HCL, INI, Properties), and an ultra-fast CLI powered by [Orpheus](https://github.com/agilira/orpheus).
+High-performance configuration management library for Go applications with zero-allocation performance, universal format support (JSON, YAML, TOML, HCL, INI, Properties), and an ultra-fast CLI powered by [Orpheus](https://github.com/agilira/orpheus) & [Flash-Flags](https://github.com/agilira/flash-flags).
 
 [![CI/CD Pipeline](https://github.com/agilira/argus/actions/workflows/ci.yml/badge.svg)](https://github.com/agilira/argus/actions/workflows/ci.yml)
 [![Security](https://img.shields.io/badge/security-gosec-brightgreen.svg)](https://github.com/agilira/argus/actions/workflows/ci.yml)
@@ -17,6 +17,7 @@ High-performance configuration management library for Go applications with zero-
 - **Universal Format Support**: JSON, YAML, TOML, HCL, INI, Properties with auto-detection
 - **ConfigWriter System**: Atomic configuration file updates with type-safe operations
 - **Ultra-Fast CLI**: [Orpheus](https://github.com/agilira/orpheus)-powered CLI 7x-53x faster 
+- **Professional Grade Validation**: With detailed error reporting & performance recommendations
 - **Secure by Design**: Red-team tested against path traversal, injection, DoS and resource exhaustion attacks
 - **Zero-Allocation Design**: Pre-allocated buffers eliminate GC pressure in hot paths
 - **Remote Config**: Distributed configuration with automatic fallback (Consul/etcd → Local)
@@ -103,8 +104,6 @@ argus config set config.yaml database.host localhost
 argus config convert config.yaml config.json
 argus watch config.yaml --interval=1s
 ```
-
-**[Complete Quick Start Guide →](./docs/QUICK_START.md)** - Get running in 2 minutes with detailed examples  
 **[Orpheus CLI Integration →](./docs/ORPHEUS_INTEGRATION.md)** - Complete CLI documentation and examples
 
 ## Performance
@@ -119,51 +118,26 @@ JSON Parsing (small):          1,712 ns/op     (616 B/op, 16 allocs/op)
 JSON Parsing (large):          7,793 ns/op     (3,064 B/op, 86 allocs/op)
 Event Processing:              24.91 ns/op     (BoreasLite single event)
 CLI Command Parsing:             512 ns/op     (3 allocs/op, Orpheus framework)
-Memory Footprint:              8KB fixed       + configurable buffers
+```
+**Reproduce benchmarks**:
+```bash
+go test -bench=. -benchmem
+```
 
 **Scalability (Setup Performance):**
 ```
 File Count    Setup Time    Strategy Used
    50 files    11.92 μs/file  SmallBatch
-  100 files    18.05 μs/file  LargeBatch  
-  250 files    12.28 μs/file  LargeBatch
   500 files    23.95 μs/file  LargeBatch
  1000 files    38.90 μs/file  LargeBatch
 ```
 *Detection rate: 100% across all scales*
-```
 
 ## Architecture
 
-Argus provides intelligent configuration management through polling-based optimization.
+Argus provides intelligent configuration management through polling-based optimization with lock-free stat cache (12.10ns monitoring overhead), ultra-fast format detection (2.79ns per operation).
 
-```mermaid
-graph TD
-    A[Config Files] --> B[Format Detection]
-    A --> C[File Monitor<br/>Polling + Stat Cache]
-    B --> D[Universal Parser<br/>JSON/YAML/TOML/HCL/INI]
-    C --> E[BoreasLite MPSC Buffer<br/>Ring Buffer + Optimization]
-    E --> F[Event Processing<br/>Strategy-Based Batching]
-    F --> G[User Callbacks]
-    D --> H[Parsed Configuration]
-    H --> G
-    C --> I[Audit System<br/>Tamper Detection]
-    
-    classDef primary fill:#e1f5fe,stroke:#01579b,stroke-width:2px
-    classDef secondary fill:#e8f5e8,stroke:#1b5e20,stroke-width:2px
-    classDef audit fill:#fce4ec,stroke:#880e4f,stroke-width:2px
-    classDef performance fill:#fff3e0,stroke:#e65100,stroke-width:2px
-    
-    class A,G primary
-    class B,D,H secondary
-    class C,I audit
-    class E,F performance
-```
-
-**Architectural Components:**
-- **Lock-free stat cache** for 12.10ns monitoring overhead (0 allocations)
-- **Ultra-fast format detection** at 2.79ns per operation
-- **BoreasLite MPSC ring buffer** with 24.91ns event processing
+**[Complete Architecture Guide →](./docs/ARCHITECTURE.md)**
 
 
 ### Parser Support
@@ -249,9 +223,9 @@ wrapper.LogConfigChange("/etc/config.json", oldConfig, newConfig)
 
 Argus Panoptes was no ordinary guardian. While others slept, he watched. While others blinked, his hundred eyes remained ever vigilant. Hera chose him not for his strength, but for something rarer—his ability to see everything without ever growing weary.
 
-The giant understood that true protection came not from reactive force, but from constant, intelligent awareness. He didn't chase threats after they appeared; he saw them coming from every direction simultaneously. His vigilance was not frantic or wasteful—each eye served a purpose, each moment of watching was deliberate.
+The giant understood that true protection came not from reactive force, but from constant, intelligent awareness. His vigilance was not frantic or wasteful—each eye served a purpose, each moment of watching was deliberate.
 
-This is the essence we've captured: vigilant awareness that never sleeps, intelligent observation that adapts without waste. Like the mythical guardian, Argus sees all formats, understands all changes, and maintains its watch with unwavering reliability.
+When Zeus finally overcame the great guardian, Hera honored Argus by placing his hundred eyes upon the peacock's tail, ensuring his watchful spirit would endure forever.
 
 ### Unified Audit Configuration
 ```go
@@ -278,9 +252,7 @@ config := argus.AuditConfig{
 **Quick Links:**
 - **[Quick Start Guide](./docs/QUICK_START.md)** - Get running in 2 minutes
 - **[Orpheus CLI Integration](./docs/ORPHEUS_INTEGRATION.md)** - Complete CLI documentation and examples
-- **[Configuration Binding](./docs/CONFIG_BINDING.md)** - Ultra-fast zero-reflection binding system
 - **[API Reference](./docs/API.md)** - Complete API documentation  
-- **[Architecture Guide](./docs/ARCHITECTURE.md)** - Deep dive into dynamic configuration design
 - **[Audit System](./docs/AUDIT.md)** - Comprehensive audit and compliance guide
 - **[Examples](./examples/)** - Production-ready configuration patterns
 
