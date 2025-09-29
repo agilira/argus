@@ -104,7 +104,8 @@ func NewConfigWriterWithAudit(filePath string, format ConfigFormat, initialConfi
 	// Initialize with provided configuration
 	if initialConfig != nil {
 		writer.config = deepCopy(initialConfig)
-		writer.originalHash = hashConfig(writer.config)
+		// For new files, originalHash should be 0 so WriteConfig() always writes the first time
+		writer.originalHash = 0
 	} else {
 		writer.config = make(map[string]interface{})
 	}
@@ -604,6 +605,12 @@ func (w *ConfigWriter) atomicWrite(data []byte) error {
 			fmt.Printf("Failed to cleanup temp file %s: %v\n", tempPath, removeErr)
 		}
 		return fmt.Errorf("failed to rename temp file: %w", err)
+	}
+
+	// Ensure file is visible on filesystem before returning (fixes race condition)
+	// This prevents flaky tests where os.Stat() is called immediately after WriteConfig()
+	if _, err := os.Stat(w.filePath); err != nil {
+		return fmt.Errorf("file not visible after atomic write: %w", err)
 	}
 
 	return nil
