@@ -40,7 +40,7 @@ func main() {
 	}`
 
 	configFile := "demo_config.json"
-	if err := os.WriteFile(configFile, []byte(configContent), 0644); err != nil {
+	if err := os.WriteFile(configFile, []byte(configContent), 0600); err != nil {
 		log.Fatalf("Failed to create demo config file: %v", err)
 	}
 	defer func() {
@@ -119,7 +119,7 @@ min_level=security`,
 	}
 
 	for filename, content := range formats {
-		if err := os.WriteFile(filename, []byte(content), 0644); err != nil {
+		if err := os.WriteFile(filename, []byte(content), 0600); err != nil {
 			log.Printf("Failed to create %s: %v", filename, err)
 			continue
 		}
@@ -160,7 +160,7 @@ min_level=security`,
 	// Test invalid file (should fallback to env + defaults)
 	invalidFile := "invalid_config.json"
 	invalidContent := `{"invalid": json without quotes}`
-	if err := os.WriteFile(invalidFile, []byte(invalidContent), 0644); err == nil {
+	if err := os.WriteFile(invalidFile, []byte(invalidContent), 0600); err == nil {
 		defer func() {
 			if err := os.Remove(invalidFile); err != nil {
 				log.Printf("Warning: Failed to remove %s: %v", invalidFile, err)
@@ -185,7 +185,7 @@ min_level=security`,
 	// Create a test file to watch
 	watchedFile := "watched_demo.json"
 	initialContent := `{"status": "initial", "count": 1}`
-	if err := os.WriteFile(watchedFile, []byte(initialContent), 0644); err != nil {
+	if err := os.WriteFile(watchedFile, []byte(initialContent), 0600); err != nil {
 		log.Fatalf("Failed to create watched file: %v", err)
 	}
 	defer func() {
@@ -218,7 +218,7 @@ min_level=security`,
 
 	// Make a change
 	updatedContent := `{"status": "updated", "count": 2}`
-	if err := os.WriteFile(watchedFile, []byte(updatedContent), 0644); err == nil {
+	if err := os.WriteFile(watchedFile, []byte(updatedContent), 0600); err == nil {
 		time.Sleep(200 * time.Millisecond) // Wait for change detection
 	}
 

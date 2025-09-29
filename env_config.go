@@ -680,6 +680,7 @@ func loadConfigFromFile(configFile string) (*Config, error) {
 	}
 
 	// Read file content
+	// #nosec G304 -- Path is validated by ValidateSecurePath() above
 	data, err := os.ReadFile(configFile)
 	if err != nil {
 		return nil, errors.Wrap(err, ErrCodeFileNotFound, "failed to read configuration file")

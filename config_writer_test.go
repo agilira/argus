@@ -683,7 +683,10 @@ func TestConfigWriterReset(t *testing.T) {
 	}
 
 	// Reset should work without error
-	writer.Reset()
+	err = writer.Reset()
+	if err != nil {
+		t.Fatalf("Reset failed: %v", err)
+	}
 
 	// After reset, config should be empty
 	keys := writer.ListKeys("")
