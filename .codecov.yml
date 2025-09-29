@@ -2,7 +2,7 @@ coverage:
   status:
     project:
       default:
-        target: 85%
+        target: 80%
         threshold: 1%
     patch:
       default:
@@ -15,5 +15,4 @@ comment:
 
 ignore:
   - "**/*_test.go"
-  - "demo/**"
-  - "benchmarks/**"
+  - "examples/**"

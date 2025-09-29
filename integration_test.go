@@ -398,6 +398,63 @@ func clearArgusEnvVars() {
 	}
 }
 
+// Test simple integration SetDefault functionality
+func TestIntegrationSetDefault(t *testing.T) {
+	cm := NewConfigManager("test-app")
+
+	// SetDefault calls should not panic (currently stub implementation)
+	cm.SetDefault("test.key", "default-value")
+	cm.SetDefault("test.number", 42)
+	cm.SetDefault("test.bool", true)
+
+	// Test passes if no panic occurs
+}
+
+// Test validateAndSecurePath with valid paths
+func TestValidateAndSecurePath(t *testing.T) {
+	config := &Config{}
+	config = config.WithDefaults()
+	watcher := New(*config)
+
+	// Test with simple valid path
+	tempDir := t.TempDir()
+	validFile := filepath.Join(tempDir, "test.json")
+
+	// Create the file first
+	err := os.WriteFile(validFile, []byte(`{"test": true}`), 0644)
+	if err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+
+	// This should work and increase coverage of validateAndSecurePath
+	_, err = watcher.validateAndSecurePath(validFile)
+	if err != nil {
+		t.Errorf("Valid path should not error: %v", err)
+	}
+}
+
+// Test validateSymlinks with simple paths (no actual symlinks)
+func TestValidateSymlinks(t *testing.T) {
+	config := &Config{}
+	config = config.WithDefaults()
+	watcher := New(*config)
+
+	// Test with regular file (no symlinks)
+	tempDir := t.TempDir()
+	testFile := filepath.Join(tempDir, "test.txt")
+
+	// Create a simple test file
+	if err := os.WriteFile(testFile, []byte("test"), 0644); err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+
+	// validateSymlinks should succeed with regular file
+	err := watcher.validateSymlinks(testFile, testFile)
+	if err != nil {
+		t.Errorf("validateSymlinks failed for regular file: %v", err)
+	}
+}
+
 // TestIntegration_MissingCoverage tests previously uncovered integration functions
 func TestIntegration_MissingCoverage(t *testing.T) {
 	t.Run("SetDefault", func(t *testing.T) {

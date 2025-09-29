@@ -357,8 +357,8 @@ func TestConfigWriter_WriteConfig_Properties(t *testing.T) {
 	}
 }
 
-// TestConfigWriter_MissingCoverage tests previously uncovered functions
-func TestConfigWriter_MissingCoverage(t *testing.T) {
+// TestConfigWriter_MissingFunctions tests previously uncovered functions
+func TestConfigWriter_MissingFunctions(t *testing.T) {
 	tempDir := t.TempDir()
 
 	t.Run("WriteConfigAs", func(t *testing.T) {
@@ -663,4 +663,119 @@ func TestDeepCopySlice(t *testing.T) {
 			t.Errorf("Expected 'deepest', got %v", deepest)
 		}
 	})
+}
+
+// Test Reset method functionality
+func TestConfigWriterReset(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "reset_test.json")
+
+	// Create writer with some data
+	config := map[string]interface{}{
+		"app": map[string]interface{}{
+			"name": "test",
+		},
+	}
+
+	writer, err := NewConfigWriter(configPath, FormatJSON, config)
+	if err != nil {
+		t.Fatalf("Failed to create writer: %v", err)
+	}
+
+	// Reset should work without error
+	writer.Reset()
+
+	// After reset, config should be empty
+	keys := writer.ListKeys("")
+	if len(keys) != 0 {
+		t.Errorf("Expected empty config after reset, got %d keys", len(keys))
+	}
+}
+
+// Test atomicWrite method functionality (simple case)
+func TestConfigWriterAtomicWriteSimple(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "atomic_test.json")
+
+	writer, err := NewConfigWriter(configPath, FormatJSON, nil)
+	if err != nil {
+		t.Fatalf("Failed to create writer: %v", err)
+	}
+
+	// Set a simple value
+	err = writer.SetValue("test", "value")
+	if err != nil {
+		t.Fatalf("Failed to set value: %v", err)
+	}
+
+	// WriteConfig uses atomicWrite internally
+	err = writer.WriteConfig()
+	if err != nil {
+		t.Fatalf("Failed to write config: %v", err)
+	}
+
+	// Verify file was created
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		t.Error("File was not created by atomic write")
+	}
+}
+
+// Test setNestedValue function (simple case)
+func TestConfigWriterSetNestedValue(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "nested_test.json")
+
+	writer, err := NewConfigWriter(configPath, FormatJSON, nil)
+	if err != nil {
+		t.Fatalf("Failed to create writer: %v", err)
+	}
+
+	// Test simple nested value
+	err = writer.SetValue("app.name", "test-app")
+	if err != nil {
+		t.Fatalf("Failed to set nested value: %v", err)
+	}
+
+	// Verify value was set
+	value := writer.GetValue("app.name")
+	if value != "test-app" {
+		t.Errorf("Expected 'test-app', got %v", value)
+	}
+}
+
+// Test deleteNestedValue function
+func TestConfigWriterDeleteNestedValue(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "delete_nested_test.json")
+
+	// Create writer with initial data
+	config := map[string]interface{}{
+		"app": map[string]interface{}{
+			"name":    "test",
+			"version": "1.0.0",
+		},
+	}
+
+	writer, err := NewConfigWriter(configPath, FormatJSON, config)
+	if err != nil {
+		t.Fatalf("Failed to create writer: %v", err)
+	}
+
+	// Delete nested value
+	deleted := writer.DeleteValue("app.version")
+	if !deleted {
+		t.Error("Expected deletion to succeed")
+	}
+
+	// Verify value was deleted
+	value := writer.GetValue("app.version")
+	if value != nil {
+		t.Errorf("Expected nil after deletion, got %v", value)
+	}
+
+	// Verify other value still exists
+	name := writer.GetValue("app.name")
+	if name != "test" {
+		t.Errorf("Expected 'test', got %v", name)
+	}
 }
