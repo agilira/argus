@@ -1,3 +1,6 @@
+# AGILira Standard Dependabot Configuration
+# Copy this file to .github/dependabot.yml in your project root
+
 version: 2
 updates:
   # Enable version updates for Go modules
