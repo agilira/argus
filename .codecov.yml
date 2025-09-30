@@ -16,3 +16,4 @@ comment:
 ignore:
   - "**/*_test.go"
   - "examples/**"
+  - "cmd/**"

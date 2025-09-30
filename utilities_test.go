@@ -206,3 +206,126 @@ func TestSimpleFileWatcher(t *testing.T) {
 		t.Errorf("Expected path to be %s, got %s", tmpfile.Name(), finalLastPath)
 	}
 }
+
+// TestUtilitiesFunctions adds test for uncovered utilities functions
+func TestUtilitiesFunctions(t *testing.T) {
+	t.Run("copyMap_nil_input", func(t *testing.T) {
+		// Test copyMap with nil input (should return nil)
+		result := copyMap(nil)
+		if result != nil {
+			t.Errorf("copyMap(nil) should return nil, got %v", result)
+		}
+	})
+
+	t.Run("copyMap_empty_map", func(t *testing.T) {
+		// Test copyMap with empty map
+		original := make(map[string]interface{})
+		result := copyMap(original)
+		if result == nil {
+			t.Error("copyMap should not return nil for empty map")
+		}
+		if len(result) != 0 {
+			t.Errorf("Expected empty result map, got %d items", len(result))
+		}
+	})
+
+	t.Run("copyMap_with_data", func(t *testing.T) {
+		// Test copyMap with actual data
+		original := map[string]interface{}{
+			"string": "value",
+			"number": 42,
+			"bool":   true,
+			"float":  3.14,
+		}
+		result := copyMap(original)
+
+		if len(result) != len(original) {
+			t.Errorf("Expected %d items, got %d", len(original), len(result))
+		}
+
+		for key, value := range original {
+			if result[key] != value {
+				t.Errorf("Key %s: expected %v, got %v", key, value, result[key])
+			}
+		}
+
+		// Verify it's a copy, not the same map
+		result["new_key"] = "new_value"
+		if _, exists := original["new_key"]; exists {
+			t.Error("Modification to copy affected original map")
+		}
+	})
+
+	t.Run("SimpleFileWatcher_error_path", func(t *testing.T) {
+		// Test SimpleFileWatcher with invalid path to exercise error handling
+		watcher, err := SimpleFileWatcher("/this/path/does/not/exist", func(path string) {
+			// Should not be called
+		})
+
+		// This should still succeed but will fail when Start is called
+		if err != nil {
+			t.Logf("SimpleFileWatcher with invalid path returned error: %v", err)
+		} else if watcher != nil {
+			// If watcher was created, it should fail on start
+			err := watcher.Start()
+			if err == nil {
+				// Clean up if it somehow started
+				if stopErr := watcher.Stop(); stopErr != nil {
+					t.Logf("Failed to stop watcher: %v", stopErr)
+				}
+			}
+		}
+	})
+
+	t.Run("UniversalConfigWatcher_unsupported_format", func(t *testing.T) {
+		// Test UniversalConfigWatcher with unsupported file format
+		tempFile := t.TempDir() + "/test.unsupported"
+
+		// Create file with unsupported extension
+		if err := os.WriteFile(tempFile, []byte("test content"), 0644); err != nil {
+			t.Fatalf("Failed to create test file: %v", err)
+		}
+
+		watcher, err := UniversalConfigWatcher(tempFile, func(config map[string]interface{}) {
+			// Should not be called
+		})
+
+		if err == nil {
+			t.Error("Expected error for unsupported format")
+			if watcher != nil {
+				if stopErr := watcher.Stop(); stopErr != nil {
+					t.Logf("Failed to stop watcher: %v", stopErr)
+				}
+			}
+		} else {
+			t.Logf("Got expected error for unsupported format: %v", err)
+		}
+	})
+
+	t.Run("GenericConfigWatcher_compatibility", func(t *testing.T) {
+		// Test GenericConfigWatcher (deprecated function) for backward compatibility
+		tempDir := t.TempDir()
+		tempFile := tempDir + "/test.json"
+
+		// Create valid JSON config
+		if err := os.WriteFile(tempFile, []byte(`{"test": "value"}`), 0644); err != nil {
+			t.Fatalf("Failed to create test file: %v", err)
+		}
+
+		watcher, err := GenericConfigWatcher(tempFile, func(config map[string]interface{}) {
+			// Callback for testing
+		})
+
+		if err != nil {
+			t.Errorf("GenericConfigWatcher failed: %v", err)
+		}
+
+		if watcher != nil {
+			defer func() {
+				if err := watcher.Stop(); err != nil {
+					t.Logf("Failed to stop watcher: %v", err)
+				}
+			}()
+		}
+	})
+}

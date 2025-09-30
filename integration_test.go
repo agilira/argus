@@ -465,9 +465,20 @@ func TestIntegration_MissingCoverage(t *testing.T) {
 		cm.SetDefault("test.key", "default-value")
 		cm.SetDefault("test.number", 42)
 		cm.SetDefault("test.bool", true)
+		cm.SetDefault("nested.config.value", "nested-default")
+		cm.SetDefault("app.timeout", "30s")
 
 		// Test should pass if no panic occurs
 		t.Log("SetDefault calls completed without panic")
+
+		// Test that SetDefault doesn't crash with nil values
+		cm.SetDefault("nil.test", nil)
+
+		// Test with empty string key (edge case)
+		cm.SetDefault("", "empty-key-test")
+
+		// Test with special characters in key
+		cm.SetDefault("test.key-with_special$chars", "special-value")
 	})
 
 	t.Run("ParseArgsOrExit_HelpRequested", func(t *testing.T) {
