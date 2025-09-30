@@ -1,4 +1,4 @@
-# Argus — Dynamic Configuration Framework for Go
+# Argus: Dynamic Configuration Framework for Go
 ### an AGILira fragment
 
 High-performance configuration management library for Go applications with zero-allocation performance, universal format support (JSON, YAML, TOML, HCL, INI, Properties), and an ultra-fast CLI powered by [Orpheus](https://github.com/agilira/orpheus) & [Flash-Flags](https://github.com/agilira/flash-flags).
@@ -12,7 +12,7 @@ High-performance configuration management library for Go applications with zero-
 **[Installation](#installation) • [Quick Start](#quick-start) • [Performance](#performance) • [Architecture](#architecture) • [Framework](#core-framework) • [Observability](#observability--integrations) • [Philosophy](#the-philosophy-behind-argus) • [Documentation](#documentation)**
 
 
-### Key Features
+### Features
 
 - **Universal Format Support**: JSON, YAML, TOML, HCL, INI, Properties with auto-detection
 - **ConfigWriter System**: Atomic configuration file updates with type-safe operations
@@ -27,6 +27,10 @@ High-performance configuration management library for Go applications with zero-
 - **Adaptive Optimization**: Four strategies (SingleEvent, SmallBatch, LargeBatch, Auto) 
 - **Unified Audit System**: SQLite-based cross-application correlation with JSONL fallback
 - **Scalable Monitoring**: Handle 1-1000+ files simultaneously with linear performance
+
+## Compatibility and Support
+
+Argus is designed for Go 1.24+ environments and follows Long-Term Support guidelines to ensure consistent performance across production deployments.
 
 ## Installation
 
