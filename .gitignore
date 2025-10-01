@@ -99,3 +99,7 @@ tests/
 production_overhead_test.go
 capacity_test.txt
 features_verification_test.txt
+
+# Goroutine leak detection tools (development only)
+test_helper.go
+goroutine_leak_test.go

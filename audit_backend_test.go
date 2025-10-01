@@ -118,7 +118,7 @@ func verifyEventInDB(t *testing.T, dbPath string, event AuditEvent) {
 // Test Suite: Backend Interface Compliance
 
 func TestBackendInterface_SQLite(t *testing.T) {
-	t.Parallel()
+	// Note: Removed t.Parallel() to prevent database resource contention
 
 	dbPath := createTempDB(t)
 	config := AuditConfig{
@@ -154,7 +154,7 @@ func TestBackendInterface_SQLite(t *testing.T) {
 }
 
 func TestBackendInterface_JSONL(t *testing.T) {
-	t.Parallel()
+	// Note: Removed t.Parallel() to prevent file I/O resource contention
 
 	jsonlPath := createTempJSONL(t)
 	config := AuditConfig{
@@ -290,7 +290,7 @@ func TestSQLiteBackend_WriteAndVerify(t *testing.T) {
 }
 
 func TestSQLiteBackend_SchemaVersioning(t *testing.T) {
-	t.Parallel()
+	// Note: Removed t.Parallel() to prevent resource contention during schema versioning tests
 
 	backend, dbPath := createTestSQLiteBackend(t)
 	defer func() {
@@ -374,7 +374,7 @@ func TestSQLiteBackend_IndexesCreated(t *testing.T) {
 // Test Suite: SQLite Concurrency and Security Tests
 
 func TestSQLiteBackend_ConcurrentWrites_Basic(t *testing.T) {
-	t.Parallel()
+	// Note: Removed t.Parallel() to prevent interference with internal concurrent workers
 
 	backend, _ := createTestSQLiteBackend(t)
 	defer func() {
@@ -434,7 +434,7 @@ func TestSQLiteBackend_ConcurrentWriteAndMaintenance(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping concurrent write and maintenance test in short mode")
 	}
-	t.Parallel()
+	// Note: Removed t.Parallel() to prevent interference with internal concurrent workers
 
 	backend, _ := createTestSQLiteBackend(t)
 	defer func() {
@@ -541,7 +541,7 @@ func TestSQLiteBackend_ConcurrentWriteAndMaintenance(t *testing.T) {
 }
 
 func TestSQLiteBackend_ErrorRecovery_Security(t *testing.T) {
-	t.Parallel()
+	// Note: Removed t.Parallel() to prevent database resource contention
 
 	backend, dbPath := createTestSQLiteBackend(t)
 	defer func() {
@@ -613,7 +613,7 @@ func TestSQLiteBackend_ErrorRecovery_Security(t *testing.T) {
 }
 
 func TestSQLiteBackend_SafeShutdown_Concurrency(t *testing.T) {
-	t.Parallel()
+	// Note: Removed t.Parallel() to prevent database resource contention during concurrency tests
 
 	backend, _ := createTestSQLiteBackend(t)
 
@@ -703,7 +703,7 @@ func TestSQLiteBackend_SafeShutdown_Concurrency(t *testing.T) {
 }
 
 func TestSQLiteBackend_SchemaMigration_Security(t *testing.T) {
-	t.Parallel()
+	// Note: Removed t.Parallel() to prevent resource contention during database migration tests
 
 	// Create a temporary database file for isolated testing
 	tmpDir := t.TempDir()
@@ -804,7 +804,7 @@ func TestSQLiteBackend_SchemaMigration_Security(t *testing.T) {
 }
 
 func TestSQLiteBackend_ErrorHandling_EdgeCases(t *testing.T) {
-	t.Parallel()
+	// Note: Removed t.Parallel() to prevent database resource contention during edge case tests
 
 	// Test 1: Backend with invalid database path (skip on Windows)
 	if runtime.GOOS == "windows" {
@@ -864,7 +864,7 @@ func TestSQLiteBackend_ErrorHandling_EdgeCases(t *testing.T) {
 }
 
 func TestSQLiteBackend_DatabaseStats_Comprehensive(t *testing.T) {
-	t.Parallel()
+	// Note: Removed t.Parallel() to prevent database resource contention
 
 	backend, _ := createTestSQLiteBackend(t)
 	defer func() {
@@ -954,7 +954,7 @@ func TestSQLiteBackend_DatabaseStats_Comprehensive(t *testing.T) {
 }
 
 func TestSQLiteBackend_ErrorPaths_Database(t *testing.T) {
-	t.Parallel()
+	// Note: Removed t.Parallel() to prevent resource contention during file permission tests
 
 	// Test 1: Database creation failure with invalid path (skip on Windows)
 	if runtime.GOOS == "windows" {
@@ -1021,7 +1021,7 @@ func TestSQLiteBackend_ErrorPaths_Database(t *testing.T) {
 }
 
 func TestSQLiteBackend_WriteErrors_EdgeCases(t *testing.T) {
-	t.Parallel()
+	// Note: Removed t.Parallel() to prevent database resource contention
 
 	backend, dbPath := createTestSQLiteBackend(t)
 	defer func() {
@@ -1270,7 +1270,7 @@ func TestCreateAuditBackend_AllScenarios(t *testing.T) {
 }
 
 func TestSQLiteBackend_SchemaErrors_Advanced(t *testing.T) {
-	t.Parallel()
+	// Note: Removed t.Parallel() to prevent resource contention during complex schema migration tests
 
 	// Test 1: Corrupt database with invalid schema version
 	tempFile, err := os.CreateTemp("", "corrupt-schema-*.db")
@@ -1354,7 +1354,7 @@ func TestSQLiteBackend_SchemaErrors_Advanced(t *testing.T) {
 }
 
 func TestSQLiteBackend_MigrationEdgeCases(t *testing.T) {
-	t.Parallel()
+	// Note: Removed t.Parallel() to prevent resource contention during database migration edge case tests
 
 	// Test 1: Database with schema version 1 (needs migration to v2)
 	tempFile, err := os.CreateTemp("", "v1-schema-*.db")
@@ -1458,7 +1458,7 @@ func TestSQLiteBackend_MigrationEdgeCases(t *testing.T) {
 }
 
 func TestSQLiteBackend_WriteBuffering_EdgeCases(t *testing.T) {
-	t.Parallel()
+	// Note: Removed t.Parallel() to prevent database resource contention
 
 	// Test with very small buffer size to force frequent flushes
 	backend, _ := createTestSQLiteBackendWithBuffer(t, 1)
@@ -1818,7 +1818,7 @@ func TestBackendFactory_AllTypes(t *testing.T) {
 }
 
 func TestSQLiteBackend_FinalStressTest(t *testing.T) {
-	t.Parallel()
+	// Note: Removed t.Parallel() to prevent resource contention during stress testing
 
 	backend, _ := createTestSQLiteBackend(t)
 	defer func() {
