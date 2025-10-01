@@ -74,6 +74,9 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
         go-version: ['stable']  # Reduced to save minutes
+        include:
+          - os: macos-latest
+            timeout: 5  # Shorter timeout for macOS due to runner availability issues
     steps:
     - name: Checkout
       uses: actions/checkout@v4
@@ -86,6 +89,8 @@ jobs:
 
     - name: Build
       run: go build -v ./...
+      timeout-minutes: ${{ matrix.timeout || 15 }}
 
     - name: Short Test (no race, faster)
       run: go test -short -timeout 5m ./...
+      timeout-minutes: ${{ matrix.timeout || 15 }}
