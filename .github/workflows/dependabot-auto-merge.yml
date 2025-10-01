@@ -3,6 +3,6 @@ on: pull_request_target
 
 jobs:
   dependabot:
-    uses: agilira/workflow/.github/workflows/dependabot-auto-merge.yml@v1.0.2
+    uses: agilira/workflow/.github/workflows/dependabot-auto-merge.yml@v1.0.5
     with:
       ci-check-name: "ci"
