@@ -6,7 +6,7 @@ on:
 
 jobs:
   pr-check:
-    uses: agilira/workflow/.github/workflows/go-pr-quick.yml@v1.0.2
+    uses: agilira/workflow/.github/workflows/go-pr-quick.yml@v1.0.5
     with:
       go-version: 'stable'
       gosec-excludes: 'G104,G306,G301'
