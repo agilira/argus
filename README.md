@@ -174,8 +174,8 @@ if err := writer.WriteConfig(); err != nil {
 }
 
 // Query operations
-host := writer.GetValue("database.host")       // 30ns, 0 allocs
-keys := writer.ListKeys("database")            // Lists all database.* keys
+host := writer.GetValue("database.host")      // 30ns, 0 allocs
+keys := writer.ListKeys("database")           // Lists all database.* keys
 exists := writer.DeleteValue("old.setting")   // Removes key if exists
 ```
 
