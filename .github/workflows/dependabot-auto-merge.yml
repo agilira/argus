@@ -1,8 +1,68 @@
-name: Dependabot auto-merge
-on: pull_request_target
+name: Dependabot PR Auto-Merge
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
 
 jobs:
-  dependabot:
-    uses: agilira/workflow/.github/workflows/dependabot-auto-merge.yml@v1.0.5
-    with:
-      ci-check-name: "ci"
+  dependabot-auto-merge:
+    runs-on: ubuntu-latest
+    if: github.actor == 'dependabot[bot]'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Run tests
+        run: |
+          go mod download
+          go test -v ./...
+
+      - name: Check if PR can be auto-merged
+        id: auto-merge-check
+        run: |
+          # Check if this is a patch/minor update (not major)
+          if echo "${{ github.event.pull_request.title }}" | grep -E "(patch|minor|deps\()" > /dev/null; then
+            echo "can_auto_merge=true" >> $GITHUB_OUTPUT
+          else
+            echo "can_auto_merge=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Enable auto-merge for Dependabot PRs
+        if: steps.auto-merge-check.outputs.can_auto_merge == 'true'
+        run: |
+          gh pr merge --auto --squash "${{ github.event.pull_request.number }}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Add comment for manual review
+        if: steps.auto-merge-check.outputs.can_auto_merge == 'false'
+        run: |
+          gh pr comment "${{ github.event.pull_request.number }}" --body "**Manual Review Required**
+          
+          This appears to be a major version update that requires manual review.
+          Please verify:
+          - [ ] Breaking changes documentation
+          - [ ] Compatibility with existing code
+          - [ ] Performance impact
+          - [ ] Security implications
+          
+          After review, manually merge when ready."
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

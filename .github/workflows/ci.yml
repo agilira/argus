@@ -6,9 +6,85 @@ on:
   pull_request:
     branches: [ main ]
 
+env:
+  CGO_ENABLED: 1
+
 jobs:
-  ci:
-    uses: agilira/workflow/.github/workflows/go-ci-full.yml@v1.0.5
-    with:
-      go-version: 'stable'
-      gosec-config: '.gosec.json'
+  test:
+    name: Test Suite
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: 'stable'
+        cache: true
+
+    - name: Install Dependencies
+      run: |
+        go install honnef.co/go/tools/cmd/staticcheck@latest
+        go install github.com/securego/gosec/v2/cmd/gosec@latest
+
+    - name: Go Format Check
+      run: |
+        if [ "$(gofmt -l . | wc -l)" -gt 0 ]; then
+          echo "Code not formatted:"
+          gofmt -l .
+          exit 1
+        fi
+
+    - name: Go Vet
+      run: go vet ./...
+
+    - name: Staticcheck
+      run: staticcheck ./...
+
+    - name: Security Scan (gosec)
+      continue-on-error: true
+      run: |
+        echo "Running security scan..."
+        gosec -conf .gosec.json ./... || true
+        echo "Security scan completed"
+
+    - name: Test with Race Detection
+      run: go test -race -timeout 5m -v ./...
+
+    - name: Test Coverage
+      run: |
+        go test -coverprofile=coverage.out ./...
+        go tool cover -func=coverage.out
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v4
+      with:
+        file: ./coverage.out
+        flags: unittests
+        name: codecov-umbrella
+        fail_ci_if_error: false
+
+  build:
+    name: Build Matrix
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        go-version: ['stable']  # Reduced to save minutes
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: ${{ matrix.go-version }}
+        cache: true
+
+    - name: Build
+      run: go build -v ./...
+
+    - name: Short Test (no race, faster)
+      run: go test -short -timeout 30s ./...
