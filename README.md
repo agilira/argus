@@ -20,7 +20,7 @@ High-performance configuration management library for Go applications with zero-
 - **Professional Grade Validation**: With detailed error reporting & performance recommendations
 - **Secure by Design**: Red-team tested against path traversal, injection, DoS and resource exhaustion attacks
 - **Zero-Allocation Design**: Pre-allocated buffers eliminate GC pressure in hot paths
-- **Remote Config**: Distributed configuration with automatic fallback (Consul/etcd → Local)
+- **Remote Config**: Distributed configuration with automatic fallback (Remote → Local). Currently available: [HashiCorp Consul](https://github.com/agilira/argus-provider-consul), [Redis](https://github.com/agilira/argus-provider-redis), with more to come..
 - **Graceful Shutdown**: Timeout-controlled shutdown for Kubernetes and production deployments
 - **OpenTelemetry Ready**: Async tracing and metrics with zero contamination of core library
 - **Type-Safe Binding**: Zero-reflection configuration binding with fluent API (1.6M ops/sec)
