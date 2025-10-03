@@ -60,33 +60,35 @@ function Invoke-Help {
 
 function Invoke-Test {
     Write-ColorOutput "Running tests..." $Yellow
-    go test -v ./...
+    go test -v "./..."
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
 function Invoke-Race {
     Write-ColorOutput "Running tests with race detector..." $Yellow
-    go test -race -v ./...
+    go test -race -v "./..."
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
 function Invoke-Coverage {
     Write-ColorOutput "Running tests with coverage..." $Yellow
-    go test -coverprofile=coverage.out ./...
+    $testArgs = @("-coverprofile=coverage.out", "./...")
+    go test @testArgs
     if ($LASTEXITCODE -eq 0) {
-        go tool cover -html=coverage.out -o coverage.html
+        $coverArgs = @("-html=coverage.out", "-o", "coverage.html")
+        go tool cover @coverArgs
         Write-ColorOutput "Coverage report generated: coverage.html" $Green
     }
 }
 
 function Invoke-Fmt {
     Write-ColorOutput "Formatting Go code..." $Yellow
-    go fmt ./...
+    go fmt "./..."
 }
 
 function Invoke-Vet {
     Write-ColorOutput "Running go vet..." $Yellow
-    go vet ./...
+    go vet "./..."
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
@@ -96,7 +98,7 @@ function Invoke-StaticCheck {
         Write-ColorOutput "staticcheck not found. Run '.\Makefile.ps1 tools' to install." $Red
         exit 1
     }
-    & "$ToolsDir\staticcheck.exe" ./...
+    & "$ToolsDir\staticcheck.exe" "./..."
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
@@ -106,7 +108,7 @@ function Invoke-ErrCheck {
         Write-ColorOutput "errcheck not found. Run '.\Makefile.ps1 tools' to install." $Red
         exit 1
     }
-    & "$ToolsDir\errcheck.exe" ./...
+    & "$ToolsDir\errcheck.exe" "./..."
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
@@ -116,7 +118,7 @@ function Invoke-GoSec {
         Write-ColorOutput "gosec not found. Run '.\Makefile.ps1 tools' to install." $Red
         exit 1
     }
-    & "$ToolsDir\gosec.exe" ./...
+    & "$ToolsDir\gosec.exe" "./..."
     if ($LASTEXITCODE -ne 0) {
         Write-ColorOutput "⚠️  gosec completed with warnings (may be import-related)" $Yellow
     }
@@ -159,7 +161,7 @@ function Invoke-Tools {
     go install github.com/kisielk/errcheck@latest
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     
-    go install github.com/securecode/gosec/v2/cmd/gosec@latest
+    go install github.com/securego/gosec/v2/cmd/gosec@latest
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     
     Write-ColorOutput "Tools installed successfully!" $Green
@@ -200,7 +202,7 @@ function Invoke-Install {
 
 function Invoke-Bench {
     Write-ColorOutput "Running benchmarks..." $Yellow
-    go test -bench=. -benchmem ./...
+    go test -bench=. -benchmem "./..."
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
