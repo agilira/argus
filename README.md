@@ -5,6 +5,7 @@ High-performance configuration management library for Go applications with zero-
 
 [![CI/CD Pipeline](https://github.com/agilira/argus/actions/workflows/ci.yml/badge.svg)](https://github.com/agilira/argus/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/agilira/argus/actions/workflows/codeql.yml/badge.svg)](https://github.com/agilira/argus/actions/workflows/codeql.yml)
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/agilira/argus/badge)](https://securityscorecards.dev/viewer/?uri=github.com/agilira/argus)
 [![Security](https://img.shields.io/badge/security-gosec-brightgreen.svg)](https://github.com/agilira/argus/actions/workflows/ci.yml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/agilira/argus)](https://goreportcard.com/report/github.com/agilira/argus)
 [![Test Coverage](https://img.shields.io/badge/coverage-87.7%25-brightgreen)](https://github.com/agilira/argus)
@@ -20,7 +21,8 @@ High-performance configuration management library for Go applications with zero-
 - **ConfigWriter System**: Atomic configuration file updates with type-safe operations
 - **Ultra-Fast CLI**: [Orpheus](https://github.com/agilira/orpheus)-powered CLI 7x-53x faster 
 - **Professional Grade Validation**: With detailed error reporting & performance recommendations
-- **Secure by Design**: Red-team tested against path traversal, injection, DoS and resource exhaustion attacks
+- **Security Hardened**: [Red-team tested](argus_security_test.go) against path traversal, injection, DoS and resource exhaustion attacks
+- **Fuzz Tested**: [Comprehensive fuzzing](argus_fuzz_test.go) for ValidateSecurePath and ParseConfig edge cases
 - **Zero-Allocation Design**: Pre-allocated buffers eliminate GC pressure in hot paths
 - **Remote Config**: Distributed configuration with automatic fallback (Remote → Local). Currently available: [HashiCorp Consul](https://github.com/agilira/argus-provider-consul), [Redis](https://github.com/agilira/argus-provider-redis), with more to come..
 - **Graceful Shutdown**: Timeout-controlled shutdown for Kubernetes and production deployments
