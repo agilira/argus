@@ -53,11 +53,20 @@ jobs:
       with:
         subject-path: 'dist/*'
 
+    - name: Generate SBOM
+      run: |
+        # Install spdx-sbom-generator for Go module SBOM generation  
+        wget -q https://github.com/opensbom-generator/spdx-sbom-generator/releases/latest/download/spdx-sbom-generator-linux-amd64
+        chmod +x spdx-sbom-generator-linux-amd64
+        
+        # Generate SBOM from Go modules
+        ./spdx-sbom-generator-linux-amd64 -p . -o sbom.json
+        
     - name: Generate SBOM attestation  
       uses: actions/attest-sbom@v1
       with:
         subject-path: 'dist/*'
-        sbom-path: 'go.mod'
+        sbom-path: 'sbom.json'
 
     - name: Create Release
       uses: softprops/action-gh-release@v2
