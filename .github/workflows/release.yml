@@ -1,0 +1,98 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.24'
+
+    - name: Run tests
+      run: make test
+
+    - name: Run security checks
+      run: make security
+
+    - name: Build artifacts
+      run: |
+        mkdir -p dist
+        
+        # Build Argus CLI for multiple platforms
+        GOOS=linux GOARCH=amd64 go build -ldflags='-w -s -buildid=' -trimpath -o dist/argus-linux-amd64 .
+        GOOS=linux GOARCH=arm64 go build -ldflags='-w -s -buildid=' -trimpath -o dist/argus-linux-arm64 .
+        GOOS=darwin GOARCH=amd64 go build -ldflags='-w -s -buildid=' -trimpath -o dist/argus-darwin-amd64 .
+        GOOS=darwin GOARCH=arm64 go build -ldflags='-w -s -buildid=' -trimpath -o dist/argus-darwin-arm64 .
+        GOOS=windows GOARCH=amd64 go build -ldflags='-w -s -buildid=' -trimpath -o dist/argus-windows-amd64.exe .
+        
+        # Create checksums
+        cd dist
+        sha256sum * > checksums.txt
+
+    - name: Generate build provenance attestation
+      uses: actions/attest-build-provenance@v1
+      with:
+        subject-path: 'dist/*'
+
+    - name: Generate SBOM attestation  
+      uses: actions/attest-sbom@v1
+      with:
+        subject-path: 'dist/*'
+        sbom-path: 'go.mod'
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v2
+      with:
+        files: |
+          dist/*
+        body: |
+          ## Argus ${{ github.ref_name }}
+          
+          Dynamic configuration framework for Go applications with zero-allocation performance, universal format support, and ultra-fast CLI.
+          
+          ### Installation
+          
+          **Library:**
+          ```bash
+          go get github.com/agilira/argus@${{ github.ref_name }}
+          ```
+          
+          **CLI Binary:**
+          Download the appropriate binary for your platform from the attachments below.
+          
+          ### CLI Usage
+          ```bash
+          # Configuration management
+          ./argus config get config.yaml server.port
+          ./argus config set config.yaml database.host localhost
+          ./argus config convert config.yaml config.json
+          ./argus watch config.yaml --interval=1s
+          ```
+          
+          ### Verification
+          Verify release authenticity using GitHub CLI:
+          ```bash
+          gh attestation verify ./argus-* --owner agilira
+          ```
+          
+          ### Changes
+          See [changelog/${{ github.ref_name }}.txt](https://github.com/agilira/argus/blob/main/changelog/${{ github.ref_name }}.txt) for details.
+        generate_release_notes: true
+        draft: false
+        prerelease: false
