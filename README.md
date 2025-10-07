@@ -10,6 +10,7 @@ High-performance configuration management library for Go applications with zero-
 [![Test Coverage](https://img.shields.io/badge/coverage-87.7%25-brightgreen)](https://github.com/agilira/argus)
 [![CLI Coverage](https://img.shields.io/badge/cli_coverage-77.5%25-green)](https://github.com/agilira/argus)
 ![Xantos Powered](https://img.shields.io/badge/Xantos-Powered-8A2BE2)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/11273/badge)](https://www.bestpractices.dev/projects/11273)
 
 **[Installation](#installation) • [Quick Start](#quick-start) • [Performance](#performance) • [Architecture](#architecture) • [Framework](#core-framework) • [Observability](#observability--integrations) • [Philosophy](#the-philosophy-behind-argus) • [Documentation](#documentation)**
 
