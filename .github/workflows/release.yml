@@ -55,12 +55,9 @@ jobs:
 
     - name: Generate SBOM
       run: |
-        # Install spdx-sbom-generator for Go module SBOM generation  
-        wget -q https://github.com/opensbom-generator/spdx-sbom-generator/releases/latest/download/spdx-sbom-generator-linux-amd64
-        chmod +x spdx-sbom-generator-linux-amd64
-        
-        # Generate SBOM from Go modules
-        ./spdx-sbom-generator-linux-amd64 -p . -o sbom.json
+        # Generate SBOM from Go modules using syft
+        curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
+        /usr/local/bin/syft . -o spdx-json=sbom.json
         
     - name: Generate SBOM attestation  
       uses: actions/attest-sbom@v1
