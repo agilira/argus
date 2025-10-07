@@ -24,6 +24,9 @@ jobs:
       with:
         go-version: '1.24'
 
+    - name: Install development tools
+      run: make tools
+
     - name: Run tests
       run: make test
 
