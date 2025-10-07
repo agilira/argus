@@ -1,0 +1,54 @@
+# CodeQL Configuration for Argus Configuration Framework
+# Focuses on configuration security, path traversal, and injection vulnerabilities
+
+name: argus-configuration-security
+
+# Disable default queries to use our custom security focus
+disable-default-queries: false
+
+# Include additional security queries relevant to configuration frameworks
+queries:
+  - uses: security-and-quality
+  - uses: security-experimental
+  
+# Define custom paths for analysis
+paths:
+  - "**/*.go"
+
+# Ignore test files and dependencies (focus on production code)
+paths-ignore:
+  - "**/*_test.go"
+  - "**/testdata/**"
+  - "**/vendor/**"
+  - "**/examples/**"
+
+# Packs for enhanced configuration security analysis
+packs:
+  - "codeql/go-queries"
+  - "codeql/go-queries:AlertSuppression.ql"
+  - "codeql/go-queries:Security"
+
+# Query filters for configuration frameworks
+query-filters:
+  - include:
+      id: go/path-injection
+      # Critical for configuration file handling
+  - include:
+      id: go/zipslip
+      # Important for archive handling in configs
+  - exclude:
+      id: go/unused-variable
+      # Configuration structs may have unused fields for future compatibility
+      
+# Custom extraction configuration for Go configuration analysis
+extractor-config:
+  go:
+    # Enable deep analysis for configuration handling functions
+    index:
+      filters:
+        - include: "**/*.go"
+        - exclude: "*_test.go"
+    build_command: "go build ./..."
+    
+# Performance tuning for configuration framework analysis
+compilation-cache: true

@@ -18,7 +18,14 @@ NC := \033[0m # No Color
 
 help: ## Show this help message
 	@echo "$(BLUE)Available targets:$(NC)"
-	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z_-]+:.*##/ { printf "  $(GREEN)%-15s$(NC) %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
+		@echo "  $(GREEN)%-15s$(NC) %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
+	@echo ""
+	@echo "$(BLUE)Fuzz Testing Commands:$(NC)"
+	@echo "  $(GREEN)fuzz$(NC)            Run fuzz tests (30s each)"
+	@echo "  $(GREEN)fuzz-long$(NC)       Run extended fuzz tests (5m each)"
+	@echo "  $(GREEN)fuzz-validate$(NC)   Fuzz ValidateSecurePath only"
+	@echo "  $(GREEN)fuzz-parse$(NC)      Fuzz ParseConfig only"
+	@echo "  $(GREEN)security-fuzz$(NC)   Security checks + fuzz testing"
 
 test: ## Run tests
 	@echo "$(YELLOW)Running tests...$(NC)"
@@ -72,6 +79,9 @@ lint: staticcheck errcheck ## Run all linters
 security: gosec ## Run security checks
 	@echo "$(GREEN)Security checks completed.$(NC)"
 
+security-fuzz: gosec fuzz ## Run security checks including fuzz testing
+	@echo "$(GREEN)Security checks with fuzz testing completed.$(NC)"
+
 check: fmt vet lint security test ## Run all checks (format, vet, lint, security, test)
 	@echo "$(GREEN)All checks passed!$(NC)"
 
@@ -109,6 +119,30 @@ install: ## Install the binary to $GOPATH/bin
 bench: ## Run benchmarks
 	@echo "$(YELLOW)Running benchmarks...$(NC)"
 	go test -bench=. -benchmem ./...
+
+fuzz: ## Run fuzz tests for security critical functions
+	@echo "$(YELLOW)Running fuzz tests...$(NC)"
+	@echo "$(BLUE)Fuzzing ValidateSecurePath for 30 seconds...$(NC)"
+	go test -fuzz=FuzzValidateSecurePath -fuzztime=30s
+	@echo "$(BLUE)Fuzzing ParseConfig for 30 seconds...$(NC)"
+	go test -fuzz=FuzzParseConfig -fuzztime=30s
+	@echo "$(GREEN)Fuzz testing completed!$(NC)"
+
+fuzz-long: ## Run extended fuzz tests (5 minutes each)
+	@echo "$(YELLOW)Running extended fuzz tests...$(NC)"
+	@echo "$(BLUE)Fuzzing ValidateSecurePath for 5 minutes...$(NC)"
+	go test -fuzz=FuzzValidateSecurePath -fuzztime=5m
+	@echo "$(BLUE)Fuzzing ParseConfig for 5 minutes...$(NC)"
+	go test -fuzz=FuzzParseConfig -fuzztime=5m
+	@echo "$(GREEN)Extended fuzz testing completed!$(NC)"
+
+fuzz-validate: ## Run fuzz test for ValidateSecurePath only
+	@echo "$(YELLOW)Fuzzing ValidateSecurePath...$(NC)"
+	go test -fuzz=FuzzValidateSecurePath -fuzztime=1m
+
+fuzz-parse: ## Run fuzz test for ParseConfig only
+	@echo "$(YELLOW)Fuzzing ParseConfig...$(NC)"
+	go test -fuzz=FuzzParseConfig -fuzztime=1m
 
 ci: ## Run CI checks (used in GitHub Actions)
 	@echo "$(BLUE)Running CI checks...$(NC)"

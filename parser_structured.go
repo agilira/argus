@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/agilira/go-errors"
 )
@@ -28,9 +29,45 @@ func parseJSON(data []byte) (map[string]interface{}, error) {
 		putConfigMap(config)
 		return nil, errors.Wrap(err, ErrCodeInvalidConfig, "invalid JSON")
 	}
+
+	// SECURITY: Validate JSON keys for dangerous characters
+	// JSON spec allows control chars but we enforce security policy
+	for key := range config {
+		if err := validateJSONKey(key); err != nil {
+			putConfigMap(config)
+			return nil, err
+		}
+	}
+
 	// Note: We don't put the config back in the pool since we're returning it
 	// The caller is responsible for the memory
 	return config, nil
+}
+
+// validateJSONKey validates JSON keys for security concerns while allowing JSON spec compliance.
+// JSON allows any Unicode character in keys, but we apply security policy restrictions.
+func validateJSONKey(key string) error {
+	// JSON allows empty keys per RFC 7159, so we don't check for that
+
+	// SECURITY FIX: Check for dangerous control characters including null bytes
+	for i, char := range key {
+		if char == '\x00' {
+			return errors.New(ErrCodeInvalidConfig,
+				fmt.Sprintf("invalid JSON key at position %d: null byte not allowed in keys", i))
+		}
+		// Block other dangerous control characters (except tab, LF, CR)
+		if char < 32 && char != '\t' && char != '\n' && char != '\r' {
+			return errors.New(ErrCodeInvalidConfig,
+				fmt.Sprintf("invalid JSON key at position %d: control character not allowed in keys", i))
+		}
+		// Block non-printable characters (like DEL 0x7F) - security policy
+		if !unicode.IsPrint(char) && char != '\t' {
+			return errors.New(ErrCodeInvalidConfig,
+				fmt.Sprintf("invalid JSON key at position %d: non-printable character not allowed in keys", i))
+		}
+	}
+
+	return nil
 }
 
 // parseYAML parses YAML configuration with enhanced validation and error reporting.
@@ -86,8 +123,8 @@ func parseYAMLLines(lines []string, config map[string]interface{}, startLine, ba
 		parts := strings.SplitN(line, ":", 2)
 		if len(parts) != 2 {
 			return nil, errors.New(ErrCodeInvalidConfig,
-				fmt.Sprintf("invalid YAML syntax at line %d: missing colon separator in '%s'",
-					i+1, originalLine))
+				fmt.Sprintf("invalid YAML syntax at line %d: missing colon separator",
+					i+1))
 		}
 
 		key := strings.TrimSpace(parts[0])
@@ -173,8 +210,8 @@ func parseTOML(data []byte) (map[string]interface{}, error) {
 			if sectionName == "" {
 				putConfigMap(config)
 				return nil, errors.New(ErrCodeInvalidConfig,
-					fmt.Sprintf("invalid TOML syntax at line %d: empty section name in '%s'",
-						lineNum+1, originalLine))
+					fmt.Sprintf("invalid TOML syntax at line %d: empty section name",
+						lineNum+1))
 			}
 
 			currentSection = strings.Split(sectionName, ".")
@@ -189,8 +226,8 @@ func parseTOML(data []byte) (map[string]interface{}, error) {
 		if len(parts) != 2 {
 			putConfigMap(config)
 			return nil, errors.New(ErrCodeInvalidConfig,
-				fmt.Sprintf("invalid TOML syntax at line %d: missing equals separator in '%s'",
-					lineNum+1, originalLine))
+				fmt.Sprintf("invalid TOML syntax at line %d: missing equals separator",
+					lineNum+1))
 		}
 
 		key := strings.TrimSpace(parts[0])
@@ -233,7 +270,7 @@ func parseTOMLValue(value string) interface{} {
 	}
 
 	// Handle quoted strings
-	if strings.HasPrefix(value, "\"") && strings.HasSuffix(value, "\"") {
+	if strings.HasPrefix(value, "\"") && strings.HasSuffix(value, "\"") && len(value) >= 2 {
 		return strings.Trim(value, "\"")
 	}
 
@@ -333,16 +370,16 @@ func validateYAMLLine(line string, lineNum int) error {
 	for _, char := range invalidChars {
 		if strings.Contains(line, char) && !strings.Contains(line, ":") {
 			return errors.New(ErrCodeInvalidConfig,
-				fmt.Sprintf("invalid YAML syntax at line %d: unexpected character '%s' in '%s'",
-					lineNum, char, strings.TrimSpace(line)))
+				fmt.Sprintf("invalid YAML syntax at line %d: unexpected character '%s'",
+					lineNum, char))
 		}
 	}
 
 	// Check if line contains suspicious patterns that indicate malformed YAML
 	if !strings.Contains(trimmed, ":") && trimmed != "" {
 		return errors.New(ErrCodeInvalidConfig,
-			fmt.Sprintf("invalid YAML syntax at line %d: missing colon separator in '%s'",
-				lineNum, strings.TrimSpace(line)))
+			fmt.Sprintf("invalid YAML syntax at line %d: missing colon separator",
+				lineNum))
 	}
 
 	return nil
@@ -356,11 +393,29 @@ func validateYAMLKey(key string, lineNum int) error {
 			fmt.Sprintf("invalid YAML key at line %d: key cannot be empty", lineNum))
 	}
 
+	// SECURITY FIX: Check for dangerous control characters including null bytes
+	for _, char := range key {
+		if char == '\x00' {
+			return errors.New(ErrCodeInvalidConfig,
+				fmt.Sprintf("invalid YAML key at line %d: null byte not allowed in keys", lineNum))
+		}
+		// Block other dangerous control characters (except tab, LF, CR)
+		if char < 32 && char != '\t' && char != '\n' && char != '\r' {
+			return errors.New(ErrCodeInvalidConfig,
+				fmt.Sprintf("invalid YAML key at line %d: control character not allowed in keys", lineNum))
+		}
+		// Block non-printable characters (like DEL 0x7F)
+		if !unicode.IsPrint(char) && char != '\t' {
+			return errors.New(ErrCodeInvalidConfig,
+				fmt.Sprintf("invalid YAML key at line %d: non-printable character not allowed in keys", lineNum))
+		}
+	}
+
 	// Check for whitespace in key (indicates potential parsing issue)
 	if strings.TrimSpace(key) != key {
 		return errors.New(ErrCodeInvalidConfig,
-			fmt.Sprintf("invalid YAML key at line %d: key '%s' contains unexpected whitespace",
-				lineNum, key))
+			fmt.Sprintf("invalid YAML key at line %d: key contains unexpected whitespace",
+				lineNum))
 	}
 
 	return nil
@@ -381,8 +436,8 @@ func parseYAMLValue(value string, lineNum int) (interface{}, error) {
 	}
 
 	// Handle quoted strings (remove quotes and return as string)
-	if (strings.HasPrefix(value, "\"") && strings.HasSuffix(value, "\"")) ||
-		(strings.HasPrefix(value, "'") && strings.HasSuffix(value, "'")) {
+	if (strings.HasPrefix(value, "\"") && strings.HasSuffix(value, "\"") && len(value) >= 2) ||
+		(strings.HasPrefix(value, "'") && strings.HasSuffix(value, "'") && len(value) >= 2) {
 		// Remove quotes and return the string content
 		return value[1 : len(value)-1], nil
 	}
@@ -408,8 +463,8 @@ func parseYAMLArray(arrayStr string, lineNum int) (interface{}, error) {
 	// Check for unmatched brackets or other issues
 	if strings.Count(arrayStr, "[") != strings.Count(arrayStr, "]") {
 		return nil, errors.New(ErrCodeInvalidConfig,
-			fmt.Sprintf("invalid YAML array at line %d: unmatched brackets in '%s'",
-				lineNum, arrayStr))
+			fmt.Sprintf("invalid YAML array at line %d: unmatched brackets",
+				lineNum))
 	}
 
 	items := strings.Split(content, ",")
@@ -440,16 +495,58 @@ func validateTOMLSection(line string, lineNum int) error {
 	// Check for proper bracket format
 	if !strings.HasPrefix(trimmed, "[") || !strings.HasSuffix(trimmed, "]") {
 		return errors.New(ErrCodeInvalidConfig,
-			fmt.Sprintf("invalid TOML section at line %d: malformed brackets in '%s'",
-				lineNum, trimmed))
+			fmt.Sprintf("invalid TOML section at line %d: malformed brackets",
+				lineNum))
 	}
 
 	// Check for nested brackets (not supported in basic TOML)
 	content := strings.Trim(trimmed, "[]")
 	if strings.Contains(content, "[") || strings.Contains(content, "]") {
 		return errors.New(ErrCodeInvalidConfig,
-			fmt.Sprintf("invalid TOML section at line %d: nested brackets not supported in '%s'",
-				lineNum, trimmed))
+			fmt.Sprintf("invalid TOML section at line %d: nested brackets not supported",
+				lineNum))
+	}
+
+	// Validate section name format - prevent leading/trailing dots and empty segments
+	if strings.HasPrefix(content, ".") || strings.HasSuffix(content, ".") {
+		return errors.New(ErrCodeInvalidConfig,
+			fmt.Sprintf("invalid TOML section at line %d: section name cannot start or end with dot",
+				lineNum))
+	}
+
+	// Check for consecutive dots or empty segments
+	if strings.Contains(content, "..") {
+		return errors.New(ErrCodeInvalidConfig,
+			fmt.Sprintf("invalid TOML section at line %d: section name cannot have consecutive dots",
+				lineNum))
+	}
+
+	// Validate each segment of the section name
+	segments := strings.Split(content, ".")
+	for _, segment := range segments {
+		if segment == "" {
+			return errors.New(ErrCodeInvalidConfig,
+				fmt.Sprintf("invalid TOML section at line %d: section name cannot have empty segments",
+					lineNum))
+		}
+
+		// SECURITY FIX: Apply same character validation as keys
+		for _, char := range segment {
+			if char == '\x00' {
+				return errors.New(ErrCodeInvalidConfig,
+					fmt.Sprintf("invalid TOML section at line %d: null byte not allowed in section names", lineNum))
+			}
+			// Block other dangerous control characters (except tab, LF, CR)
+			if char < 32 && char != '\t' && char != '\n' && char != '\r' {
+				return errors.New(ErrCodeInvalidConfig,
+					fmt.Sprintf("invalid TOML section at line %d: control character not allowed in section names", lineNum))
+			}
+			// Block non-printable characters (like DEL 0x7F)
+			if !unicode.IsPrint(char) && char != '\t' {
+				return errors.New(ErrCodeInvalidConfig,
+					fmt.Sprintf("invalid TOML section at line %d: non-printable character not allowed in section names", lineNum))
+			}
+		}
 	}
 
 	return nil
@@ -463,11 +560,29 @@ func validateTOMLKey(key string, lineNum int) error {
 			fmt.Sprintf("invalid TOML key at line %d: key cannot be empty", lineNum))
 	}
 
+	// SECURITY FIX: Check for dangerous control characters including null bytes
+	for _, char := range key {
+		if char == '\x00' {
+			return errors.New(ErrCodeInvalidConfig,
+				fmt.Sprintf("invalid TOML key at line %d: null byte not allowed in keys", lineNum))
+		}
+		// Block other dangerous control characters (except tab, LF, CR)
+		if char < 32 && char != '\t' && char != '\n' && char != '\r' {
+			return errors.New(ErrCodeInvalidConfig,
+				fmt.Sprintf("invalid TOML key at line %d: control character not allowed in keys", lineNum))
+		}
+		// Block non-printable characters (like DEL 0x7F)
+		if !unicode.IsPrint(char) && char != '\t' {
+			return errors.New(ErrCodeInvalidConfig,
+				fmt.Sprintf("invalid TOML key at line %d: non-printable character not allowed in keys", lineNum))
+		}
+	}
+
 	// Check for whitespace in unquoted key (indicates potential parsing issue)
 	if strings.TrimSpace(key) != key {
 		return errors.New(ErrCodeInvalidConfig,
-			fmt.Sprintf("invalid TOML key at line %d: key '%s' contains unexpected whitespace",
-				lineNum, key))
+			fmt.Sprintf("invalid TOML key at line %d: key contains unexpected whitespace",
+				lineNum))
 	}
 
 	return nil
@@ -484,8 +599,8 @@ func parseTOMLValueWithValidation(value string, lineNum int) (interface{}, error
 	}
 
 	// Handle quoted strings (remove quotes)
-	if (strings.HasPrefix(value, "\"") && strings.HasSuffix(value, "\"")) ||
-		(strings.HasPrefix(value, "'") && strings.HasSuffix(value, "'")) {
+	if (strings.HasPrefix(value, "\"") && strings.HasSuffix(value, "\"") && len(value) >= 2) ||
+		(strings.HasPrefix(value, "'") && strings.HasSuffix(value, "'") && len(value) >= 2) {
 		// Remove quotes and return the string content
 		return value[1 : len(value)-1], nil
 	}
@@ -500,8 +615,8 @@ func parseTOMLArrayWithValidation(arrayStr string, lineNum int) (interface{}, er
 	// Validate bracket structure
 	if strings.Count(arrayStr, "[") != strings.Count(arrayStr, "]") {
 		return nil, errors.New(ErrCodeInvalidConfig,
-			fmt.Sprintf("invalid TOML array at line %d: unmatched brackets in '%s'",
-				lineNum, arrayStr))
+			fmt.Sprintf("invalid TOML array at line %d: unmatched brackets",
+				lineNum))
 	}
 
 	// Use existing parseTOMLArray for actual parsing

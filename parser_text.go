@@ -53,6 +53,11 @@ func parseHCLContent(content string, config map[string]interface{}) (map[string]
 		if strings.Contains(line, "{") && !strings.Contains(line, "=") {
 			blockName := strings.TrimSpace(strings.Split(line, "{")[0])
 
+			// Validate block name
+			if err := validateHCLKey(blockName, i+1); err != nil {
+				return nil, err
+			}
+
 			// Find the matching closing brace
 			blockContent, endIndex := extractHCLBlock(lines, i)
 			if blockContent == "" {
@@ -77,6 +82,12 @@ func parseHCLContent(content string, config map[string]interface{}) (map[string]
 			if len(parts) == 2 {
 				key := strings.TrimSpace(parts[0])
 				value := strings.TrimSpace(parts[1])
+
+				// Validate key format
+				if err := validateHCLKey(key, i+1); err != nil {
+					return nil, err
+				}
+
 				config[key] = parseHCLValue(value)
 			}
 		}
@@ -206,8 +217,8 @@ func parseINI(data []byte) (map[string]interface{}, error) {
 			sectionName := strings.Trim(line, "[]")
 			if sectionName == "" {
 				return nil, errors.New(ErrCodeInvalidConfig,
-					fmt.Sprintf("invalid INI syntax at line %d: empty section name in '%s'",
-						lineNum+1, originalLine))
+					fmt.Sprintf("invalid INI syntax at line %d: empty section name",
+						lineNum+1))
 			}
 
 			currentSection = sectionName + "."
@@ -218,8 +229,8 @@ func parseINI(data []byte) (map[string]interface{}, error) {
 		parts := strings.SplitN(line, "=", 2)
 		if len(parts) != 2 {
 			return nil, errors.New(ErrCodeInvalidConfig,
-				fmt.Sprintf("invalid INI syntax at line %d: missing equals separator in '%s'",
-					lineNum+1, originalLine))
+				fmt.Sprintf("invalid INI syntax at line %d: missing equals separator",
+					lineNum+1))
 		}
 
 		key := strings.TrimSpace(parts[0])
@@ -279,8 +290,8 @@ func parseProperties(data []byte) (map[string]interface{}, error) {
 
 		if !found {
 			return nil, errors.New(ErrCodeInvalidConfig,
-				fmt.Sprintf("invalid Properties syntax at line %d: missing key-value separator (=, :, or space) in '%s'",
-					lineNum, originalLine))
+				fmt.Sprintf("invalid Properties syntax at line %d: missing key-value separator (=, :, or space)",
+					lineNum))
 		}
 
 		// Validate key format

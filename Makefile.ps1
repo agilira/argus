@@ -56,6 +56,13 @@ function Invoke-Help {
     Write-ColorOutput "  pre-commit    Run pre-commit checks (alias for 'check')" $Green
     Write-ColorOutput "  all           Run everything from scratch" $Green
     Write-ColorOutput "  status        Show status of installed tools" $Green
+    Write-ColorOutput "" 
+    Write-ColorOutput "Fuzz Testing Commands:" $Blue
+    Write-ColorOutput "  fuzz          Run fuzz tests (30s each)" $Green
+    Write-ColorOutput "  fuzz-long     Run extended fuzz tests (5m each)" $Green
+    Write-ColorOutput "  fuzz-validate Fuzz ValidateSecurePath only" $Green
+    Write-ColorOutput "  fuzz-parse    Fuzz ParseConfig only" $Green
+    Write-ColorOutput "  security-fuzz Security checks + fuzz testing" $Green
 }
 
 function Invoke-Test {
@@ -135,6 +142,12 @@ function Invoke-Security {
     Write-ColorOutput "Security checks completed." $Green
 }
 
+function Invoke-SecurityFuzz {
+    Invoke-GoSec
+    Invoke-Fuzz
+    Write-ColorOutput "Security checks with fuzz testing completed." $Green
+}
+
 function Invoke-Check {
     Invoke-Fmt
     Invoke-Vet
@@ -206,6 +219,44 @@ function Invoke-Bench {
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
+function Invoke-Fuzz {
+    Write-ColorOutput "Running fuzz tests..." $Yellow
+    Write-ColorOutput "Fuzzing ValidateSecurePath for 30 seconds..." $Blue
+    go test -fuzz=FuzzValidateSecurePath -fuzztime=30s
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    
+    Write-ColorOutput "Fuzzing ParseConfig for 30 seconds..." $Blue
+    go test -fuzz=FuzzParseConfig -fuzztime=30s
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    
+    Write-ColorOutput "Fuzz testing completed!" $Green
+}
+
+function Invoke-FuzzLong {
+    Write-ColorOutput "Running extended fuzz tests..." $Yellow
+    Write-ColorOutput "Fuzzing ValidateSecurePath for 5 minutes..." $Blue
+    go test -fuzz=FuzzValidateSecurePath -fuzztime=5m
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    
+    Write-ColorOutput "Fuzzing ParseConfig for 5 minutes..." $Blue
+    go test -fuzz=FuzzParseConfig -fuzztime=5m
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    
+    Write-ColorOutput "Extended fuzz testing completed!" $Green
+}
+
+function Invoke-FuzzValidate {
+    Write-ColorOutput "Fuzzing ValidateSecurePath..." $Yellow
+    go test -fuzz=FuzzValidateSecurePath -fuzztime=1m
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
+
+function Invoke-FuzzParse {
+    Write-ColorOutput "Fuzzing ParseConfig..." $Yellow
+    go test -fuzz=FuzzParseConfig -fuzztime=1m
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
+
 function Invoke-CI {
     Write-ColorOutput "Running CI checks..." $Blue
     Invoke-Fmt
@@ -273,6 +324,11 @@ switch ($Command.ToLower()) {
     "build" { Invoke-Build }
     "install" { Invoke-Install }
     "bench" { Invoke-Bench }
+    "fuzz" { Invoke-Fuzz }
+    "fuzz-long" { Invoke-FuzzLong }
+    "fuzz-validate" { Invoke-FuzzValidate }
+    "fuzz-parse" { Invoke-FuzzParse }
+    "security-fuzz" { Invoke-SecurityFuzz }
     "ci" { Invoke-CI }
     "dev" { Invoke-Dev }
     "pre-commit" { Invoke-Check }

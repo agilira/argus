@@ -4,10 +4,12 @@
 High-performance configuration management library for Go applications with zero-allocation performance, universal format support (JSON, YAML, TOML, HCL, INI, Properties), and an ultra-fast CLI powered by [Orpheus](https://github.com/agilira/orpheus) & [Flash-Flags](https://github.com/agilira/flash-flags).
 
 [![CI/CD Pipeline](https://github.com/agilira/argus/actions/workflows/ci.yml/badge.svg)](https://github.com/agilira/argus/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/agilira/argus/actions/workflows/codeql.yml/badge.svg)](https://github.com/agilira/argus/actions/workflows/codeql.yml)
 [![Security](https://img.shields.io/badge/security-gosec-brightgreen.svg)](https://github.com/agilira/argus/actions/workflows/ci.yml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/agilira/argus)](https://goreportcard.com/report/github.com/agilira/argus)
-[![Test Coverage](https://codecov.io/gh/agilira/argus/branch/main/graph/badge.svg)](https://codecov.io/gh/agilira/argus)
-![Xantos Powered](https://img.shields.io/badge/Xantos%20Powered-8A2BE2?style=flat)
+[![Test Coverage](https://img.shields.io/badge/coverage-87.7%25-brightgreen)](https://github.com/agilira/argus)
+[![CLI Coverage](https://img.shields.io/badge/cli_coverage-77.5%25-green)](https://github.com/agilira/argus)
+![Xantos Powered](https://img.shields.io/badge/Xantos-Powered-8A2BE2)
 
 **[Installation](#installation) • [Quick Start](#quick-start) • [Performance](#performance) • [Architecture](#architecture) • [Framework](#core-framework) • [Observability](#observability--integrations) • [Philosophy](#the-philosophy-behind-argus) • [Documentation](#documentation)**
 

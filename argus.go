@@ -1113,10 +1113,84 @@ func ValidateSecurePath(path string) error {
 		"LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
 	}
 
+	// SECURITY FIX: Check for UNC paths that access Windows devices
+	// UNC paths like //Con, ///Con, \\Con, /\Con are equivalent to device access and must be blocked
+	if (strings.HasPrefix(path, "/") || strings.HasPrefix(path, "\\")) && len(path) > 1 {
+		// Normalize the path: remove all leading slashes and backslashes
+		normalizedPath := path
+		for len(normalizedPath) > 0 && (normalizedPath[0] == '/' || normalizedPath[0] == '\\') {
+			normalizedPath = normalizedPath[1:]
+		}
+
+		if len(normalizedPath) > 0 {
+			// Split by both types of separators to get path components
+			// Replace backslashes with forward slashes for consistent splitting
+			normalizedForSplit := strings.ReplaceAll(normalizedPath, "\\", "/")
+			components := strings.Split(normalizedForSplit, "/")
+
+			if len(components) > 0 && components[0] != "" {
+				// Check if the first component is a device name (after normalizing case)
+				firstComponent := strings.ToUpper(components[0])
+
+				// Remove ALL extensions if present (handle multiple extensions)
+				for {
+					if dotIndex := strings.Index(firstComponent, "."); dotIndex != -1 {
+						firstComponent = firstComponent[:dotIndex]
+					} else {
+						break
+					}
+				}
+
+				// Special case: If we have exactly 2 components and the first is short (likely server),
+				// and second is a device name, this might be legitimate UNC (//server/device)
+				// But if first component is also a device name (//Con/anything), block it
+				isLikelyDevice := false
+				for _, device := range windowsDevices {
+					if firstComponent == device {
+						isLikelyDevice = true
+						break
+					}
+				}
+
+				if isLikelyDevice {
+					// Always block if first component is a device name
+					return errors.New(ErrCodeInvalidConfig, "windows device name not allowed via UNC path: "+firstComponent)
+				}
+
+				// Also check if this could be a mixed separator attack trying to access device
+				// in second position (like /\server\Con)
+				if len(components) >= 2 {
+					secondComponent := strings.ToUpper(components[1])
+					// Remove ALL extensions if present (handle multiple extensions)
+					for {
+						if dotIndex := strings.Index(secondComponent, "."); dotIndex != -1 {
+							secondComponent = secondComponent[:dotIndex]
+						} else {
+							break
+						}
+					}
+
+					// If second component is device AND first component looks suspicious
+					// (single char, digit, etc.), block it
+					for _, device := range windowsDevices {
+						if secondComponent == device && len(components[0]) <= 2 {
+							return errors.New(ErrCodeInvalidConfig, "windows device name not allowed via UNC path: "+secondComponent)
+						}
+					}
+				}
+			}
+		}
+	}
+
 	baseName := strings.ToUpper(filepath.Base(path))
-	// Remove extension for device name check
-	if dotIndex := strings.LastIndex(baseName, "."); dotIndex != -1 {
-		baseName = baseName[:dotIndex]
+	// Remove ALL extensions for device name check (handle multiple extensions like PRN.0., COM1.txt.bak)
+	// Keep removing extensions until no more dots are found
+	for {
+		if dotIndex := strings.LastIndex(baseName, "."); dotIndex != -1 {
+			baseName = baseName[:dotIndex]
+		} else {
+			break
+		}
 	}
 
 	for _, device := range windowsDevices {
@@ -1143,7 +1217,7 @@ func ValidateSecurePath(path string) error {
 					// Real ADS: filename.ext:streamname (streamname typically doesn't start with .)
 					// But "test:.json" has colon followed by .json which is not typical ADS
 					if !strings.HasPrefix(afterColon, ".") {
-						return errors.New(ErrCodeInvalidConfig, "windows alternate data streams not allowed: "+path)
+						return errors.New(ErrCodeInvalidConfig, "windows alternate data streams not allowed")
 					}
 				}
 			}
