@@ -1,5 +1,5 @@
-github.com/agilira/flash-flags v1.1.4 h1:h8sspzSoO7Z1T5YnUNlhMiX3W8i8h+eI2aBl5rhvv10=
-github.com/agilira/flash-flags v1.1.4/go.mod h1:vuuo9FRN+ZgREaa1WYRmUFac/h3+CwuvD4EvjF5JNIQ=
+github.com/agilira/flash-flags v1.1.5 h1:wCYtbmNfqDyDO5J3qE32rRnVLh+8hm0pKNTTmCemR50=
+github.com/agilira/flash-flags v1.1.5/go.mod h1:vuuo9FRN+ZgREaa1WYRmUFac/h3+CwuvD4EvjF5JNIQ=
 github.com/agilira/go-errors v1.1.0 h1:97cBNEDo6q2pKzkr/YqlqWq3fa5rOU8E4LOnSsCmWck=
 github.com/agilira/go-errors v1.1.0/go.mod h1:YEeM2sVXg2w/GmDVZ2m2nH2kJ2Aa34OvbTA6w3JzVbY=
 github.com/agilira/go-timecache v1.0.2 h1:8tmWsNhhXxmvopotfkX+IBnb+0wpclytdnsA3wPfmk4=
