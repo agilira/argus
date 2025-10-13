@@ -8,6 +8,6 @@ require (
 	github.com/agilira/flash-flags v1.1.5
 	github.com/agilira/go-errors v1.1.0
 	github.com/agilira/go-timecache v1.0.2
-	github.com/agilira/orpheus v1.0.10
+	github.com/agilira/orpheus v1.1.10
 	github.com/mattn/go-sqlite3 v1.14.32
 )
