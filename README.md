@@ -13,6 +13,22 @@ High-performance configuration management library for Go applications with zero-
 ![Xantos Powered](https://img.shields.io/badge/Xantos-Powered-8A2BE2)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/11273/badge)](https://www.bestpractices.dev/projects/11273)
 
+## Live Demo
+
+<div align="center">
+
+See Argus in action - managing configurations across multiple formats with zero-allocation performance:
+
+<picture>
+  <source media="(max-width: 768px)" srcset="https://asciinema.org/a/Ew5Br2N5UD7rDe1F6MFVfNYrL.svg" width="100%">
+  <source media="(max-width: 1024px)" srcset="https://asciinema.org/a/Ew5Br2N5UD7rDe1F6MFVfNYrL.svg" width="90%">
+  <img src="https://asciinema.org/a/Ew5Br2N5UD7rDe1F6MFVfNYrL.svg" alt="Argus CLI Demo" style="max-width: 100%; height: auto;" width="800">
+</picture>
+
+*[Click to view interactive demo](https://asciinema.org/a/Ew5Br2N5UD7rDe1F6MFVfNYrL)*
+
+</div>
+
 **[Installation](#installation) • [Quick Start](#quick-start) • [Performance](#performance) • [Architecture](#architecture) • [Framework](#core-framework) • [Observability](#observability--integrations) • [Philosophy](#the-philosophy-behind-argus) • [Documentation](#documentation)**
 
 
