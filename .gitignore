@@ -82,7 +82,7 @@ test_config.*
 argus_test_*
 argus_universal_test_*
 
-# Dev specific files and folders -- for now
+# Dev specific files and folders
 chaos_test.go
 deadlock_stress_test.go
 extreme_deadlock_test.go
@@ -96,7 +96,6 @@ validation_strategy.md
 realistic_benchmark_test.go
 scalability_test.go
 tests/
-testdata/
 production_overhead_test.go
 capacity_test.txt
 features_verification_test.txt
