@@ -144,6 +144,9 @@ JSON Parsing (large):          7,793 ns/op     (3,064 B/op, 86 allocs/op)
 Event Processing:              24.91 ns/op     (BoreasLite single event)
 CLI Command Parsing:             512 ns/op     (3 allocs/op, Orpheus framework)
 ```
+**Live Performance Demo**:
+[![asciicast](https://asciinema.org/a/dRNvLDoNXcZXZXWEUuvrIZX8g.svg)](https://asciinema.org/a/dRNvLDoNXcZXZXWEUuvrIZX8g)
+
 **Test BoreasLite ring buffer performance**:
 ```bash
 cd benchmarks && go test -bench="BenchmarkBoreasLite.*" -run=^$ -benchmem
