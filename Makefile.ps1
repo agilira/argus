@@ -41,6 +41,8 @@ function Invoke-Help {
     Write-ColorOutput "  staticcheck   Run staticcheck" $Green
     Write-ColorOutput "  errcheck      Run errcheck" $Green
     Write-ColorOutput "  gosec         Run gosec security scanner" $Green
+    Write-ColorOutput "  vulncheck     Run govulncheck vulnerability scanner" $Green
+    Write-ColorOutput "  mod-verify    Verify module dependencies" $Green
     Write-ColorOutput "  lint          Run all linters" $Green
     Write-ColorOutput "  security      Run security checks" $Green
     Write-ColorOutput "  check         Run all checks (format, vet, lint, security, test)" $Green
@@ -142,6 +144,26 @@ function Invoke-Security {
     Write-ColorOutput "Security checks completed." $Green
 }
 
+function Invoke-Vulncheck {
+    Write-ColorOutput "Running govulncheck..." $Yellow
+    if (-not (Test-ToolExists "govulncheck")) {
+        Write-ColorOutput "govulncheck not found. Run '.\Makefile.ps1 tools' to install." $Red
+        exit 1
+    }
+    & "$ToolsDir\govulncheck.exe" "./..."
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
+
+function Invoke-ModVerify {
+    Write-ColorOutput "Running go mod verify..." $Yellow
+    go mod verify
+    if ($LASTEXITCODE -ne 0) { 
+        Write-ColorOutput "Module verification failed!" $Red
+        exit $LASTEXITCODE 
+    }
+    Write-ColorOutput "Module verification passed." $Green
+}
+
 function Invoke-SecurityFuzz {
     Invoke-GoSec
     Invoke-Fuzz
@@ -149,10 +171,12 @@ function Invoke-SecurityFuzz {
 }
 
 function Invoke-Check {
+    Invoke-ModVerify
     Invoke-Fmt
     Invoke-Vet
     Invoke-Lint
     Invoke-Security
+    Invoke-Vulncheck
     Invoke-Test
     Write-ColorOutput "All checks passed!" $Green
 }
@@ -175,6 +199,9 @@ function Invoke-Tools {
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     
     go install github.com/securego/gosec/v2/cmd/gosec@latest
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    
+    go install golang.org/x/vuln/cmd/govulncheck@latest
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     
     Write-ColorOutput "Tools installed successfully!" $Green
@@ -301,6 +328,11 @@ function Invoke-Status {
     $gosecColor = if (Test-ToolExists "gosec") { $Green } else { $Red }
     Write-Host "gosec:       " -NoNewline
     Write-ColorOutput $gosecStatus $gosecColor
+    
+    $govulncheckStatus = if (Test-ToolExists "govulncheck") { "✓ installed" } else { "✗ missing" }
+    $govulncheckColor = if (Test-ToolExists "govulncheck") { $Green } else { $Red }
+    Write-Host "govulncheck: " -NoNewline
+    Write-ColorOutput $govulncheckStatus $govulncheckColor
 }
 
 # Main execution
@@ -314,6 +346,8 @@ switch ($Command.ToLower()) {
     "staticcheck" { Invoke-StaticCheck }
     "errcheck" { Invoke-ErrCheck }
     "gosec" { Invoke-GoSec }
+    "vulncheck" { Invoke-Vulncheck }
+    "mod-verify" { Invoke-ModVerify }
     "lint" { Invoke-Lint }
     "security" { Invoke-Security }
     "check" { Invoke-Check }

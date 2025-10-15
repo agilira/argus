@@ -41,7 +41,7 @@ See Argus in action - managing configurations across multiple formats with zero-
 - **Security Hardened**: [Red-team tested](argus_security_test.go) against path traversal, injection, DoS and resource exhaustion attacks
 - **Fuzz Tested**: [Comprehensive fuzzing](argus_fuzz_test.go) for ValidateSecurePath and ParseConfig edge cases
 - **Zero-Allocation Design**: Pre-allocated buffers eliminate GC pressure in hot paths
-- **Remote Config**: Distributed configuration with automatic fallback (Remote → Local). Currently available: [HashiCorp Consul](https://github.com/agilira/argus-provider-consul), [Redis](https://github.com/agilira/argus-provider-redis), with more to come..
+- **Remote Config**: Distributed configuration with automatic fallback (Remote → Local). Currently available: [HashiCorp Consul](https://github.com/agilira/argus-provider-consul), [Redis](https://github.com/agilira/argus-provider-redis), [GitOps](https://github.com/agilira/argus-provider-git) with more to come..
 - **Graceful Shutdown**: Timeout-controlled shutdown for Kubernetes and production deployments
 - **OpenTelemetry Ready**: Async tracing and metrics with zero contamination of core library
 - **Type-Safe Binding**: Zero-reflection configuration binding with fluent API (1.6M ops/sec)
@@ -144,10 +144,11 @@ JSON Parsing (large):          7,793 ns/op     (3,064 B/op, 86 allocs/op)
 Event Processing:              24.91 ns/op     (BoreasLite single event)
 CLI Command Parsing:             512 ns/op     (3 allocs/op, Orpheus framework)
 ```
-**Reproduce benchmarks**:
+**Test BoreasLite ring buffer performance**:
 ```bash
-go test -bench=. -benchmem
+cd benchmarks && go test -bench="BenchmarkBoreasLite.*" -run=^$ -benchmem
 ```
+See [isolated benchmarks](./benchmarks/) for detailed ring buffer performance analysis.
 
 **Scalability (Setup Performance):**
 ```

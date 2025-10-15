@@ -1,7 +1,7 @@
 # Go Makefile - AGILira Standard
 # Usage: make help
 
-.PHONY: help test race fmt vet lint security check deps clean build install tools
+.PHONY: help test race fmt vet lint security vulncheck mod-verify check deps clean build install tools
 .DEFAULT_GOAL := help
 
 # Variables
@@ -73,6 +73,19 @@ gosec: ## Run gosec security scanner
 	fi
 	@$(TOOLS_DIR)/gosec ./... || (echo "$(YELLOW)  gosec completed with warnings (may be import-related)$(NC)" && exit 0)
 
+vulncheck: ## Run govulncheck vulnerability scanner
+	@echo "$(YELLOW)Running govulncheck...$(NC)"
+	@if [ ! -f "$(TOOLS_DIR)/govulncheck" ]; then \
+		echo "$(RED)govulncheck not found. Run 'make tools' to install.$(NC)"; \
+		exit 1; \
+	fi
+	$(TOOLS_DIR)/govulncheck ./...
+
+mod-verify: ## Verify module dependencies
+	@echo "$(YELLOW)Running go mod verify...$(NC)"
+	go mod verify
+	@echo "$(GREEN)Module verification passed.$(NC)"
+
 lint: staticcheck errcheck ## Run all linters
 	@echo "$(GREEN)All linters completed.$(NC)"
 
@@ -82,10 +95,10 @@ security: gosec ## Run security checks
 security-fuzz: gosec fuzz ## Run security checks including fuzz testing
 	@echo "$(GREEN)Security checks with fuzz testing completed.$(NC)"
 
-check: fmt vet lint security test ## Run all checks (format, vet, lint, security, test)
+check: mod-verify fmt vet lint security vulncheck test ## Run all checks (format, vet, lint, security, test)
 	@echo "$(GREEN)All checks passed!$(NC)"
 
-check-race: fmt vet lint security race ## Run all checks including race detector
+check-race: mod-verify fmt vet lint security vulncheck race ## Run all checks including race detector
 	@echo "$(GREEN)All checks with race detection passed!$(NC)"
 
 tools: ## Install development tools
@@ -93,6 +106,7 @@ tools: ## Install development tools
 	go install honnef.co/go/tools/cmd/staticcheck@latest
 	go install github.com/kisielk/errcheck@latest
 	go install github.com/securego/gosec/v2/cmd/gosec@latest
+	go install golang.org/x/vuln/cmd/govulncheck@latest
 	@echo "$(GREEN)Tools installed successfully!$(NC)"
 
 deps: ## Download and verify dependencies
@@ -164,3 +178,4 @@ status: ## Show status of installed tools
 	@echo -n "staticcheck: "; [ -f "$(TOOLS_DIR)/staticcheck" ] && echo "$(GREEN)✓ installed$(NC)" || echo "$(RED)✗ missing$(NC)"
 	@echo -n "errcheck:    "; [ -f "$(TOOLS_DIR)/errcheck" ] && echo "$(GREEN)✓ installed$(NC)" || echo "$(RED)✗ missing$(NC)"
 	@echo -n "gosec:       "; [ -f "$(TOOLS_DIR)/gosec" ] && echo "$(GREEN)✓ installed$(NC)" || echo "$(RED)✗ missing$(NC)"
+	@echo -n "govulncheck: "; [ -f "$(TOOLS_DIR)/govulncheck" ] && echo "$(GREEN)✓ installed$(NC)" || echo "$(RED)✗ missing$(NC)"

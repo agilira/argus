@@ -27,6 +27,7 @@ jobs:
       run: |
         go install honnef.co/go/tools/cmd/staticcheck@latest
         go install github.com/securego/gosec/v2/cmd/gosec@latest
+        go install golang.org/x/vuln/cmd/govulncheck@latest
 
     - name: Go Format Check
       run: |
@@ -36,11 +37,17 @@ jobs:
           exit 1
         fi
 
+    - name: Module Verification
+      run: go mod verify
+
     - name: Go Vet
       run: go vet ./...
 
     - name: Staticcheck
       run: staticcheck ./...
+
+    - name: Vulnerability Check
+      run: govulncheck ./...
 
     - name: Security Scan (gosec)
       continue-on-error: true
