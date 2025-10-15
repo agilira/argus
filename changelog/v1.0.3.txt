@@ -4,13 +4,7 @@
 2025-10-15
 
 ## Summary
-Added BoreasLite ring buffer implementation, isolated benchmark suite, and enhanced security tooling.
-
-## Performance Improvements
-- BoreasLite ring buffer: 39.02 million ops/sec (25.63 ns/op)
-- Zero allocations in hot path (0 B/op, 0 allocs/op)
-- 34% performance improvement over Go channels
-- MPSC lock-free architecture with atomic operations
+Added Isolated benchmark suite, and enhanced security tooling.
 
 ## Benchmarks Added
 - Isolated benchmark suite in `/benchmarks` directory
@@ -35,12 +29,6 @@ Added BoreasLite ring buffer implementation, isolated benchmark suite, and enhan
 - Benchmark isolation prevents performance measurement interference
 - Cross-platform build script enhancements
 - Development tool status checking
-
-## Technical Details
-- Ring buffer: power-of-2 sizing, 128-byte events
-- Optimization strategies: SingleEvent, SmallBatch, LargeBatch, Auto
-- Memory layout: 110-byte path support, cache-line alignment
-- Event system: atomic flags for Create/Delete/Modify operations
 
 ## Files Added
 - `benchmarks/go.mod`
