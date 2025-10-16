@@ -36,7 +36,7 @@ See Argus in action - managing configurations across multiple formats with zero-
 
 - **Universal Format Support**: JSON, YAML, TOML, HCL, INI, Properties with auto-detection
 - **ConfigWriter System**: Atomic configuration file updates with type-safe operations
-- **Ultra-Fast CLI**: [Orpheus](https://github.com/agilira/orpheus)-powered CLI 7x-47x faster then popular alternatives
+- **Ultra-Fast CLI**: [Orpheus](https://github.com/agilira/orpheus)-powered CLI
 - **Professional Grade Validation**: With detailed error reporting & performance recommendations
 - **Security Hardened**: [Red-team tested](argus_security_test.go) against path traversal, injection, DoS and resource exhaustion attacks
 - **Fuzz Tested**: [Comprehensive fuzzing](argus_fuzz_test.go) for ValidateSecurePath and ParseConfig edge cases
