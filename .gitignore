@@ -108,6 +108,9 @@ goroutine_leak_test.go
 demo-script.sh
 argus-demo.cast
 RECORDING.md
+*.cast
+*-demo.sh
+benchmark-demo.sh
 
 # CLI binary (built from examples/cli)
 argus

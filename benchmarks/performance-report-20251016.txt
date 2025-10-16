@@ -1,0 +1,38 @@
+=== Argus Framework Performance Report ===
+Generated: Thu 16 Oct 2025 12:13:49 AM CEST
+System: Linux agilira 6.14.0-33-generic #33~24.04.1-Ubuntu SMP PREEMPT_DYNAMIC Fri Sep 19 17:02:30 UTC 2 x86_64 x86_64 x86_64 GNU/Linux
+Go Version: go version go1.25.1 linux/amd64
+
+=== Benchmark Results ===
+=== RUN   TestDummy
+--- PASS: TestDummy (0.00s)
+goos: linux
+goarch: amd64
+pkg: github.com/agilira/argus/benchmarks
+cpu: AMD Ryzen 5 7520U with Radeon Graphics         
+BenchmarkBoreasLite_SingleEvent
+BenchmarkBoreasLite_SingleEvent-8      	47891098	        24.82 ns/op	        40.29 Mops/sec	       0 B/op	       0 allocs/op
+BenchmarkBoreasLite_WriteFileEvent
+BenchmarkBoreasLite_WriteFileEvent-8   	17755099	        69.37 ns/op	        14.42 Mops/sec	       0 B/op	       0 allocs/op
+BenchmarkBoreasLite_MPSC
+BenchmarkBoreasLite_MPSC-8             	32280844	        34.90 ns/op	        28.66 Mops/sec	       0 B/op	       0 allocs/op
+BenchmarkBoreasLite_vsChannels
+BenchmarkBoreasLite_vsChannels/BoreasLite
+BenchmarkBoreasLite_vsChannels/BoreasLite-8         	20718548	        65.42 ns/op	        15.29 Mops/sec	       0 B/op	       0 allocs/op
+BenchmarkBoreasLite_vsChannels/GoChannels
+BenchmarkBoreasLite_vsChannels/GoChannels-8         	25734517	        45.12 ns/op	        22.16 Mops/sec	       0 B/op	       0 allocs/op
+BenchmarkBoreasLite_HighThroughput
+BenchmarkBoreasLite_HighThroughput-8                	21934914	        80.18 ns/op	        12.47 Mops/sec	       0 B/op	       0 allocs/op
+PASS
+ok  	github.com/agilira/argus/benchmarks	9.005s
+
+=== Consistency Test (3 runs) ===
+goos: linux
+goarch: amd64
+pkg: github.com/agilira/argus/benchmarks
+cpu: AMD Ryzen 5 7520U with Radeon Graphics         
+BenchmarkBoreasLite_SingleEvent-8   	95769669	        24.72 ns/op	        40.46 Mops/sec	       0 B/op	       0 allocs/op
+BenchmarkBoreasLite_SingleEvent-8   	96379674	        25.08 ns/op	        39.87 Mops/sec	       0 B/op	       0 allocs/op
+BenchmarkBoreasLite_SingleEvent-8   	97728352	        24.77 ns/op	        40.37 Mops/sec	       0 B/op	       0 allocs/op
+PASS
+ok  	github.com/agilira/argus/benchmarks	7.298s
