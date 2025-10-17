@@ -14,12 +14,12 @@ import (
 // FileChangeEvent represents a file change optimized for minimal memory footprint
 // 128 bytes (2 cache lines) for maximum path compatibility and performance
 type FileChangeEvent struct {
+	ModTime int64     // Unix nanoseconds (8 bytes, aligned first)
+	Size    int64     // File size (8 bytes)
 	Path    [110]byte // FULL POWER: 110 bytes for any file path (109 chars + null terminator)
-	PathLen uint8     // Actual path length
-	ModTime int64     // Unix nanoseconds
-	Size    int64     // File size
-	Flags   uint8     // Create(1), Delete(2), Modify(4) bits
-	_       [0]byte   // Perfect 128 bytes: 110+1+8+8+1 = 128
+	PathLen uint8     // Actual path length (1 byte)
+	Flags   uint8     // Create(1), Delete(2), Modify(4) bits (1 byte)
+	// Total: 8+8+110+1+1 = 128 bytes exactly with proper alignment
 }
 
 // Event flags for file changes

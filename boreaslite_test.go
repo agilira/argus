@@ -11,9 +11,65 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unsafe"
 
 	"github.com/agilira/go-timecache"
 )
+
+// TestFileChangeEventSize ensures FileChangeEvent is exactly 128 bytes
+// This is critical for performance - the struct must fit exactly in 2 cache lines
+func TestFileChangeEventSize(t *testing.T) {
+	var event FileChangeEvent
+	actualSize := unsafe.Sizeof(event)
+	expectedSize := uintptr(128)
+
+	if actualSize != expectedSize {
+		t.Errorf("FileChangeEvent size is %d bytes, expected exactly %d bytes", actualSize, expectedSize)
+		t.Errorf("Current struct layout:")
+		t.Errorf("  ModTime: int64    = %d bytes", unsafe.Sizeof(event.ModTime))
+		t.Errorf("  Size:    int64    = %d bytes", unsafe.Sizeof(event.Size))
+		t.Errorf("  Path:    [110]byte = %d bytes", unsafe.Sizeof(event.Path))
+		t.Errorf("  PathLen: uint8    = %d bytes", unsafe.Sizeof(event.PathLen))
+		t.Errorf("  Flags:   uint8    = %d bytes", unsafe.Sizeof(event.Flags))
+		t.Errorf("This breaks the 2-cache-line optimization and may impact performance")
+	}
+}
+
+// TestFileChangeEventFieldAssignment ensures field reordering doesn't break functionality
+func TestFileChangeEventFieldAssignment(t *testing.T) {
+	testPath := "/test/config.json"
+	testModTime := int64(1234567890)
+	testSize := int64(2048)
+	testFlags := uint8(FileEventModify | FileEventCreate)
+
+	event := FileChangeEvent{
+		ModTime: testModTime,
+		Size:    testSize,
+		PathLen: uint8(len(testPath)),
+		Flags:   testFlags,
+	}
+	copy(event.Path[:], []byte(testPath))
+
+	// Verify all fields are correctly assigned
+	if event.ModTime != testModTime {
+		t.Errorf("ModTime not assigned correctly: got %d, expected %d", event.ModTime, testModTime)
+	}
+	if event.Size != testSize {
+		t.Errorf("Size not assigned correctly: got %d, expected %d", event.Size, testSize)
+	}
+	if event.PathLen != uint8(len(testPath)) {
+		t.Errorf("PathLen not assigned correctly: got %d, expected %d", event.PathLen, len(testPath))
+	}
+	if event.Flags != testFlags {
+		t.Errorf("Flags not assigned correctly: got %d, expected %d", event.Flags, testFlags)
+	}
+
+	// Verify path is correctly copied
+	retrievedPath := string(event.Path[:event.PathLen])
+	if retrievedPath != testPath {
+		t.Errorf("Path not copied correctly: got %s, expected %s", retrievedPath, testPath)
+	}
+}
 
 // Benchmark BoreasLite write performance
 func BenchmarkBoreasLite_WriteFileEvent(b *testing.B) {

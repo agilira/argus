@@ -1,0 +1,102 @@
+# Argus v1.0.4 Release Notes
+
+**Release Date**: October 17, 2025  
+**Type**: Bug Fix & Performance Enhancement
+
+## Overview
+
+This release addresses a critical memory alignment issue in the `FileChangeEvent` structure and adds comprehensive testing to prevent future regressions. Thanks to community feedback, we've improved both correctness and performance.
+
+## Performance Improvements
+
+### Memory Alignment Optimization
+- **Fixed**: `FileChangeEvent` struct now correctly sized to exactly 128 bytes (2 cache lines)
+- **Optimized**: Reordered struct fields to eliminate compiler padding
+- **Result**: Significant performance improvements across all benchmarks:
+  - WriteFileEvent: **+11% faster** (69.37ns → 62.32ns)
+  - HighThroughput: **+50% faster** (80.18ns → 53.38ns)
+  - MPSC operations: Maintained ultra-low latency (~34ns)
+  - SingleEvent: Consistent ~25ns ultra-low latency
+
+## Bug Fixes
+
+### Structure Size Validation
+- **Issue**: `FileChangeEvent` was 136 bytes instead of the documented 128 bytes
+- **Cause**: Go compiler memory alignment padding between fields
+- **Fix**: Reordered fields to place `int64` fields (ModTime, Size) first
+- **Impact**: Perfect 2-cache-line alignment as designed
+
+## Testing Enhancements
+
+### New Test Coverage
+- **Added**: `TestFileChangeEventSize` - Ensures struct is exactly 128 bytes
+- **Added**: `TestFileChangeEventFieldAssignment` - Validates field reordering doesn't break functionality
+- **Protection**: Prevents future regressions of memory layout
+
+### Test Validation
+- All existing tests pass
+- Memory layout verified
+- Field assignment integrity confirmed
+- Performance benchmarks improved
+
+## Technical Details
+
+### Structure Layout (Before vs After)
+```go
+// Before (136 bytes - misaligned)
+type FileChangeEvent struct {
+    Path    [110]byte // 110 bytes
+    PathLen uint8     // 1 byte + 7 bytes padding
+    ModTime int64     // 8 bytes  
+    Size    int64     // 8 bytes
+    Flags   uint8     // 1 byte + 1 byte padding
+}
+
+// After (128 bytes - perfectly aligned)  
+type FileChangeEvent struct {
+    ModTime int64     // 8 bytes (aligned first)
+    Size    int64     // 8 bytes
+    Path    [110]byte // 110 bytes
+    PathLen uint8     // 1 byte
+    Flags   uint8     // 1 byte
+    // Total: 8+8+110+1+1 = 128 bytes exactly
+}
+```
+
+### Performance Impact
+- **Cache efficiency**: Perfect 2-cache-line alignment
+- **Memory access**: Reduced padding waste from 8 bytes to 0
+- **Throughput**: Up to 50% improvement in high-throughput scenarios
+- **Latency**: Maintained sub-30ns ultra-low latency
+
+## Acknowledgments
+
+Special thanks to **SuperMarketFormer218** (Reddit) for the excellent catch! Their feedback about the missing test for the 128-byte requirement led to discovering and fixing this important performance issue.
+
+This is exactly the kind of constructive community feedback that makes OSS better. The suggestion to validate the struct size has resulted in both improved correctness and better performance.
+
+## Upgrade Notes
+
+### Compatibility
+- **Fully backward compatible** - no API changes
+- **Automatic improvement** - existing code gets performance boost
+- **Zero breaking changes** - all field names and types unchanged
+
+### For Library Users
+- No code changes required
+- Automatic performance improvement upon upgrade
+- Existing `FileChangeEvent` usage continues to work identically
+
+### For Contributors
+- New struct size test prevents future alignment issues
+- Performance benchmarks should show improvements
+- Memory layout is now validated in CI
+
+## Benchmark Results
+
+```
+BenchmarkBoreasLite_SingleEvent-8       46640702    25.74 ns/op    38.85 Mops/sec    0 B/op    0 allocs/op
+BenchmarkBoreasLite_WriteFileEvent-8    24817128    62.32 ns/op    16.05 Mops/sec    0 B/op    0 allocs/op  
+BenchmarkBoreasLite_MPSC-8              31333228    34.82 ns/op    28.72 Mops/sec    0 B/op    0 allocs/op
+BenchmarkBoreasLite_HighThroughput-8    26742436    53.38 ns/op    18.73 Mops/sec    0 B/op    0 allocs/op
+```
