@@ -1,6 +1,6 @@
 # Argus OTEL Integration Example
 
-This comprehensive example demonstrates professional-grade OpenTelemetry integration with the Argus audit system, showcasing multiple export backends, performance optimization, and production-ready configuration patterns.
+This example demonstrates how to professionally integrate OpenTelemetry with Argus's audit system, showcasing multiple export backends, performance optimization, and production-ready configuration patterns.
 
 ## Features Demonstrated
 
@@ -449,8 +449,8 @@ func getOTELConfig(environment string) *OTELConfig {
 }
 ```
 
-This example demonstrates production-ready OpenTelemetry integration with comprehensive observability, performance optimization, and enterprise deployment patterns.
+This example shows a production-ready OpenTelemetry integration with comprehensive observability, performance optimization, and deployment patterns.
 
 ---
 
-**Argus OTEL Integration Example** • an AGILira fragment
+Argus • an AGILira fragment

@@ -229,7 +229,7 @@ The detailed architecture diagram above fully illustrates the data flow through 
 
 - **Adaptive Optimization**: Automatically adjusts strategy based on file count and change frequency
 - **Minimal Memory Footprint**: 8KB fixed overhead plus configurable buffers
-- **Sub-Microsecond Audit**: Less than 0.5µs audit impact using cached timestamps (121x faster than time.Now())
+- **Sub-Microsecond Audit**: Less than 0.5µs audit impact using cached timestamps
 - **Zero-Allocation Paths**: File stat operations with pre-allocated buffers
 
 ## Configuration Architecture
@@ -308,18 +308,6 @@ Argus automatically detects and parses multiple configuration formats:
 - **Path Sanitization**: Protection against path traversal attacks
 - **Atomic Operations**: Race condition prevention in file operations
 
-## Testing Architecture
-
-Argus includes comprehensive testing across multiple dimensions:
-
-- **Unit Tests** (`*_unit_test.go`): Individual component validation and edge cases
-- **Integration Tests** (`*_test.go`): End-to-end workflow validation with real files
-- **Performance Tests** (`*_bench_test.go`): Latency and throughput measurements
-- **Audit Tests** (`audit_test.go`): Security and compliance validation
-- **Parser Tests** (`parsers.go` tests): Universal parser validation across formats
-- **BoreasLite Tests** (`boreaslite_test.go`): Ring buffer performance and correctness
-- **Utility Tests** (`utilities_test.go`): Configuration parsing and format detection
-
 ## Extension Points
 
 ### Custom Handlers
@@ -349,14 +337,6 @@ auditor.LogSecurityEvent("deployment", "Configuration deployed to production",
     },
 )
 ```
-
-### Integration Patterns
-
-- **Kubernetes ConfigMaps**: Automatic detection of mounted ConfigMap changes
-- **HashiCorp Vault**: Integration with dynamic secrets and configuration
-- **Service Mesh**: Istio/Consul configuration synchronization
-- **Monitoring Systems**: DataDog, New Relic, Prometheus integration
-
 ## Performance Optimization Strategies
 
 ### Polling Optimization
@@ -432,7 +412,7 @@ config := argus.Config{
 
 ---
 
-Argus is architected for maximum performance, security, and operational simplicity in demanding production environments. The modular design enables easy extension while maintaining backward compatibility and deterministic behavior.
+Argus is architected for maximum performance, security, and operational simplicity in all production environments. The modular design enables easy extension while maintaining backward compatibility and deterministic behavior.
 
 ---
 

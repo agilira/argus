@@ -1,0 +1,126 @@
+# Argus v1.0.5 Release Notes
+
+**Release Date**: October 18, 2025  
+**Type**: Documentation & API Enhancement
+
+## Overview
+
+This release delivers a comprehensive documentation overhaul, making Argus significantly more accessible and professional. All documentation has been reorganized with semantic naming, redundancy eliminated, and technical accuracy ensured across all components.
+
+## Documentation Improvements
+
+### Complete Documentation Restructuring
+- **Reorganized**: All documentation files renamed with semantic, lowercase naming convention
+- **Eliminated**: Redundant documentation that duplicated API reference content (~20KB reduction)
+- **Enhanced**: Technical accuracy across all guides and references
+- **Standardized**: Consistent structure and navigation across all documents
+
+### File Renaming and Standardization
+```
+API-REFERENCE.md         → remote-config-api.md    (API-specific)
+API.md                   → api-reference.md        (Main API reference)
+ARCHITECTURE.md          → architecture.md         (Consistent naming)
+AUDIT.md                 → audit-system.md         (More descriptive)
+CONFIG_BINDING.md        → REMOVED                  (Redundant with API reference)
+ENVIRONMENT_VARIABLES.md → environment-config.md   (Concise naming)
+FLASH_FLAGS_INTEGRATION.md → REMOVED               (Obsolete implementation)
+INTEGRATION-GUIDE.md     → integrations.md         (Simplified)
+ORPHEUS_INTEGRATION.md   → cli-integration.md      (Semantic clarity)
+PARSER_PLUGINS.md        → REMOVED                  (Redundant with API reference)
+PARSERS.md               → parser-guide.md          (Clear purpose)
+PROVIDER -TUTORIAL.md    → provider-tutorial.md    (Fixed spacing issue)
+QUICK_START.md           → quick-start.md           (Consistent casing)
+REMOTE_CONFIGURATION.md  → REMOVED                  (Consolidated with API reference)
+```
+
+### Content Quality Improvements
+- **API Reference**: Complete rewrite with 100% source code coverage (1472 lines)
+- **Parser Guide**: Updated technical reference reflecting actual implementation capabilities
+- **Cross-references**: All internal links updated and verified
+- **Accuracy**: Documentation now matches actual codebase implementation
+
+## API Documentation Enhancements
+
+### Complete API Reference Overhaul
+- **Navigation**: Enhanced table of contents with quick navigation
+- **Examples**: Practical code examples for all major features
+- **Performance**: Documented performance characteristics and benchmarks
+
+### Parser System Documentation
+- **Technical accuracy**: Updated to reflect 7 supported formats and advanced features
+- **Plugin architecture**: Complete documentation of custom parser development
+- **Security features**: Documented validation and security considerations
+- **Performance optimizations**: Memory pooling and zero-allocation patterns
+
+## Project Structure Improvements
+
+### Documentation Organization
+- **Eliminated redundancy**: Removed ~20KB of duplicate content
+- **Improved discoverability**: Semantic file names make purpose clear
+- **Enhanced maintainability**: Single source of truth for each topic
+- **Professional presentation**: Consistent style and structure
+
+### Reference Updates
+- **doc.go**: Updated with current file structure and accurate paths
+- **README**: Links updated to new documentation structure
+- **Examples**: All internal references corrected
+
+## Technical Accuracy
+
+### Source Code Verification
+- **API Reference**: Every function and type cross-referenced with source code
+- **Parser Capabilities**: Documentation updated to reflect actual implementation
+- **Examples**: All code examples tested and verified
+- **Performance Claims**: Benchmarks and metrics verified
+
+### Error Correction
+- **Obsolete references**: Removed documentation for removed features
+- **Missing features**: Added documentation for recently implemented capabilities
+
+## Impact on Users
+
+### Improved Developer Experience
+- **Faster onboarding**: Clear, well-organized documentation structure
+- **Better navigation**: Semantic file names
+
+### Enhanced Discoverability
+- **Intuitive structure**: File names clearly indicate content purpose
+- **Comprehensive coverage**: No missing APIs or undocumented features
+- **Better search**: Semantic naming improves documentation searchability
+
+## Maintenance Benefits
+
+### Long-term Sustainability
+- **Single source of truth**: Eliminated duplicate API documentation
+- **Easier updates**: Clear structure makes maintenance more straightforward
+- **Quality assurance**: Documentation now accurately reflects implementation
+- **Professional standards**: Consistent technical writing across all documents
+
+## Upgrade Notes
+
+### For Users
+- **Update bookmarks**: Documentation file names have changed
+- **New structure**: Familiarize with improved organization
+- **Enhanced content**: Take advantage of improved examples and explanations
+
+## Files Affected
+
+### Documentation Structure
+```
+docs/
+├── api-reference.md         (Enhanced main API reference)
+├── architecture.md          (System architecture guide) 
+├── audit-system.md          (Audit and compliance)
+├── cli-integration.md       (CLI usage with Orpheus)
+├── environment-config.md    (Environment variable configuration)
+├── integrations.md          (General integration patterns)
+├── parser-guide.md          (Technical parser reference)
+├── provider-tutorial.md     (Provider development guide)
+├── quick-start.md           (Getting started guide)
+└── remote-config-api.md     (Remote configuration API)
+```
+
+### Content Reduction
+- **Eliminated redundancy**: ~20KB of duplicate content removed
+- **Improved focus**: Each document has clear, distinct purpose
+- **Better maintainability**: Reduced complexity without losing information

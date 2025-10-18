@@ -160,8 +160,6 @@ func main() {
 3. **Remote Configuration**: Combine with `argus.NewRemoteConfigWithFallback()`
 4. **Production Deployment**: Add audit logging and monitoring
 
-## Related Documentation
+---
 
-- [Environment Variables Guide](../../docs/ENVIRONMENT_VARIABLES.md)
-- [Configuration Binding System](../../docs/CONFIG_BINDING.md)  
-- [Universal Parser System](../../docs/PARSERS.md)
+Argus • an AGILira fragment

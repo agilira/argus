@@ -1,4 +1,4 @@
-// enterprise_validation_test.go: Enterprise Validation Test Suite
+// config_validation_test.go: Configuration Validation Test Suite
 //
 // Copyright (c) 2025 AGILira - A. Giordano
 // Series: an AGILira fragment

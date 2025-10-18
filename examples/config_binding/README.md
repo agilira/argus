@@ -114,7 +114,6 @@ The example uses this JSON configuration internally:
 }
 ```
 
-
 ## Modifying the Example
 
 To add new configuration values:
@@ -161,12 +160,6 @@ Performance will vary based on:
 
 Configuration binding can be combined with Argus file watching for dynamic configuration updates. See the main documentation for integration examples.
 
-
-## Further Reading
-
-- [Configuration Binding Documentation](../../docs/CONFIG_BINDING.md) - Technical guide
-- [API Reference](../../docs/API.md) - Full API documentation
-- [Quick Start Guide](../../docs/QUICK_START.md) - Getting started with Argus
 
 ---
 

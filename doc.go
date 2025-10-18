@@ -312,15 +312,17 @@
 // For detailed examples and documentation:
 //   - examples/config_binding/ - Ultra-fast binding system demo
 //   - examples/error_handling/ - Error handling patterns and best practices
-//   - examples/enterprise_validation/ - Production security validation examples
-//   - docs/CONFIG_BINDING.md - Complete technical documentation
-//   - docs/QUICK_START.md - Getting started guide
-//   - docs/API.md - Full API reference
-//   - docs/AUDIT.md - Audit system and SQLite backend configuration
-//   - docs/SECURITY.md - Security hardening and best practices
-//   - docs/REMOTE_CONFIGURATION.md - Distributed configuration management
+//   - examples/config_validation/ - Configuration validation examples
+//   - docs/quick-start.md - Getting started guide
+//   - docs/api-reference.md - Full API reference
+//   - docs/audit-system.md - Audit system and SQLite backend configuration
+//   - docs/architecture.md - System architecture and scaling guide
+//   - docs/parser-guide.md - Configuration parser system and plugins
+//   - docs/cli-integration.md - CLI integration with Orpheus framework
+//   - docs/remote-config-api.md - Remote configuration API reference
+//   - SECURITY.md - Security hardening and best practices
 //
-// For production deployments, see docs/ARCHITECTURE.md for scaling,
+// For production deployments, see docs/architecture.md for scaling,
 // performance tuning, and security configuration recommendations.
 //
 // Repository: https://github.com/agilira/argus

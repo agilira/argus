@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Argus Audit System provides professional-grade audit trails for configuration changes with **zero-trust security** and **forensic-quality logging**. The system features a **unified SQLite backend** that consolidates audit events from multiple applications into a single, correlation-ready database while maintaining full backward compatibility with JSONL format for legacy systems.
+Argus Audit System provides professional-grade audit trails for configuration changes with **zero-trust security** and **forensic-quality logging**. The system features a **unified SQLite backend** that consolidates audit events from multiple applications into a single, correlation-ready database while maintaining full backward compatibility with JSONL format for legacy systems.
 
 ## Why Audit Matters
 
@@ -1078,7 +1078,7 @@ spec:
 - Document cross-application analysis procedures
 - Train operations team on SQL-based audit investigation
 
-The Argus Audit System provides professional-grade audit capabilities that meet the most stringent compliance and security requirements while maintaining ultra-high performance and operational simplicity.
+Argus's Audit System provides professional-grade audit capabilities that meet the most stringent compliance and security requirements while maintaining ultra-high performance and operational simplicity.
 
 ---
 

@@ -1,6 +1,6 @@
 # Argus Optimization Strategies Example
 
-This example demonstrates the four optimization strategies available in Argus for different file monitoring scenarios. The example has been fully translated from Italian to professional English and includes comprehensive testing and benchmarking.
+This example demonstrates the four optimization strategies available in Argus for different file monitoring scenarios.
 
 ## Optimization Strategies
 
@@ -43,3 +43,7 @@ go test -v
 # Run benchmarks
 go test -bench=. -benchmem
 ```
+
+---
+
+Argus • an AGILira fragment

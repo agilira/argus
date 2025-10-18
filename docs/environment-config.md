@@ -456,14 +456,6 @@ pollInterval, err := time.ParseDuration(pollIntervalStr)
 // After (Argus)
 pollInterval := argus.GetEnvDurationWithDefault("ARGUS_POLL_INTERVAL", 5*time.Second)
 ```
-
----
-
-**Next Steps:**
-- See [API Reference](API.md) for complete function documentation
-- Check [Quick Start Guide](QUICK_START.md) for basic usage examples
-- Review [Audit System](AUDIT.md) for security and compliance features
-
 ---
 
 Argus • an AGILira fragment

@@ -1,10 +1,8 @@
-# Orpheus CLI Integration Guide
-
-Complete guide for integrating Argus configuration management with Orpheus CLI framework.
+# Argus CLI - Powered by [Orpheus]('https://github.com/agilira/orpheus')
 
 ## Overview
 
-Argus includes a high-performance CLI built with the Orpheus framework, delivering 7x-53x better performance than traditional CLI solutions. The integration provides git-style subcommands with zero-allocation hot paths.
+Argus includes a high-performance CLI built with [Orpheus]('https://github.com/agilira/orpheus'), delivering ~30x better performance than traditional CLI solutions. The integration provides git-style subcommands with zero-allocation hot paths.
 ```
 
 ## Command Structure
@@ -396,8 +394,6 @@ manager := cli.NewManager().WithAudit(auditLogger)
 
 ### Zero-Allocation Hot Paths
 
-The CLI is optimized for production use with zero allocations in hot paths:
-
 ```go
 // These operations allocate no memory:
 value := writer.GetValue("database.host")     // 0 allocs
@@ -415,7 +411,7 @@ keys := writer.ListKeys("server")             // 0 allocs
 
 ```
 Operation Benchmarks:
-config get:     30ns,   0 allocs
+config get:    30ns,   0 allocs
 config set:   2.1ms,   3 allocs (I/O bound)  
 config list:  100μs,   0 allocs
 config watch:  25ms,   1 alloc (polling interval)

@@ -17,9 +17,9 @@ import (
 )
 
 func main() {
-	fmt.Println("=== Argus 2.0 Enterprise Configuration Validation Demo ===")
-	fmt.Println("🔄 Features unified SQLite audit backend for cross-app correlation")
-	fmt.Println("📝 Use empty OutputFile for SQLite, .jsonl extension for JSONL")
+	fmt.Println("=== Argus Configuration Validation Demo ===")
+	fmt.Println("Demonstrates comprehensive configuration validation capabilities")
+	fmt.Println("Features unified SQLite audit backend for cross-app correlation")
 	fmt.Println()
 
 	// Create temporary directory for examples
@@ -165,13 +165,13 @@ func main() {
 		fmt.Printf("   ✅ Configuration is valid\n")
 	}
 
-	fmt.Println("\n=== Enterprise-Grade Validation Complete ===")
-	fmt.Println("✨ Argus 2.0 provides comprehensive configuration validation")
+	fmt.Println("\n=== Configuration Validation Complete ===")
+	fmt.Println("Argus provides comprehensive configuration validation:")
 	fmt.Println("   • Detailed error reporting with specific error codes")
 	fmt.Println("   • Performance warnings and recommendations")
 	fmt.Println("   • File system path validation")
 	fmt.Println("   • Memory usage warnings")
 	fmt.Println("   • Optimization strategy recommendations")
 	fmt.Println("   • Environment variable validation")
-	fmt.Println("   • Enterprise audit configuration validation")
+	fmt.Println("   • Audit configuration validation")
 }

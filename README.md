@@ -7,7 +7,7 @@ High-performance configuration management library for Go applications with zero-
 [![CI/CD Pipeline](https://github.com/agilira/argus/actions/workflows/ci.yml/badge.svg)](https://github.com/agilira/argus/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/agilira/argus/actions/workflows/codeql.yml/badge.svg)](https://github.com/agilira/argus/actions/workflows/codeql.yml)
 [![Security](https://img.shields.io/badge/security-gosec-brightgreen.svg)](https://github.com/agilira/argus/actions/workflows/ci.yml)
-[![Go Report Card](https://goreportcard.com/badge/github.com/agilira/argus)](https://goreportcard.com/report/github.com/agilira/argus)
+[![Go Report Card](https://goreportcard.com/badge/github.com/agilira/argus?v=2)](https://goreportcard.com/report/github.com/agilira/argus)
 [![Test Coverage](https://img.shields.io/badge/coverage-87.7%25-brightgreen)](https://github.com/agilira/argus)
 [![CLI Coverage](https://img.shields.io/badge/cli_coverage-77.5%25-green)](https://github.com/agilira/argus)
 ![Xantos Powered](https://img.shields.io/badge/Xantos-Powered-8A2BE2)
@@ -129,7 +129,7 @@ argus config set config.yaml database.host localhost
 argus config convert config.yaml config.json
 argus watch config.yaml --interval=1s
 ```
-**[Orpheus CLI Integration →](./docs/ORPHEUS_INTEGRATION.md)** - Complete CLI documentation and examples
+**[Orpheus CLI Integration →](./docs/cli-integration.md)** - Complete CLI documentation and examples
 
 ## Performance
 
@@ -163,14 +163,14 @@ File Count    Setup Time    Strategy Used
 
 Argus provides intelligent configuration management through polling-based optimization with lock-free stat cache (12.10ns monitoring overhead), ultra-fast format detection (2.79ns per operation).
 
-**[Complete Architecture Guide →](./docs/ARCHITECTURE.md)**
+**[Complete Architecture Guide →](./docs/architecture.md)**
 
 
 ### Parser Support
 
 Built-in parsers optimized for rapid deployment with full specification compliance available via plugins.
 
-> **Advanced Features**: Complex configurations requiring full spec compliance should use plugin parsers via `argus.RegisterParser()`. See [docs/PARSERS.md](docs/PARSERS.md) for details.
+> **Advanced Features**: Complex configurations requiring full spec compliance should use plugin parsers via `argus.RegisterParser()`. See [docs/parser-guide.md](docs/parser-guide.md) for details.
 
 
 ## Core Framework
@@ -224,7 +224,7 @@ err := argus.BindFromConfig(config).
 
 **Performance**: 1,645,489 operations/second with single allocation per bind
 
-**[Configuration Binding Guide →](./docs/CONFIG_BINDING.md)** | **[Full API Reference →](./docs/API.md)**
+**[Full API Reference →](./docs/api-reference.md)**
 
 
 ## Observability & Integrations
@@ -276,10 +276,10 @@ config := argus.AuditConfig{
 ## Documentation
 
 **Quick Links:**
-- **[Quick Start Guide](./docs/QUICK_START.md)** - Get running in 2 minutes
-- **[Orpheus CLI Integration](./docs/ORPHEUS_INTEGRATION.md)** - Complete CLI documentation and examples
-- **[API Reference](./docs/API.md)** - Complete API documentation  
-- **[Audit System](./docs/AUDIT.md)** - Comprehensive audit and compliance guide
+- **[Quick Start Guide](./docs/quick-start.md)** - Get running in 2 minutes
+- **[Orpheus CLI Integration](./docs/cli-integration.md)** - Complete CLI documentation and examples
+- **[API Reference](./docs/api-reference.md)** - Complete API documentation  
+- **[Audit System](./docs/audit-system.md)** - Comprehensive audit and compliance guide
 - **[Examples](./examples/)** - Production-ready configuration patterns
 
 ## License

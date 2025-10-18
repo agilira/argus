@@ -160,7 +160,7 @@ go build -o argus ./examples/cli/main.go
 
 The CLI is built using these components:
 
-- **Orpheus Framework**: Ultra-fast CLI framework with zero external dependencies
+- **Orpheus Framework**: Ultra-fast CLI framework
 - **Argus Core**: Configuration management library with universal format support
 - **CLI Manager**: High-performance command orchestration and routing
 - **Command Handlers**: Zero-allocation implementations for all operations
@@ -279,13 +279,7 @@ This example is licensed under the [Mozilla Public License 2.0](../../LICENSE.md
 - [OTEL Integration](../otel_integration/) - OpenTelemetry integration
 - [Error Handling](../error_handling/) - Advanced error handling patterns
 
-## Links
-
-- [Argus Repository](https://github.com/agilira/argus)
-- [Orpheus CLI Framework](https://github.com/agilira/orpheus)
-- [Complete Documentation](../../docs/)
-- [API Reference](../../docs/API.md)
 
 ---
 
-Argus CLI Example • an AGILira fragment
+Argus • an AGILira fragment

@@ -1,6 +1,6 @@
 # Error Handling Example
 
-This example demonstrates comprehensive error handling strategies with Argus using the [go-errors](https://github.com/agilira/go-errors) library for structured error handling.
+This example demonstrates comprehensive error handling strategies with Argus using the [go-errors](https://github.com/agilira/go-errors) for structured error handling.
 
 ## Overview
 
@@ -94,19 +94,6 @@ go test -v
 go test -race -v
 ```
 
-## Test Coverage
-
-The example includes comprehensive tests covering:
-
-- **Custom Error Handler**: Tests custom error handler functionality
-- **File Not Found Error**: Tests file not found error handling
-- **Parse Error Handling**: Tests configuration parsing error handling
-- **Default Error Handler**: Tests default error handler behavior
-- **Custom Error Creation**: Tests creating custom errors with `go-errors`
-- **Error Handler Integration**: Tests multiple error scenarios
-- **Performance**: Tests error creation performance (target: < 1µs per error)
-- **Concurrency**: Tests concurrent error handling
-
 ## Performance Characteristics
 
 - **Error Creation**: < 1µs per error (tested with 1000 iterations)
@@ -141,14 +128,6 @@ Argus errors follow the format: `[ERROR_CODE]: Error message`
 
 Example: `[ARGUS_INVALID_CONFIG]: failed to parse JSON config`
 
-## License
+---
 
-Copyright (c) 2025 AGILira - A. Giordano  
-Series: an AGILira fragment  
-SPDX-License-Identifier: MPL-2.0
-
-## Links
-
-- [go-errors Documentation](https://github.com/agilira/go-errors)
-- [Argus Documentation](https://github.com/agilira/argus)
-- [AGILira](https://github.com/agilira)
+Argus • an AGILira fragment

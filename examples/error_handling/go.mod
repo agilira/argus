@@ -10,7 +10,7 @@ require (
 )
 
 require (
-	github.com/agilira/flash-flags v1.0.3 // indirect
-	github.com/agilira/go-timecache v1.0.1 // indirect
+	github.com/agilira/flash-flags v1.1.5 // indirect
+	github.com/agilira/go-timecache v1.0.2 // indirect
 	github.com/mattn/go-sqlite3 v1.14.32 // indirect
 )

@@ -1,7 +1,5 @@
 # Argus Quick Start Guide
 
-Get **ultra-fast configuration watching** running in **2 minutes**!
-
 ## 30-Second Setup
 
 ### 1. Install Argus
@@ -298,7 +296,7 @@ func updateFeatureFlags(features map[string]interface{}) {
 
 ---
 
-### ⚡ **High-Performance Setup**
+### **High-Performance Setup**
 
 For **high-frequency** config changes or **performance-critical** applications:
 
@@ -543,19 +541,6 @@ ErrorHandler: func(err error, path string) {
 **Real-world impact:** In a service handling 10,000 RPS, Argus adds **<0.002%** overhead vs **3.5%** for traditional polling.
 
 ---
-
-## 🔗 **Next Steps**
-
-### **Learn More**
-- **[API Reference](API.md)** - Complete API documentation
-- **[Audit System](AUDIT.md)** - Enterprise audit trails for compliance
-- **[Examples](../examples/)** - More code examples
-
-### **Production Deployment**
-1. Set up proper **log rotation** for audit files
-2. Configure **monitoring** integration
-3. Test **graceful shutdown** procedures
-4. Review **security settings** and file permissions
 
 ### **Get Help**
 - GitHub Issues: Report bugs or request features
