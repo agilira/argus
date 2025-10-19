@@ -2,7 +2,7 @@
 
 ![Argus Banner](assets/banner.png)
 
-High-performance configuration management library for Go applications with zero-allocation performance, universal format support (JSON, YAML, TOML, HCL, INI, Properties), and an ultra-fast CLI powered by [Orpheus](https://github.com/agilira/orpheus) & [Flash-Flags](https://github.com/agilira/flash-flags).
+High-performance configuration management framework for Go applications with zero-allocation performance, universal format support (JSON, YAML, TOML, HCL, INI, Properties), and an ultra-fast CLI powered by [Orpheus](https://github.com/agilira/orpheus).
 
 [![CI/CD Pipeline](https://github.com/agilira/argus/actions/workflows/ci.yml/badge.svg)](https://github.com/agilira/argus/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/agilira/argus/actions/workflows/codeql.yml/badge.svg)](https://github.com/agilira/argus/actions/workflows/codeql.yml)
