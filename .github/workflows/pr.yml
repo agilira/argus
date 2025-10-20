@@ -36,4 +36,10 @@ jobs:
       run: go install github.com/securego/gosec/v2/cmd/gosec@latest
 
     - name: Security Scan
-      run: gosec --exclude=G104,G306,G301 ./...
+      run: |
+        # Only scan the main module and cmd, exclude examples and benchmarks with separate go.mod
+        gosec --exclude=G104,G306,G301 \
+          --exclude-dir=examples \
+          --exclude-dir=benchmarks \
+          --exclude-dir=overhead-benchmarks \
+          ./ ./cmd/...
