@@ -1,9 +1,9 @@
-github.com/agilira/flash-flags v1.0.3 h1:k+6kB0sv02/njP3BliBv+u5AhappkfDflj7WRL7Exuo=
-github.com/agilira/flash-flags v1.0.3/go.mod h1:vuuo9FRN+ZgREaa1WYRmUFac/h3+CwuvD4EvjF5JNIQ=
+github.com/agilira/flash-flags v1.1.5 h1:wCYtbmNfqDyDO5J3qE32rRnVLh+8hm0pKNTTmCemR50=
+github.com/agilira/flash-flags v1.1.5/go.mod h1:vuuo9FRN+ZgREaa1WYRmUFac/h3+CwuvD4EvjF5JNIQ=
 github.com/agilira/go-errors v1.1.0 h1:97cBNEDo6q2pKzkr/YqlqWq3fa5rOU8E4LOnSsCmWck=
 github.com/agilira/go-errors v1.1.0/go.mod h1:YEeM2sVXg2w/GmDVZ2m2nH2kJ2Aa34OvbTA6w3JzVbY=
-github.com/agilira/go-timecache v1.0.1 h1:/i2XfvPXWiG20V7hV7cuq1rlFvhhw5qQCb/BpfDvHVU=
-github.com/agilira/go-timecache v1.0.1/go.mod h1:FRm8ATec0fQeD+058ndGi3xyI9kIbJEwlv9SwbpEU9g=
+github.com/agilira/go-timecache v1.0.2 h1:8tmWsNhhXxmvopotfkX+IBnb+0wpclytdnsA3wPfmk4=
+github.com/agilira/go-timecache v1.0.2/go.mod h1:Td47wj2NGJVCV+G4y+RlfHapluz4STXDeS1cQ1SqKDo=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/go-logr/logr v1.2.2/go.mod h1:jdQByPbusPIv2/zmleS9BjJVeZ6kBagPoEUsqbVz/1A=
