@@ -7,6 +7,7 @@
 package argus
 
 import (
+	"runtime"
 	"sync/atomic"
 	"time"
 )
@@ -523,9 +524,14 @@ func (b *BoreasLite) runAutoProcessor() {
 				continue
 			}
 		} else {
-			// CRITICAL FIX: Yield CPU to prevent busy spinning 100% CPU usage
-			time.Sleep(100 * time.Microsecond)
-			spins = 0
+			// HYBRID APPROACH: Yield first for latency, sleep if still spinning
+			runtime.Gosched()
+			spins++
+
+			if spins > 12000 { // Escalation after Gosched attempts
+				time.Sleep(50 * time.Microsecond) // Reduced from 100μs, DoS protection
+				spins = 0                         // Reset counter
+			}
 		}
 	}
 
