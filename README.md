@@ -12,6 +12,7 @@ High-performance configuration management framework for Go applications with zer
 [![CLI Coverage](https://img.shields.io/badge/cli_coverage-77.5%25-green)](https://github.com/agilira/argus)
 ![Xantos Powered](https://img.shields.io/badge/Xantos-Powered-8A2BE2)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/11273/badge)](https://www.bestpractices.dev/projects/11273)
+[![Mentioned in Awesome Go](https://awesome.re/mentioned-badge.svg)](https://github.com/avelino/awesome-go)
 
 ## Live Demo
 
