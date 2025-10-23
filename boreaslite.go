@@ -438,8 +438,14 @@ func (b *BoreasLite) runSingleEventProcessor() {
 		spins++
 		if spins < 5000 { // Aggressive spinning for ultra-low latency
 			continue
+		} else if spins < 10000 { // Progressive yielding phase
+			if spins&3 == 0 { // Yield every 4 iterations to prevent CPU monopolization
+				runtime.Gosched()
+			}
 		} else {
-			spins = 0 // Reset quickly for file changes
+			// Sleep phase for battery and cloud efficiency
+			time.Sleep(100 * time.Microsecond) // Brief sleep to release CPU
+			spins = 0                          // Reset after sleep
 		}
 	}
 
@@ -464,9 +470,11 @@ func (b *BoreasLite) runSmallBatchProcessor() {
 				continue
 			} else if spins < 6000 {
 				if spins&3 == 0 { // Yield every 4 iterations
-					continue
+					runtime.Gosched()
 				}
 			} else {
+				// Sleep phase for better CPU efficiency
+				time.Sleep(200 * time.Microsecond) // Slightly longer sleep than SingleEvent
 				spins = 0
 			}
 		}
@@ -493,9 +501,11 @@ func (b *BoreasLite) runLargeBatchProcessor() {
 				continue
 			} else if spins < 4000 {
 				if spins&15 == 0 { // Yield every 16 iterations
-					continue
+					runtime.Gosched()
 				}
 			} else {
+				// Sleep phase for throughput optimization with CPU efficiency
+				time.Sleep(500 * time.Microsecond) // Longer sleep for batch processing
 				spins = 0
 			}
 		}
@@ -520,18 +530,13 @@ func (b *BoreasLite) runAutoProcessor() {
 		if spins < 2000 {
 			continue
 		} else if spins < 8000 {
-			if spins&7 == 0 {
-				continue
+			if spins&7 == 0 { // Yield every 8 iterations
+				runtime.Gosched()
 			}
 		} else {
-			// HYBRID APPROACH: Yield first for latency, sleep if still spinning
-			runtime.Gosched()
-			spins++
-
-			if spins > 12000 { // Escalation after Gosched attempts
-				time.Sleep(50 * time.Microsecond) // Reduced from 100μs, DoS protection
-				spins = 0                         // Reset counter
-			}
+			// HYBRID APPROACH: Sleep for CPU efficiency
+			time.Sleep(50 * time.Microsecond) // Brief sleep for battery/cloud efficiency
+			spins = 0                         // Reset counter after sleep
 		}
 	}
 

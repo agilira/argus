@@ -142,7 +142,9 @@ Configuration Monitoring:      12.10 ns/op     (99.999% efficiency)
 Format Auto-Detection:         2.79 ns/op      (universal format support)
 JSON Parsing (small):          1,712 ns/op     (616 B/op, 16 allocs/op)
 JSON Parsing (large):          7,793 ns/op     (3,064 B/op, 86 allocs/op)
-Event Processing:              24.91 ns/op     (BoreasLite single event)
+Event Processing:              25.51 ns/op     (BoreasLite single event, CPU-efficient)
+Write Operations:              10.15 ns/op     (Ultra-fast file event writing)
+vs Go Channels:                5.6x faster     (10.31 ns vs 57.62 ns/op)
 CLI Command Parsing:             512 ns/op     (3 allocs/op, Orpheus framework)
 ```
 **Test BoreasLite ring buffer performance**:
