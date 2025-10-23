@@ -439,7 +439,7 @@ func (b *BoreasLite) runSingleEventProcessor() {
 		if spins < 5000 { // Aggressive spinning for ultra-low latency
 			continue
 		} else if spins < 10000 { // Progressive yielding phase
-			if spins&3 == 0 { // Yield every 4 iterations to prevent CPU monopolization
+			if spins&3 == 0 { // Yield every 4 iterations
 				runtime.Gosched()
 			}
 		} else {
