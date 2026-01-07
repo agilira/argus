@@ -77,8 +77,26 @@ func TestCLI_LowCoverage_Handlers(t *testing.T) {
 	t.Run("audit_query_with_audit_enabled", func(t *testing.T) {
 		// Create manager with audit enabled
 		auditManager := NewManager()
-		// Enable audit by creating an audit logger
-		auditLogger, err := argus.NewAuditLogger(argus.DefaultAuditConfig())
+
+		// Create a unique temp directory for this test's SQLite database
+		// This avoids "database is locked" errors on Windows CI
+		testAuditDir := filepath.Join(fixture.tempDir, "audit_query_test")
+		if err := os.MkdirAll(testAuditDir, 0755); err != nil {
+			t.Fatalf("Failed to create audit dir: %v", err)
+		}
+		auditDBPath := filepath.Join(testAuditDir, "test_audit.db")
+
+		// Configure audit with test-specific database path
+		auditConfig := argus.AuditConfig{
+			Enabled:       true,
+			OutputFile:    auditDBPath,
+			MinLevel:      argus.AuditInfo,
+			BufferSize:    100,
+			FlushInterval: 1 * time.Second,
+			IncludeStack:  false,
+		}
+
+		auditLogger, err := argus.NewAuditLogger(auditConfig)
 		if err != nil {
 			t.Fatalf("Failed to create audit logger: %v", err)
 		}
@@ -134,7 +152,26 @@ func TestCLI_LowCoverage_Handlers(t *testing.T) {
 	t.Run("audit_cleanup_with_audit_enabled", func(t *testing.T) {
 		// Create manager with audit enabled
 		auditManager := NewManager()
-		auditLogger, err := argus.NewAuditLogger(argus.DefaultAuditConfig())
+
+		// Create a unique temp directory for this test's SQLite database
+		// This avoids "database is locked" errors on Windows CI
+		cleanupAuditDir := filepath.Join(fixture.tempDir, "audit_cleanup_test")
+		if err := os.MkdirAll(cleanupAuditDir, 0755); err != nil {
+			t.Fatalf("Failed to create audit dir: %v", err)
+		}
+		cleanupDBPath := filepath.Join(cleanupAuditDir, "cleanup_audit.db")
+
+		// Configure audit with test-specific database path
+		cleanupConfig := argus.AuditConfig{
+			Enabled:       true,
+			OutputFile:    cleanupDBPath,
+			MinLevel:      argus.AuditInfo,
+			BufferSize:    100,
+			FlushInterval: 1 * time.Second,
+			IncludeStack:  false,
+		}
+
+		auditLogger, err := argus.NewAuditLogger(cleanupConfig)
 		if err != nil {
 			t.Fatalf("Failed to create audit logger for cleanup test: %v", err)
 		}

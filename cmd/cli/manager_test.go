@@ -2,7 +2,9 @@ package cli
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/agilira/argus"
 )
@@ -31,8 +33,27 @@ func TestNewManager(t *testing.T) {
 // TestManagerWithAudit verifies audit logger integration.
 // Tests fluent interface and proper state management.
 func TestManagerWithAudit(t *testing.T) {
-	// Create audit logger with minimal config
-	auditLogger, err := argus.NewAuditLogger(argus.DefaultAuditConfig())
+	// Create a unique temp directory for this test's SQLite database
+	// This avoids "database is locked" errors on Windows CI
+	tempDir, err := os.MkdirTemp("", "argus_manager_test_")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	auditDBPath := filepath.Join(tempDir, "manager_audit.db")
+
+	// Configure audit with test-specific database path
+	auditConfig := argus.AuditConfig{
+		Enabled:       true,
+		OutputFile:    auditDBPath,
+		MinLevel:      argus.AuditInfo,
+		BufferSize:    100,
+		FlushInterval: 1 * time.Second,
+		IncludeStack:  false,
+	}
+
+	auditLogger, err := argus.NewAuditLogger(auditConfig)
 	if err != nil {
 		t.Fatalf("Failed to create audit logger: %v", err)
 	}
