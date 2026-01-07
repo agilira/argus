@@ -24,7 +24,7 @@ default: // OptimizationAuto
 
 ## Spinning Logic Analysis
 
-### Core Implementation (CPU-Efficient)
+### Core Implementation
 
 ```go
 func (b *BoreasLite) runSingleEventProcessor() {
@@ -56,7 +56,7 @@ func (b *BoreasLite) runSingleEventProcessor() {
 }
 ```
 
-### Design Rationale (CPU-Efficient Version)
+### Design Rationale
 
 | Component | Purpose | Technical Justification |
 |-----------|---------|------------------------|
@@ -78,7 +78,7 @@ The spinning approach provides:
 - **Zero memory allocation** per event
 - **Predictable timing behavior**
 
-### CPU Efficiency Trade-offs (Optimized)
+### CPU Efficiency
 
 ```
 Single Event Strategy (1-2 files):
