@@ -9,5 +9,5 @@ require (
 	github.com/agilira/go-errors v1.1.1
 	github.com/agilira/go-timecache v1.0.2
 	github.com/agilira/orpheus v1.1.10
-	github.com/mattn/go-sqlite3 v1.14.32
+	github.com/mattn/go-sqlite3 v1.14.33
 )

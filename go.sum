@@ -6,5 +6,5 @@ github.com/agilira/go-timecache v1.0.2 h1:8tmWsNhhXxmvopotfkX+IBnb+0wpclytdnsA3w
 github.com/agilira/go-timecache v1.0.2/go.mod h1:Td47wj2NGJVCV+G4y+RlfHapluz4STXDeS1cQ1SqKDo=
 github.com/agilira/orpheus v1.1.10 h1:/C6VUUBBgQPBCE3XriSEASlucTThGihLQRA5XbxoK6w=
 github.com/agilira/orpheus v1.1.10/go.mod h1:0VC9iQnFSmwg9e2SM/rhzOspipueE1cZUiZw6bxlOx8=
-github.com/mattn/go-sqlite3 v1.14.32 h1:JD12Ag3oLy1zQA+BNn74xRgaBbdhbNIDYvQUEuuErjs=
-github.com/mattn/go-sqlite3 v1.14.32/go.mod h1:Uh1q+B4BYcTPb+yiD3kU8Ct7aC0hY9fxUwlHK0RXw+Y=
+github.com/mattn/go-sqlite3 v1.14.33 h1:A5blZ5ulQo2AtayQ9/limgHEkFreKj1Dv226a1K73s0=
+github.com/mattn/go-sqlite3 v1.14.33/go.mod h1:Uh1q+B4BYcTPb+yiD3kU8Ct7aC0hY9fxUwlHK0RXw+Y=
