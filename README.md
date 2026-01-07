@@ -21,12 +21,12 @@ High-performance configuration management framework for Go applications with zer
 See Argus in action - managing configurations across multiple formats with zero-allocation performance:
 
 <picture>
-  <source media="(max-width: 768px)" srcset="https://asciinema.org/a/Ew5Br2N5UD7rDe1F6MFVfNYrL.svg" width="100%">
-  <source media="(max-width: 1024px)" srcset="https://asciinema.org/a/Ew5Br2N5UD7rDe1F6MFVfNYrL.svg" width="90%">
-  <img src="https://asciinema.org/a/Ew5Br2N5UD7rDe1F6MFVfNYrL.svg" alt="Argus CLI Demo" style="max-width: 100%; height: auto;" width="800">
+  <source media="(max-width: 768px)" srcset="https://asciinema.org/a/iJZ6b5MbcbIwCfrmE8xdd5w6T.svg" width="100%">
+  <source media="(max-width: 1024px)" srcset="https://asciinema.org/a/iJZ6b5MbcbIwCfrmE8xdd5w6T.svg" width="90%">
+  <img src="https://asciinema.org/a/iJZ6b5MbcbIwCfrmE8xdd5w6T.svg" alt="Argus CLI Demo" style="max-width: 100%; height: auto;" width="800">
 </picture>
 
-*[Click to view interactive demo](https://asciinema.org/a/Ew5Br2N5UD7rDe1F6MFVfNYrL)*
+*[Click to view interactive demo](https://asciinema.org/a/iJZ6b5MbcbIwCfrmE8xdd5w6T)*
 
 </div>
 
@@ -166,7 +166,7 @@ File Count    Setup Time    Strategy Used
 
 Argus provides intelligent configuration management through polling-based optimization with lock-free stat cache (12.10ns monitoring overhead), ultra-fast format detection (2.79ns per operation).
 
-**[Complete Architecture Guide →](./docs/architecture.md)**
+**[Complete Architecture Guide →](./docs/ARCHITECTURE.md)**
 
 
 ### Parser Support
@@ -227,7 +227,7 @@ err := argus.BindFromConfig(config).
 
 **Performance**: 1,645,489 operations/second with single allocation per bind
 
-**[Full API Reference →](./docs/api-reference.md)**
+**[Full API Reference →](./docs/API-REFERENCE.md)**
 
 
 ## Observability & Integrations
@@ -281,7 +281,7 @@ config := argus.AuditConfig{
 **Quick Links:**
 - **[Quick Start Guide](./docs/quick-start.md)** - Get running in 2 minutes
 - **[Orpheus CLI Integration](./docs/cli-integration.md)** - Complete CLI documentation and examples
-- **[API Reference](./docs/api-reference.md)** - Complete API documentation  
+- **[API Reference](./docs/API-REFERENCE.md)** - Complete API documentation  
 - **[Audit System](./docs/audit-system.md)** - Comprehensive audit and compliance guide
 - **[Examples](./examples/)** - Production-ready configuration patterns
 

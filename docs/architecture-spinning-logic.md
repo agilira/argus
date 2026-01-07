@@ -82,25 +82,35 @@ The spinning approach provides:
 
 ```
 Single Event Strategy (1-2 files):
-├── Spin Limit: 5000 iterations → Yield → Sleep after 10K
+├── Spin Limit: 5000 iterations → Yield (every 4) → Sleep 100µs after 10K
 ├── CPU Usage: Efficient with automatic yielding  
 ├── Latency: Ultra-low (25.51 ns/op)
 ├── Battery: Friendly (sleep after yield attempts)
 └── Use Case: Critical configuration files
 
 Small Batch Strategy (3-20 files):
-├── Spin Limit: 2000 iterations → Yield → Sleep after 6K
+├── Spin Limit: 2000 iterations → Yield (every 4) → Sleep 200µs after 6K
 ├── CPU Usage: Balanced with cooperative yielding
 ├── Latency: Low (< 50 ns/op)
+├── Burst Mode: Continues hot loop if processed >= batchSize/2
 ├── Cloud: Optimized resource usage  
 └── Use Case: Application file monitoring
 
 Large Batch Strategy (20+ files):
-├── Spin Limit: 1000 iterations → Yield → Sleep after 4K
+├── Spin Limit: 1000 iterations → Yield (every 16) → Sleep 500µs after 4K
 ├── CPU Usage: Throughput-optimized with efficiency
 ├── Latency: Acceptable (< 100 ns/op)
+├── Burst Mode: Continues hot loop if processed >= batchSize
 ├── Scale: Handles 1000+ files without CPU monopolization
 └── Use Case: Bulk file processing
+
+Auto Strategy (DEFAULT - adaptive):
+├── Spin Limit: 2000 iterations → Yield (every 8) → Sleep 50µs after 8K
+├── CPU Usage: Dynamically balanced
+├── Latency: Adaptive based on buffer occupancy
+├── Drain Safety: Max 1000 attempts during shutdown
+├── Selection: Uses Single/Small/Large based on bufferOccupancy
+└── Use Case: General purpose, recommended for most deployments
 ```
 
 ### Similar Implementations
@@ -156,7 +166,8 @@ if spins < 5000 {
     spins = 0
 }
 
-// SmallBatch: Balanced performance with cooperative yielding for 3-20 files  
+// SmallBatch: Balanced performance with cooperative yielding for 3-20 files
+// Note: Also continues hot loop if processed >= batchSize/2 (burst optimization)
 if spins < 2000 {
     continue
 } else if spins < 6000 {
@@ -169,6 +180,7 @@ if spins < 2000 {
 }
 
 // LargeBatch: Throughput-optimized with efficiency for 20+ files
+// Note: Also continues hot loop if processed >= batchSize (throughput optimization)
 if spins < 1000 {
     continue
 } else if spins < 4000 {
@@ -179,20 +191,36 @@ if spins < 1000 {
     time.Sleep(500 * time.Microsecond) // Extended sleep for high throughput
     spins = 0
 }
+
+// Auto: Adaptive behavior with balanced thresholds (DEFAULT strategy)
+if spins < 2000 {
+    continue  // Initial spinning phase
+} else if spins < 8000 {
+    if spins&7 == 0 { // Yield every 8 iterations
+        runtime.Gosched()
+    }
+} else {
+    time.Sleep(50 * time.Microsecond) // Brief sleep for battery/cloud efficiency
+    spins = 0
+}
 ```
 
 ### Strategy Selection Logic
 
 ```go
-// Auto strategy dynamically chooses optimal approach
+// Auto strategy dynamically chooses optimal processing approach based on buffer state
+// This is called by processAutoOptimized() to select the best algorithm at runtime
 switch {
 case bufferOccupancy <= 3:
-    return b.processSingleEventOptimized(...)
+    return b.processSingleEventOptimized(...)  // Ultra-low latency path
 case bufferOccupancy <= 16:
-    return b.processSmallBatchOptimized(...)
+    return b.processSmallBatchOptimized(...)   // Balanced path
 default:
-    return b.processLargeBatchOptimized(...)
+    return b.processLargeBatchOptimized(...)   // High throughput path
 }
+
+// Note: runAutoProcessor() uses its own spinning thresholds (2K/8K/50µs)
+// while processAutoOptimized() delegates to strategy-specific batch processors
 ```
 
 ## Technical Implementation Details
@@ -289,5 +317,5 @@ Net Overhead:      +0.0238 ns/op (+9.5%)
 
 ---
 
-*Document Version: 2.0*  
-*Last Updated: October 23, 2025*  
+*Document Version: 2.1*  
+*Last Updated: January 7, 2026*  

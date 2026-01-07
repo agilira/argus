@@ -6,7 +6,7 @@ replace github.com/agilira/argus => ../..
 
 require (
 	github.com/agilira/argus v0.0.0-00010101000000-000000000000
-	github.com/agilira/go-errors v1.1.0
+	github.com/agilira/go-errors v1.1.1
 )
 
 require (

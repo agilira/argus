@@ -160,7 +160,7 @@ func TestErrorHandler_FileReadError(t *testing.T) {
 	}
 
 	// If callback was called despite the error, that's not ideal but might be platform behavior
-	if finalCallbackCalled && finalError != nil {
+	if finalCallbackCalled {
 		t.Logf("Warning: Callback was called despite read error - this suggests platform-specific behavior")
 	}
 }

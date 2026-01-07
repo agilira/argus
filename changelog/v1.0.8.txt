@@ -1,0 +1,43 @@
+# Argus v1.0.8 Release Notes
+
+**Release Date**: January 7, 2026  
+**Type**: Maintenance Release
+
+## Overview
+
+Routine maintenance release focusing on dependency updates and documentation improvements. No breaking changes or new features.
+
+## Changes
+
+### Dependencies
+- Updated `go.mod` across all example modules
+- Refreshed OpenTelemetry dependencies in `examples/otel_integration`
+- Synchronized module versions for consistency
+
+### Documentation
+- Updated asciinema demo recording with latest CLI features
+- Fixed case-sensitive documentation links for Linux compatibility
+- Updated `architecture-spinning-logic.md` with complete strategy documentation
+- Minor documentation formatting improvements
+
+### Code Quality
+- Resolved static analysis hints in test files
+- Improved code comments in core modules
+
+## Compatibility
+
+- **Go Version**: 1.24+ (unchanged)
+- **Breaking Changes**: None
+- **Deprecations**: None
+
+## Upgrade Guide
+
+Standard upgrade - no migration required:
+
+```bash
+go get github.com/agilira/argus@v1.0.8
+```
+
+---
+
+*Argus • an AGILira fragment*

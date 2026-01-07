@@ -53,9 +53,6 @@ func BenchmarkArgus_NoConsumer(b *testing.B) {
 	}); err != nil {
 		b.Fatalf("Failed to watch config file: %v", err)
 	}
-	if err != nil {
-		b.Fatalf("Failed to watch configFile: %v", err)
-	}
 
 	// NO watcher.Start() - no consumer in background
 	time.Sleep(10 * time.Millisecond)

@@ -33,6 +33,29 @@ import (
 // This interface abstracts the storage mechanism, allowing transparent
 // switching between JSONL files, SQLite databases, or future backends
 // without changing the public API.
+//
+// ═══════════════════════════════════════════════════════════════════════════════
+// ENGINEERING NOTE: Why a Backend Interface Instead of Direct SQLite?
+// ═══════════════════════════════════════════════════════════════════════════════
+// Enterprise audit requirements vary wildly:
+//
+//  1. SMALL DEPLOYMENTS: JSONL files are perfect - human-readable, grep-able,
+//     easily shipped to log aggregators (ELK, Splunk).
+//
+//  2. MEDIUM DEPLOYMENTS: SQLite provides queryable audit trails without
+//     external dependencies. Perfect for single-node apps.
+//
+//  3. LARGE DEPLOYMENTS: May need PostgreSQL, Elasticsearch, or cloud-native
+//     solutions. The interface makes adding these trivial.
+//
+// The createAuditBackend() function implements graceful degradation:
+// SQLite → JSONL → Error. This ensures audit logging NEVER prevents app
+// startup, while still capturing data via the fallback mechanism.
+//
+// The interface is minimal by design: Write, Flush, Close, Maintenance.
+// Backends can implement complex logic internally while keeping the contract
+// simple. This follows the Interface Segregation Principle.
+// ═══════════════════════════════════════════════════════════════════════════════
 type auditBackend interface {
 	// Write persists a batch of audit events to the backend.
 	// Implementations must handle concurrent writes safely.
@@ -172,6 +195,35 @@ func setupDatabasePath(config AuditConfig) (string, error) {
 }
 
 // openSQLiteDatabase opens and tests SQLite database connection
+//
+// ═══════════════════════════════════════════════════════════════════════════════
+// ENGINEERING NOTE: SQLite Pragmas for Maximum Performance
+// ═══════════════════════════════════════════════════════════════════════════════
+// These SQLite pragmas are carefully chosen for audit logging workloads:
+//
+// 1. _journal_mode=WAL (Write-Ahead Logging):
+//   - Readers NEVER block writers, writers NEVER block readers
+//   - Critical for audit logging where we write frequently but read rarely
+//   - Provides ~10x better write performance than default rollback journal
+//   - Crash recovery: WAL is replayed on next open, zero data loss
+//
+// 2. _busy_timeout=5000:
+//   - Wait up to 5 seconds if database is locked by another process
+//   - Prevents "database is locked" errors in multi-process deployments
+//   - Essential for Kubernetes pods sharing audit storage
+//
+// 3. _synchronous=NORMAL:
+//   - Balance between performance and durability
+//   - Syncs at critical moments, not every write
+//   - Acceptable for audit logs (we can afford to lose last ~1 second)
+//   - FULL would be 3x slower for negligible benefit
+//
+// 4. _cache_size=1000:
+//   - Keep 1000 pages (4MB) in memory
+//   - Reduces disk I/O for repeated queries (e.g., audit searches)
+//   - Modest memory footprint suitable for containers
+//
+// ═══════════════════════════════════════════════════════════════════════════════
 func openSQLiteDatabase(dbPath string) (*sql.DB, error) {
 	// Open SQLite database with optimized settings
 	db, err := sql.Open("sqlite3", fmt.Sprintf("%s?_journal_mode=WAL&_busy_timeout=5000&_synchronous=NORMAL&_cache_size=1000", dbPath))
