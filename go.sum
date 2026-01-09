@@ -1,10 +1,10 @@
-github.com/agilira/flash-flags v1.1.5 h1:wCYtbmNfqDyDO5J3qE32rRnVLh+8hm0pKNTTmCemR50=
-github.com/agilira/flash-flags v1.1.5/go.mod h1:vuuo9FRN+ZgREaa1WYRmUFac/h3+CwuvD4EvjF5JNIQ=
+github.com/agilira/flash-flags v1.1.6 h1:ZikDApbl5xil1qPAGnEGNMVvlw1QcxLIP+N0xYz47HE=
+github.com/agilira/flash-flags v1.1.6/go.mod h1:vuuo9FRN+ZgREaa1WYRmUFac/h3+CwuvD4EvjF5JNIQ=
 github.com/agilira/go-errors v1.1.1 h1:angp1yM1HstZMPTNKY/iOID6953QdHAv7lXTgZxF/zU=
 github.com/agilira/go-errors v1.1.1/go.mod h1:PjmCIt/5BO7N8VdM2v4x31Tepo7PjFSWdyEQjB8J/JU=
 github.com/agilira/go-timecache v1.0.2 h1:8tmWsNhhXxmvopotfkX+IBnb+0wpclytdnsA3wPfmk4=
 github.com/agilira/go-timecache v1.0.2/go.mod h1:Td47wj2NGJVCV+G4y+RlfHapluz4STXDeS1cQ1SqKDo=
-github.com/agilira/orpheus v1.1.10 h1:/C6VUUBBgQPBCE3XriSEASlucTThGihLQRA5XbxoK6w=
-github.com/agilira/orpheus v1.1.10/go.mod h1:0VC9iQnFSmwg9e2SM/rhzOspipueE1cZUiZw6bxlOx8=
+github.com/agilira/orpheus v1.1.11 h1:JhvofX8JokigrywzhK0UN62Jl8HtsodEiR79zSuyXqE=
+github.com/agilira/orpheus v1.1.11/go.mod h1:a/TfY4gXDb6sTWJDbS4fp1zmykBzyChkgurRVYMeX3w=
 github.com/mattn/go-sqlite3 v1.14.33 h1:A5blZ5ulQo2AtayQ9/limgHEkFreKj1Dv226a1K73s0=
 github.com/mattn/go-sqlite3 v1.14.33/go.mod h1:Uh1q+B4BYcTPb+yiD3kU8Ct7aC0hY9fxUwlHK0RXw+Y=
