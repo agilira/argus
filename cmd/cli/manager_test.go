@@ -39,7 +39,11 @@ func TestManagerWithAudit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			t.Logf("Warning: failed to remove temp dir %s: %v", tempDir, err)
+		}
+	}()
 
 	auditDBPath := filepath.Join(tempDir, "manager_audit.db")
 

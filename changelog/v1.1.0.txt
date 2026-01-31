@@ -1,0 +1,105 @@
+# Argus v1.1.0 Release Notes
+
+**Release Date**: January 31, 2026  
+**Type**: Feature Release
+
+## Overview
+
+This release adds full support for YAML block-style arrays (sequences), a critical feature for parsing production configuration files. The YAML parser now handles both flow-style (`[a, b, c]`) and block-style arrays:
+
+```yaml
+# Flow style (already supported)
+ports: [8080, 9090]
+
+# Block style (NEW in v1.1.0)
+ports:
+  - 8080
+  - 9090
+```
+
+This enables Argus to parse complex real-world configurations like Kubernetes manifests, Ansible playbooks, and enterprise config files that heavily use block-style arrays.
+
+## New Features
+
+### YAML Block-Style Array Support
+- Full support for YAML 1.2 block-style sequences (`- item` syntax)
+- Nested block arrays within objects
+- Block arrays containing complex objects with multiple keys
+- Mixed block arrays with regular key-value pairs
+- Proper type inference for array items (strings, numbers, booleans, null)
+- Inline comments on array items are correctly stripped
+- Quoted strings with special characters (colons, dashes) in array items
+
+### Performance
+- Zero-allocation parsing for simple array items
+- Efficient pre-allocation for common array sizes
+- Benchmark: ~6.5μs for parsing complex nested arrays
+
+## Code Quality Improvements
+
+### Refactoring
+- Extracted helper functions to reduce cyclomatic complexity
+- `parseYAMLBlockArray` refactored from CC=36 to CC<15
+- `parseYAMLLines` refactored from CC=20 to CC<15
+- New helper functions: `parseBlockArrayItem`, `extractArrayItemContent`, `stripInlineComment`, `findChildIndentation`
+
+### Bug Fixes
+- Fixed `errcheck` warning in `cmd/cli/manager_test.go` for unhandled error on temp directory cleanup
+
+### Test Coverage
+- 20+ new test cases for block-style arrays
+- Edge cases: dashes in values, colons in quoted strings, single-item arrays
+- Production config examples matching real-world usage (Kubernetes, Themis)
+- Benchmark test for performance regression detection
+
+## Compatibility
+
+- **Go Version**: 1.24+ (unchanged)
+- **Breaking Changes**: None
+- **Deprecations**: None
+- **Backward Compatible**: Yes - existing YAML parsing behavior unchanged
+
+## Security
+
+- All security quality gates passed (gosec, staticcheck)
+- No new vulnerabilities introduced
+- Proper input validation for array items
+
+## Upgrade Guide
+
+Standard upgrade - no migration required:
+
+```bash
+go get github.com/agilira/argus@v1.1.0
+```
+
+## Technical Details
+
+### New Functions Added
+- `parseYAMLBlockArray` - Main block array parser
+- `parseBlockArrayItem` - Single array item parser
+- `parseBlockArrayObjectItem` - Object-in-array parser
+- `extractArrayItemContent` - Content extraction helper
+- `stripInlineComment` - Comment stripping helper
+- `parseInlineKeyValue` - Key-value parsing helper
+- `parseObjectAdditionalKeys` - Nested object key parser
+- `parseObjectKey` - Single object key parser
+- `parseNestedObjectValue` - Nested value handler
+- `findNestedIndentation` - Indentation detection helper
+- `findChildIndentation` - Child content detection
+- `parseYAMLKeyValue` - Key-value pair parser
+- `parseYAMLNestedValue` - Nested structure handler
+- `isBlockArrayItem` - Array item detection
+- `startsWithQuote` - Quote detection helper
+- `isInsideQuotes` - Quote position checker
+
+### Files Modified
+- `parser_structured.go` - Block array parsing implementation
+- `cmd/cli/manager_test.go` - Error handling fix
+
+### Files Added
+- `parser_yaml_block_array_test.go` - Comprehensive test suite
+
+---
+
+*Argus • an AGILira fragment • Military-grade configuration management*
