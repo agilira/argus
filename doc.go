@@ -121,6 +121,37 @@
 //	watcher.Start()
 //	defer watcher.Close()
 //
+// # Directory Watching
+//
+// Argus supports watching entire directories for configuration files, with
+// pattern-based filtering, recursive subdirectory support, and automatic
+// detection of new, modified, or deleted files.
+//
+// Basic directory watching with pattern filtering:
+//
+//	watcher, err := argus.WatchDirectory("/etc/myapp/config.d", argus.DirectoryWatchOptions{
+//		Patterns:  []string{"*.yaml", "*.yml", "*.json"},
+//		Recursive: true,
+//	}, func(update argus.DirectoryConfigUpdate) {
+//		if update.IsDelete {
+//			fmt.Printf("Config removed: %s\n", update.FilePath)
+//		} else {
+//			fmt.Printf("Config updated: %s\n", update.FilePath)
+//			applyConfig(update.Config)
+//		}
+//	})
+//	defer watcher.Close()
+//
+// For merged configuration from multiple files (with alphabetical override order):
+//
+//	watcher, err := argus.WatchDirectoryMerged("/etc/myapp/config.d", argus.DirectoryWatchOptions{
+//		Patterns: []string{"*.yaml"},
+//	}, func(merged map[string]interface{}, files []string) {
+//		// merged contains all configs combined
+//		// files like 00-base.yaml, 10-override.yaml are merged in order
+//		applyMergedConfig(merged)
+//	})
+//
 // # Comprehensive Audit System
 //
 // Built-in audit logging provides security and compliance capabilities with

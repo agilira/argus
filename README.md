@@ -122,6 +122,30 @@ watcher := argus.New(argus.Config{
 defer watcher.GracefulShutdown(30 * time.Second)
 ```
 
+### Directory Watching
+```go
+// Watch entire directory for config files with pattern filtering
+watcher, err := argus.WatchDirectory("/etc/myapp/config.d", argus.DirectoryWatchOptions{
+    Patterns:  []string{"*.yaml", "*.json"},
+    Recursive: true,
+}, func(update argus.DirectoryConfigUpdate) {
+    if update.IsDelete {
+        fmt.Printf("Config removed: %s\n", update.FilePath)
+    } else {
+        fmt.Printf("Config updated: %s\n", update.FilePath)
+    }
+})
+defer watcher.Close()
+
+// Merged config from all files (alphabetical order, later overrides earlier)
+watcher, err := argus.WatchDirectoryMerged("/etc/myapp/config.d", argus.DirectoryWatchOptions{
+    Patterns: []string{"*.yaml"},
+}, func(merged map[string]interface{}, files []string) {
+    // 00-base.yaml + 10-override.yaml = merged config
+    applyConfig(merged)
+})
+```
+
 ### CLI Usage
 ```bash
 # Ultra-fast configuration management CLI

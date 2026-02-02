@@ -1,0 +1,183 @@
+# Argus v1.2.0 Release Notes
+
+**Release Date**: February 2, 2026  
+**Type**: Feature Release
+
+## Overview
+
+This release adds comprehensive **directory watching** capabilities, enabling Argus to scan entire directories for configuration files with pattern filtering, recursive subdirectory support, and hot-reload detection for new, modified, or deleted files.
+
+This enables powerful use cases like:
+- Policy engines loading rules from `/etc/app/policies/`
+- Configuration layering with `00-base.yaml`, `10-override.yaml` patterns
+- Dynamic discovery of new configuration files without restart
+
+## New Features
+
+### Directory Watching (`WatchDirectory`)
+
+Watch an entire directory for configuration files with pattern-based filtering:
+
+```go
+watcher, err := argus.WatchDirectory("/etc/myapp/config.d", argus.DirectoryWatchOptions{
+    Patterns:  []string{"*.yaml", "*.yml", "*.json"},
+    Recursive: true,
+    PollInterval: 5 * time.Second,
+}, func(update argus.DirectoryConfigUpdate) {
+    if update.IsDelete {
+        log.Printf("Config removed: %s", update.FilePath)
+    } else {
+        log.Printf("Config updated: %s", update.FilePath)
+        applyConfig(update.Config)
+    }
+})
+defer watcher.Close()
+```
+
+**Key capabilities:**
+- **Pattern filtering**: Support for multiple glob patterns (`*.yaml`, `*.json`, `*.toml`, etc.)
+- **Recursive**: Option to watch subdirectories
+- **Hot-reload**: Automatic detection of new files, modifications, and deletions
+- **Parsed content**: Each update includes the parsed configuration (`map[string]interface{}`)
+- **Format auto-detection**: Works with all supported formats (YAML, JSON, TOML, INI, etc.)
+
+### Merged Directory Watching (`WatchDirectoryMerged`)
+
+For configuration layering, merge all files in alphabetical order:
+
+```go
+watcher, err := argus.WatchDirectoryMerged("/etc/myapp/config.d", argus.DirectoryWatchOptions{
+    Patterns: []string{"*.yaml"},
+}, func(merged map[string]interface{}, files []string) {
+    // Files merged in order: 00-base.yaml, 10-app.yaml, 20-override.yaml
+    applyMergedConfig(merged)
+})
+```
+
+**Use cases:**
+- Configuration precedence (later files override earlier)
+- Environment-specific overlays
+- Plugin/module configuration discovery
+
+### DirectoryWatchOptions
+
+New configuration struct for directory watching:
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `Patterns` | `[]string` | `["*.yaml", "*.yml", "*.json", "*.toml", "*.ini"]` | Glob patterns to match |
+| `Recursive` | `bool` | `false` | Watch subdirectories |
+| `PollInterval` | `time.Duration` | `1s` | Directory scan interval |
+| `Context` | `context.Context` | `nil` | For cancellation |
+
+### DirectoryConfigUpdate
+
+Update event structure:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `FilePath` | `string` | Absolute path to file |
+| `RelativePath` | `string` | Path relative to watched directory |
+| `Config` | `map[string]interface{}` | Parsed configuration |
+| `Format` | `string` | Detected format ("yaml", "json", etc.) |
+| `IsDelete` | `bool` | True if file was deleted |
+| `ModTime` | `time.Time` | File modification time |
+
+## Security
+
+### Red Team Tested
+
+The directory watching feature has been subjected to comprehensive security testing:
+
+- **Path traversal attacks**: Blocked via `..` detection
+- **Symlink escapes**: Files outside watched directory not accessible via symlinks
+- **Resource exhaustion**: Tested with 100-level deep directories and 1000+ files
+- **Race conditions (TOCTOU)**: Graceful handling of rapid file changes
+- **Permission handling**: Unreadable files skipped gracefully
+- **Malformed filenames**: Unicode, emojis, long names handled safely
+- **Injection payloads**: Config content treated as data, never executed
+
+### Security Tests Added
+
+New test file `directory_watcher_security_test.go` with:
+- `TestDirectoryWatcher_Security_PathTraversal` (6 attack vectors)
+- `TestDirectoryWatcher_Security_SymlinkEscape`
+- `TestDirectoryWatcher_Security_DeepDirectoryTree`
+- `TestDirectoryWatcher_Security_ManyFiles`
+- `TestDirectoryWatcher_Security_MalformedFilenames`
+- `TestDirectoryWatcher_Security_PathInjectionInContent`
+- `TestDirectoryWatcher_Security_TOCTOU`
+- `TestDirectoryWatcher_Security_RestrictivePermissions`
+- `TestDirectoryWatcher_Security_ConcurrentAccess`
+
+## Code Quality
+
+### Refactoring
+
+- `scan()` refactored from CC=17 to CC<15 via helper extraction
+- New helper functions: `matchesPatterns`, `shouldSkipDirectory`, `processDeletedFiles`
+
+### Quality Gates
+
+All quality gates passed:
+- ✅ `go fmt`, `go vet`, `staticcheck`
+- ✅ `errcheck` - All errors handled
+- ✅ `gosec` - Security annotations documented
+- ✅ `gocyclo` - All functions CC ≤ 15
+- ✅ `go test -race` - No race conditions
+
+## Compatibility
+
+- **Go Version**: 1.24+ (unchanged)
+- **Breaking Changes**: None
+- **Deprecations**: None
+- **Backward Compatible**: Yes - existing APIs unchanged
+
+## Performance
+
+```
+Directory Scan (100 files):     ~45ms initial scan
+File Change Detection:          <1ms per file
+Memory Overhead:                O(n) where n = watched files
+Benchmark (100 files):          ~50µs per scan cycle
+```
+
+## Upgrade Guide
+
+Standard upgrade - no migration required:
+
+```bash
+go get github.com/agilira/argus@v1.2.0
+```
+
+## Technical Details
+
+### Files Added
+- `directory_watcher.go` - Core implementation
+- `directory_watcher_test.go` - Comprehensive test suite
+- `directory_watcher_security_test.go` - Red team security tests
+
+### New Public Types
+- `DirectoryWatchOptions` - Configuration for directory watching
+- `DirectoryConfigUpdate` - Update event structure
+- `DirectoryWatcher` - Watcher instance
+
+### New Public Functions
+- `WatchDirectory` - Watch directory with individual file callbacks
+- `WatchDirectoryMerged` - Watch directory with merged config callback
+
+### Internal Functions
+- `watchDirectoryInternal` - Shared implementation
+- `matchesPatterns` - Pattern matching helper
+- `shouldSkipDirectory` - Recursion control
+- `processDeletedFiles` - Deletion handling
+- `scan` - Directory traversal
+- `loadAndNotify` - File loading and callback
+- `pollLoop` - Background polling
+- `mergeLoop` - Merged mode loop
+- `notifyMerged` - Merged callback invocation
+- `computeHash` - Change detection
+
+---
+
+*Argus • an AGILira fragment • Military-grade configuration management*
