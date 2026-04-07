@@ -130,6 +130,8 @@ func NewBoreasLite(capacity int64, strategy OptimizationStrategy, processor func
 		batchSize = 4 // Small batches for balanced performance
 	case OptimizationLargeBatch:
 		batchSize = 16 // Large batches for throughput
+	case OptimizationLight:
+		batchSize = 1 // Process immediately, sleep between polls
 	default: // OptimizationAuto will be handled at runtime
 		batchSize = 4 // Safe default
 	}
@@ -515,6 +517,8 @@ func (b *BoreasLite) RunProcessor() {
 		b.runSmallBatchProcessor()
 	case OptimizationLargeBatch:
 		b.runLargeBatchProcessor()
+	case OptimizationLight:
+		b.runLightProcessor()
 	default: // OptimizationAuto
 		b.runAutoProcessor()
 	}
@@ -604,6 +608,22 @@ func (b *BoreasLite) runLargeBatchProcessor() {
 				spins = 0
 			}
 		}
+	}
+
+	// Final drain
+	for b.ProcessBatch() > 0 {
+	}
+}
+
+// runLightProcessor - Sleep-only processing for rarely-changing files.
+// Zero spin-wait, near-zero CPU when idle. Ideal for config watchers
+// where sub-millisecond latency is irrelevant. Worst-case latency: 1ms.
+func (b *BoreasLite) runLightProcessor() {
+	for b.running.Load() {
+		if b.ProcessBatch() > 0 {
+			continue // drain any queued events before sleeping
+		}
+		time.Sleep(1 * time.Millisecond)
 	}
 
 	// Final drain

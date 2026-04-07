@@ -1,0 +1,77 @@
+# Argus v1.2.1 Release Notes
+
+**Release Date**: April 8, 2026  
+**Type**: Feature Enhancement
+
+## Overview
+
+This release adds the **OptimizationLight** strategy to the BoreasLite ring buffer,
+designed for applications that watch configuration files which change rarely
+(minutes, hours, or days between updates).
+
+The existing strategies (SingleEvent, SmallBatch, LargeBatch, Auto) use LMAX
+Disruptor-inspired spin-wait loops for sub-microsecond latency. This is ideal
+for high-frequency event streams but wastes CPU cycles when watching config
+files that change a few times per day.
+
+**OptimizationLight** replaces spin-wait with a pure sleep loop:
+- Near-zero CPU when idle (no spin-wait phases)
+- Worst-case event latency: 1ms (perfectly acceptable for config hot-reload)
+- Ideal for daemon processes, CLI tools, and embedded systems
+
+## New Features
+
+### OptimizationLight Strategy
+
+```go
+watcher := argus.New(argus.Config{
+    PollInterval:         10 * time.Second,
+    OptimizationStrategy: argus.OptimizationLight,
+})
+```
+
+**When to use each strategy:**
+
+| Strategy          | Use Case                    | CPU Idle | Event Latency |
+|-------------------|-----------------------------|----------|---------------|
+| SingleEvent       | 1-2 files, HFT/real-time    | High     | <100ns        |
+| SmallBatch        | 3-20 files, balanced         | Medium   | <1us          |
+| LargeBatch        | 20+ files, throughput        | Medium   | <500us        |
+| **Light**         | **Config hot-reload, daemons** | **Near-zero** | **<1ms** |
+| Auto              | Let Argus decide             | Varies   | Varies        |
+
+### Implementation
+
+The Light processor is intentionally minimal (8 lines of logic):
+
+```go
+func (b *BoreasLite) runLightProcessor() {
+    for b.running.Load() {
+        if b.ProcessBatch() > 0 {
+            continue // drain queued events before sleeping
+        }
+        time.Sleep(1 * time.Millisecond)
+    }
+    // Final drain
+    for b.ProcessBatch() > 0 {
+    }
+}
+```
+
+No spin-wait phases, no yield cycles, no progressive backoff.
+Just sleep and check. Exactly what config watchers need.
+
+## Test Coverage
+
+- `TestBoreasLiteLightStrategy`: Event processing correctness
+- `TestBoreasLiteLightProcessor`: Background processor with race detector
+- `TestBoreasLiteLightProcessorCPUEfficiency`: Goroutine count verification
+- `TestBoreasLiteLightBatchSize`: Batch size = 1 assertion
+
+All tests pass with `-race` flag.
+
+## Compatibility
+
+- Fully backward compatible. No breaking changes.
+- Existing strategies are unaffected.
+- OptimizationAuto does not select Light automatically (explicit opt-in only).

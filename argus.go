@@ -118,6 +118,12 @@ const (
 	// - Zephyros-style 4x unrolling
 	// - Focus on maximum throughput over latency
 	OptimizationLargeBatch
+
+	// OptimizationLight uses sleep-only processing with zero spin-wait.
+	// Ideal for config files that change rarely (minutes/hours/days).
+	// Near-zero CPU when idle. Latency up to 1ms per event (acceptable
+	// for config hot-reload where sub-millisecond is irrelevant).
+	OptimizationLight
 )
 
 // Config configures the Argus watcher behavior

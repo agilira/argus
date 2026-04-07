@@ -46,7 +46,7 @@ See Argus in action - managing configurations across multiple formats with zero-
 - **Graceful Shutdown**: Timeout-controlled shutdown for Kubernetes and production deployments
 - **OpenTelemetry Ready**: Async tracing and metrics with zero contamination of core library
 - **Type-Safe Binding**: Zero-reflection configuration binding with fluent API (1.6M ops/sec)
-- **Adaptive Optimization**: Four strategies (SingleEvent, SmallBatch, LargeBatch, Auto) 
+- **Adaptive Optimization**: Five strategies (SingleEvent, SmallBatch, LargeBatch, Light, Auto) 
 - **Unified Audit System**: SQLite-based cross-application correlation with JSONL fallback
 - **Scalable Monitoring**: Handle 1-1000+ files simultaneously with linear performance
 
@@ -185,6 +185,25 @@ File Count    Setup Time    Strategy Used
  1000 files    38.90 μs/file  LargeBatch
 ```
 *Detection rate: 100% across all scales*
+
+**Optimization Strategies:**
+
+| Strategy | Best For | CPU When Idle | Event Latency |
+|---|---|---|---|
+| `OptimizationSingleEvent` | 1-2 files, real-time systems | High | <100ns |
+| `OptimizationSmallBatch` | 3-20 files, balanced workloads | Medium | <1us |
+| `OptimizationLargeBatch` | 20+ files, high throughput | Medium | <500us |
+| `OptimizationLight` | Config hot-reload, daemons | Near-zero | <1ms |
+| `OptimizationAuto` | Let Argus decide | Varies | Varies |
+
+Use `OptimizationLight` for config files that change rarely (daemon processes, CLI tools):
+
+```go
+watcher := argus.New(argus.Config{
+    PollInterval:         10 * time.Second,
+    OptimizationStrategy: argus.OptimizationLight,
+})
+```
 
 ## Architecture
 
