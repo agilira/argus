@@ -135,17 +135,17 @@ timeout: 30.5`
 			{
 				"malformed_structure",
 				"key: value\ninvalid line without colon at all",
-				"missing colon",
+				"could not find expected ':'",
 			},
 			{
 				"invalid_characters",
 				"key: value\n[invalid bracket line",
-				"unexpected character",
+				"could not find expected ':'",
 			},
 			{
 				"empty_key",
 				": value_without_key",
-				"key cannot be empty",
+				"did not find expected key",
 			},
 		}
 

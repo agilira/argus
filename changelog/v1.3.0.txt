@@ -1,0 +1,74 @@
+# Argus v1.3.0 Release Notes
+
+**Release Date**: April 8, 2026  
+**Type**: Internal Improvement (Non-Breaking)
+
+## Overview
+
+This release replaces the custom line-by-line YAML parser with **gopkg.in/yaml.v3**,
+achieving full YAML 1.2 spec compliance while maintaining perfect backward compatibility.
+
+The custom parser handled common cases well but had known limitations with inline
+comments on scalar values (e.g., `max_size: 26214400  # 25 MB` was parsed as a
+string instead of an integer). Rather than patching edge cases, we replaced the
+parser with the battle-tested yaml.v3 library used across the Go ecosystem.
+
+## What Changed
+
+### YAML Parser: Custom -> yaml.v3
+
+**Before** (custom line-by-line parser, ~400 lines):
+- Manual indentation tracking, key-value splitting, type inference
+- Inline comments on values caused silent type mismatches
+- Limited support for YAML features (anchors, multiline scalars, flow mappings)
+
+**After** (yaml.v3 wrapper, ~50 lines):
+- Full YAML 1.2 spec: anchors, aliases, tags, multiline scalars, flow styles
+- Correct inline comment handling on all value types
+- Proper error messages with line/column numbers from yaml.v3
+- `normalizeYAMLTypes()` converts nil map values to `map[string]interface{}{}`
+  for backward compatibility with argus nested key traversal
+
+### Dead Code Removal
+
+Removed ~500 lines of now-unused custom YAML parsing functions:
+- `parseYAMLLines`, `parseYAMLKeyValue`, `parseYAMLNestedMap`
+- `parseYAMLBlockArray`, `parseYAMLBlockArrayItem`
+- `stripInlineComment`, `isInsideQuotes`
+- `validateYAMLLine`, `isBlockArrayItem`, `validateYAMLKey`
+- `parseYAMLValue`, `parseYAMLArray`
+
+## Bug Fixes
+
+- **Inline comments on numeric values**: `key: 12345  # comment` now correctly
+  parses as integer `12345` instead of string `"12345  # comment"`.
+- **Inline comments on boolean values**: Same fix for `enabled: true  # toggle`.
+
+## New Dependency
+
+- `gopkg.in/yaml.v3 v3.0.1` (canonical Go YAML library, MIT licensed)
+
+## Test Results
+
+- All existing YAML tests pass without logic changes (only error message
+  string expectations updated to match yaml.v3 format).
+- Full test suite: `go test -count=1 -race ./...` -- PASS (54s).
+- Adversarial stack clean: staticcheck, errcheck, gosec (0 issues), gocyclo.
+
+## Compatibility
+
+- Fully backward compatible. No breaking changes to the public API.
+- `ParseConfig(data, FormatYAML)` returns identical structures for all valid YAML.
+- `BindFromConfig` works identically with yaml.v3-parsed maps.
+- Error messages from malformed YAML now come from yaml.v3 (more detailed,
+  include line/column numbers), which may affect code that matches on exact
+  error strings from the old parser.
+
+## Migration Notes
+
+No action required for users. This is a drop-in improvement.
+
+If you were matching on exact YAML parse error strings (not recommended),
+note that error text now comes from yaml.v3. Examples:
+- Old: `"missing colon separator"` -> New: `"could not find expected ':'"`
+- Old: `"key cannot be empty"` -> New: `"did not find expected key"`

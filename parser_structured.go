@@ -18,6 +18,7 @@ import (
 	"unicode"
 
 	"github.com/agilira/go-errors"
+	"gopkg.in/yaml.v3"
 )
 
 // parseJSON parses JSON configuration with pooled map to reduce allocations.
@@ -70,402 +71,59 @@ func validateJSONKey(key string) error {
 	return nil
 }
 
-// parseYAML parses YAML configuration with enhanced validation and error reporting.
-// Provides strict syntax validation, detailed error messages with line numbers,
-// and support for nested structures and arrays. Ensures configuration integrity
-// by failing fast on malformed syntax rather than silently ignoring errors.
+// parseYAML parses YAML configuration using gopkg.in/yaml.v3 for full YAML 1.2
+// spec compliance. Returns map[string]interface{} for backward compatibility.
+// yaml.v3 handles inline comments, anchors, tags, multiline scalars, and all
+// edge cases that the previous line-by-line parser could not cover.
 func parseYAML(data []byte) (map[string]interface{}, error) {
-	config := getConfigMap()
-	lines := strings.Split(string(data), "\n")
-
-	// Parse with indentation tracking for nested structures
-	result, err := parseYAMLLines(lines, config, 0, 0)
-	if err != nil {
-		putConfigMap(config)
-		return nil, err
+	var raw map[string]interface{}
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		return nil, errors.New(ErrCodeInvalidConfig,
+			fmt.Sprintf("invalid YAML: %v", err))
 	}
-
+	if raw == nil {
+		raw = make(map[string]interface{})
+	}
+	// yaml.v3 decodes maps as map[string]interface{} by default when
+	// unmarshalling into interface{}, but nested maps come back as
+	// map[string]interface{} too. We normalize recursively to ensure
+	// consistent types throughout.
+	normalized := normalizeYAMLTypes(raw)
+	result, ok := normalized.(map[string]interface{})
+	if !ok {
+		return nil, errors.New(ErrCodeInvalidConfig, "YAML root must be a mapping")
+	}
 	return result, nil
 }
 
-// parseYAMLLines parses YAML lines with support for nested indentation and block arrays.
-// Tracks indentation levels to build nested map structures and arrays correctly.
-// Supports YAML block-style sequences (- item) and nested object structures.
-// Returns the parsed config and handles all YAML 1.2 common patterns.
-func parseYAMLLines(lines []string, config map[string]interface{}, startLine, baseIndent int) (map[string]interface{}, error) {
-	for i := startLine; i < len(lines); i++ {
-		originalLine := lines[i]
-		line := strings.TrimSpace(originalLine)
-
-		// Skip empty lines and comments
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-
-		// Calculate current indentation
-		currentIndent := len(originalLine) - len(strings.TrimLeft(originalLine, " \t"))
-
-		// If indentation is less than base, we're done with this level
-		if currentIndent < baseIndent {
-			return config, nil
-		}
-
-		// Skip lines that are more indented (they belong to previous key)
-		if currentIndent > baseIndent {
-			continue
-		}
-
-		// Validate line structure and provide detailed error reporting
-		if err := validateYAMLLine(originalLine, i+1); err != nil {
-			return nil, err
-		}
-
-		// Parse the key-value pair
-		if err := parseYAMLKeyValue(lines, i, currentIndent, config); err != nil {
-			return nil, err
-		}
-	}
-
-	return config, nil
-}
-
-// parseYAMLKeyValue parses a single key-value pair from a YAML line.
-func parseYAMLKeyValue(lines []string, lineIdx, currentIndent int, config map[string]interface{}) error {
-	line := strings.TrimSpace(lines[lineIdx])
-
-	// Split key-value pair with validation
-	parts := strings.SplitN(line, ":", 2)
-	if len(parts) != 2 {
-		return errors.New(ErrCodeInvalidConfig,
-			fmt.Sprintf("invalid YAML syntax at line %d: missing colon separator", lineIdx+1))
-	}
-
-	key := strings.TrimSpace(parts[0])
-	value := strings.TrimSpace(parts[1])
-
-	// Validate key format
-	if err := validateYAMLKey(key, lineIdx+1); err != nil {
-		return err
-	}
-
-	// Handle nested structures or block arrays
-	if value == "" || value == ":" {
-		return parseYAMLNestedValue(lines, lineIdx, currentIndent, key, config)
-	}
-
-	// Regular key-value pair
-	parsedValue, err := parseYAMLValue(value, lineIdx+1)
-	if err != nil {
-		return err
-	}
-	config[key] = parsedValue
-	return nil
-}
-
-// parseYAMLNestedValue handles parsing of nested objects or block arrays.
-func parseYAMLNestedValue(lines []string, lineIdx, currentIndent int, key string, config map[string]interface{}) error {
-	childIndent, isBlockArray := findChildIndentation(lines, lineIdx+1, currentIndent)
-
-	if childIndent <= currentIndent {
-		// Empty nested object
-		config[key] = make(map[string]interface{})
-		return nil
-	}
-
-	if isBlockArray {
-		arr, err := parseYAMLBlockArray(lines, lineIdx+1, childIndent)
-		if err != nil {
-			return err
-		}
-		config[key] = arr
-	} else {
-		nestedConfig := make(map[string]interface{})
-		nested, err := parseYAMLLines(lines, nestedConfig, lineIdx+1, childIndent)
-		if err != nil {
-			return err
-		}
-		config[key] = nested
-	}
-
-	return nil
-}
-
-// findChildIndentation finds the indentation level and type of child content.
-func findChildIndentation(lines []string, startIdx, parentIndent int) (int, bool) {
-	for j := startIdx; j < len(lines); j++ {
-		childLine := strings.TrimSpace(lines[j])
-		if childLine == "" || strings.HasPrefix(childLine, "#") {
-			continue
-		}
-
-		childIndent := len(lines[j]) - len(strings.TrimLeft(lines[j], " \t"))
-		if childIndent > parentIndent {
-			return childIndent, isBlockArrayItem(childLine)
-		}
-		// No children found
-		break
-	}
-	return -1, false
-}
-
-// parseYAMLBlockArray parses a YAML block-style array (sequence).
-// Block arrays use "- item" syntax with consistent indentation.
-// Supports simple values, quoted strings, and nested object items.
-// Returns []interface{} containing parsed array elements.
-func parseYAMLBlockArray(lines []string, startLine, baseIndent int) ([]interface{}, error) {
-	result := make([]interface{}, 0, 8) // Pre-allocate for common case
-
-	for i := startLine; i < len(lines); i++ {
-		originalLine := lines[i]
-		line := strings.TrimSpace(originalLine)
-
-		// Skip empty lines and comments
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-
-		// Calculate current indentation
-		currentIndent := len(originalLine) - len(strings.TrimLeft(originalLine, " \t"))
-
-		// If indentation is less than base, we're done with this array
-		if currentIndent < baseIndent {
-			return result, nil
-		}
-
-		// Skip lines that are more indented (they belong to previous item)
-		if currentIndent > baseIndent {
-			continue
-		}
-
-		// Must be a block array item at this point
-		if !isBlockArrayItem(line) {
-			return result, nil
-		}
-
-		// Parse the array item
-		item, err := parseBlockArrayItem(lines, i, currentIndent)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, item)
-	}
-
-	return result, nil
-}
-
-// parseBlockArrayItem parses a single block array item (- value or - key: value).
-// Returns the parsed value which can be a simple value, nil, or a map for object items.
-func parseBlockArrayItem(lines []string, lineIdx, currentIndent int) (interface{}, error) {
-	line := strings.TrimSpace(lines[lineIdx])
-
-	// Extract value after "- "
-	itemContent := extractArrayItemContent(line)
-
-	// Handle inline comments
-	itemContent = stripInlineComment(itemContent)
-
-	// Determine item type and parse accordingly
-	if itemContent == "" {
-		return nil, nil // Empty array item
-	}
-
-	if strings.Contains(itemContent, ":") && !startsWithQuote(itemContent) {
-		// Object item like "- name: value"
-		return parseBlockArrayObjectItem(lines, lineIdx, currentIndent, itemContent)
-	}
-
-	// Simple value - parse with type inference
-	return parseYAMLValue(itemContent, lineIdx+1)
-}
-
-// extractArrayItemContent extracts the content after "- " from an array item line.
-func extractArrayItemContent(line string) string {
-	content := strings.TrimSpace(line[1:]) // Remove leading "-"
-	if len(content) > 0 && content[0] == ' ' {
-		content = strings.TrimSpace(content)
-	}
-	return content
-}
-
-// stripInlineComment removes inline comments from a value string.
-func stripInlineComment(content string) string {
-	if idx := strings.Index(content, " #"); idx != -1 {
-		if !isInsideQuotes(content, idx) {
-			return strings.TrimSpace(content[:idx])
-		}
-	}
-	return content
-}
-
-// parseBlockArrayObjectItem parses an array item that contains an object (map).
-// Handles inline key-value pairs and additional nested keys.
-func parseBlockArrayObjectItem(lines []string, lineIdx, currentIndent int, itemContent string) (map[string]interface{}, error) {
-	obj := make(map[string]interface{})
-
-	// Parse the inline key-value
-	if err := parseInlineKeyValue(obj, itemContent, lineIdx+1); err != nil {
-		return nil, err
-	}
-
-	// Look for additional keys at object indentation level
-	objectIndent := currentIndent + 2 // "- " adds 2 chars
-	if err := parseObjectAdditionalKeys(lines, lineIdx+1, currentIndent, objectIndent, obj); err != nil {
-		return nil, err
-	}
-
-	return obj, nil
-}
-
-// parseInlineKeyValue parses a key:value pair into the object map.
-func parseInlineKeyValue(obj map[string]interface{}, content string, lineNum int) error {
-	kvParts := strings.SplitN(content, ":", 2)
-	if len(kvParts) != 2 {
-		return nil
-	}
-
-	key := strings.TrimSpace(kvParts[0])
-	value := strings.TrimSpace(kvParts[1])
-
-	if value != "" {
-		parsedValue, err := parseYAMLValue(value, lineNum)
-		if err != nil {
-			return err
-		}
-		obj[key] = parsedValue
-	} else {
-		obj[key] = make(map[string]interface{})
-	}
-
-	return nil
-}
-
-// parseObjectAdditionalKeys parses additional key-value pairs belonging to an object in array.
-func parseObjectAdditionalKeys(lines []string, startIdx, arrayIndent, objectIndent int, obj map[string]interface{}) error {
-	for j := startIdx; j < len(lines); j++ {
-		nextLine := lines[j]
-		nextTrimmed := strings.TrimSpace(nextLine)
-
-		if nextTrimmed == "" || strings.HasPrefix(nextTrimmed, "#") {
-			continue
-		}
-
-		nextIndent := len(nextLine) - len(strings.TrimLeft(nextLine, " \t"))
-
-		// If we hit another array item at same level or dedent, stop
-		if nextIndent <= arrayIndent {
-			break
-		}
-
-		// If this is at object level and has a key
-		if nextIndent >= objectIndent && strings.Contains(nextTrimmed, ":") && !isBlockArrayItem(nextTrimmed) {
-			if err := parseObjectKey(lines, j, nextIndent, obj); err != nil {
-				return err
+// normalizeYAMLTypes recursively walks a yaml.v3 decoded structure and ensures
+// all types are consistent with what argus consumers expect.
+// yaml.v3 decodes integers as int, floats as float64, booleans as bool,
+// and strings as string -- which matches argus conventions perfectly.
+// Nil values for mapping keys are normalized to empty maps to preserve
+// backward compatibility with the previous parser.
+func normalizeYAMLTypes(v interface{}) interface{} {
+	switch val := v.(type) {
+	case map[string]interface{}:
+		for k, child := range val {
+			if child == nil {
+				val[k] = make(map[string]interface{})
+			} else {
+				val[k] = normalizeYAMLTypes(child)
 			}
 		}
+		return val
+	case []interface{}:
+		for i, child := range val {
+			val[i] = normalizeYAMLTypes(child)
+		}
+		return val
+	default:
+		return v
 	}
-	return nil
 }
 
-// parseObjectKey parses a single key-value pair within an object in array.
-func parseObjectKey(lines []string, lineIdx, keyIndent int, obj map[string]interface{}) error {
-	line := strings.TrimSpace(lines[lineIdx])
-	kvParts := strings.SplitN(line, ":", 2)
-	if len(kvParts) != 2 {
-		return nil
-	}
-
-	key := strings.TrimSpace(kvParts[0])
-	value := strings.TrimSpace(kvParts[1])
-
-	if value == "" {
-		// Check for nested content
-		return parseNestedObjectValue(lines, lineIdx, keyIndent, key, obj)
-	}
-
-	parsedValue, err := parseYAMLValue(value, lineIdx+1)
-	if err != nil {
-		return err
-	}
-	obj[key] = parsedValue
-	return nil
-}
-
-// parseNestedObjectValue handles nested content under a key with empty value.
-func parseNestedObjectValue(lines []string, lineIdx, keyIndent int, key string, obj map[string]interface{}) error {
-	nestedIndent, isNestedArray := findNestedIndentation(lines, lineIdx+1, keyIndent)
-
-	if nestedIndent <= keyIndent {
-		obj[key] = make(map[string]interface{})
-		return nil
-	}
-
-	if isNestedArray {
-		arr, err := parseYAMLBlockArray(lines, lineIdx+1, nestedIndent)
-		if err != nil {
-			return err
-		}
-		obj[key] = arr
-	} else {
-		nested := make(map[string]interface{})
-		nestedObj, err := parseYAMLLines(lines, nested, lineIdx+1, nestedIndent)
-		if err != nil {
-			return err
-		}
-		obj[key] = nestedObj
-	}
-
-	return nil
-}
-
-// findNestedIndentation finds the indentation level and type of nested content.
-func findNestedIndentation(lines []string, startIdx, parentIndent int) (int, bool) {
-	for k := startIdx; k < len(lines); k++ {
-		nestedLine := strings.TrimSpace(lines[k])
-		if nestedLine == "" || strings.HasPrefix(nestedLine, "#") {
-			continue
-		}
-		nestedIndent := len(lines[k]) - len(strings.TrimLeft(lines[k], " \t"))
-		if nestedIndent > parentIndent {
-			return nestedIndent, isBlockArrayItem(nestedLine)
-		}
-		break
-	}
-	return -1, false
-}
-
-// startsWithQuote checks if a string starts with a quote character.
-func startsWithQuote(s string) bool {
-	if len(s) == 0 {
-		return false
-	}
-	return s[0] == '"' || s[0] == '\''
-}
-
-// isInsideQuotes checks if a position in a string is inside quotes.
-// Used to avoid splitting on characters that are inside quoted strings.
-func isInsideQuotes(s string, pos int) bool {
-	if pos >= len(s) {
-		return false
-	}
-
-	inDouble := false
-	inSingle := false
-
-	for i := 0; i < pos; i++ {
-		switch s[i] {
-		case '"':
-			if !inSingle {
-				inDouble = !inDouble
-			}
-		case '\'':
-			if !inDouble {
-				inSingle = !inSingle
-			}
-		}
-	}
-
-	return inDouble || inSingle
-} // parseTOML parses TOML configuration with support for sections, nested tables, arrays, and basic types.
+// parseTOML parses TOML configuration with support for sections, nested tables, arrays, and basic types.
 // Covers 85% of real-world TOML usage: [sections], [nested.tables], arrays [1,2,3], and proper type inference.
 // Supports quoted strings, integers, floats, booleans, and basic arrays.
 func parseTOML(data []byte) (map[string]interface{}, error) {
@@ -638,170 +296,6 @@ func setNestedValue(config map[string]interface{}, path []string, value interfac
 
 	// Set the final value
 	current[path[len(path)-1]] = value
-}
-
-// validateYAMLLine performs comprehensive validation on a YAML line.
-// Checks for common syntax errors, invalid characters, and structural problems.
-// Returns detailed error with line number and suggestion when validation fails.
-func validateYAMLLine(line string, lineNum int) error {
-	// Skip empty lines and comments
-	trimmed := strings.TrimSpace(line)
-	if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-		return nil
-	}
-
-	// Check for block array items (lines starting with "-")
-	// These are valid YAML sequence items and don't require a colon
-	if isBlockArrayItem(trimmed) {
-		return nil
-	}
-
-	// Check for standalone brackets at line start - this is always an error
-	// Valid flow-style arrays are inline values like "key: [1, 2, 3]" (contain colon before bracket)
-	// A line starting with "[" without preceding ":" is malformed
-	if strings.HasPrefix(trimmed, "[") || strings.HasPrefix(trimmed, "]") {
-		return errors.New(ErrCodeInvalidConfig,
-			fmt.Sprintf("invalid YAML syntax at line %d: unexpected character '%c'",
-				lineNum, trimmed[0]))
-	}
-
-	// Check for invalid YAML characters that should cause immediate failure
-	// "{" and "}" at line start are also invalid (would be flow-style mapping, which needs context)
-	invalidStartChars := []string{"{", "}", "<", ">"}
-	for _, char := range invalidStartChars {
-		if strings.HasPrefix(trimmed, char) {
-			return errors.New(ErrCodeInvalidConfig,
-				fmt.Sprintf("invalid YAML syntax at line %d: unexpected character '%s'",
-					lineNum, char))
-		}
-	}
-
-	// Check if line contains suspicious patterns that indicate malformed YAML
-	// Block array items (starting with "-") are handled above
-	if !strings.Contains(trimmed, ":") && trimmed != "" {
-		return errors.New(ErrCodeInvalidConfig,
-			fmt.Sprintf("invalid YAML syntax at line %d: missing colon separator",
-				lineNum))
-	}
-
-	return nil
-}
-
-// isBlockArrayItem checks if a line is a YAML block array item (starts with "- ").
-// Supports both simple items ("- value") and object items ("- key: value").
-// YAML spec requires space after dash for array items.
-func isBlockArrayItem(line string) bool {
-	// Must start with "- " (dash followed by space) per YAML spec
-	// Or just "-" followed by newline for empty item
-	if len(line) == 0 {
-		return false
-	}
-	if line == "-" {
-		return true
-	}
-	return len(line) >= 2 && line[0] == '-' && (line[1] == ' ' || line[1] == '\t')
-}
-
-// validateYAMLKey validates that a YAML key follows proper naming conventions.
-// Keys must be non-empty, trimmed, and follow basic identifier rules.
-func validateYAMLKey(key string, lineNum int) error {
-	if key == "" {
-		return errors.New(ErrCodeInvalidConfig,
-			fmt.Sprintf("invalid YAML key at line %d: key cannot be empty", lineNum))
-	}
-
-	// SECURITY FIX: Check for dangerous control characters including null bytes
-	for _, char := range key {
-		if char == '\x00' {
-			return errors.New(ErrCodeInvalidConfig,
-				fmt.Sprintf("invalid YAML key at line %d: null byte not allowed in keys", lineNum))
-		}
-		// Block other dangerous control characters (except tab, LF, CR)
-		if char < 32 && char != '\t' && char != '\n' && char != '\r' {
-			return errors.New(ErrCodeInvalidConfig,
-				fmt.Sprintf("invalid YAML key at line %d: control character not allowed in keys", lineNum))
-		}
-		// Block non-printable characters (like DEL 0x7F)
-		if !unicode.IsPrint(char) && char != '\t' {
-			return errors.New(ErrCodeInvalidConfig,
-				fmt.Sprintf("invalid YAML key at line %d: non-printable character not allowed in keys", lineNum))
-		}
-	}
-
-	// Check for whitespace in key (indicates potential parsing issue)
-	if strings.TrimSpace(key) != key {
-		return errors.New(ErrCodeInvalidConfig,
-			fmt.Sprintf("invalid YAML key at line %d: key contains unexpected whitespace",
-				lineNum))
-	}
-
-	return nil
-}
-
-// parseYAMLValue parses a YAML value with enhanced validation and type inference.
-// Supports basic YAML types including strings, numbers, booleans, null, and simple arrays.
-// Handles quoted strings properly by removing quotes and preserving the string value.
-func parseYAMLValue(value string, lineNum int) (interface{}, error) {
-	// Handle empty values
-	if value == "" {
-		return "", nil
-	}
-
-	// Handle null/nil values
-	if value == "null" || value == "~" || value == "nil" {
-		return nil, nil
-	}
-
-	// Handle quoted strings (remove quotes and return as string)
-	if (strings.HasPrefix(value, "\"") && strings.HasSuffix(value, "\"") && len(value) >= 2) ||
-		(strings.HasPrefix(value, "'") && strings.HasSuffix(value, "'") && len(value) >= 2) {
-		// Remove quotes and return the string content
-		return value[1 : len(value)-1], nil
-	}
-
-	// Handle simple arrays [item1, item2, item3]
-	if strings.HasPrefix(value, "[") && strings.HasSuffix(value, "]") {
-		return parseYAMLArray(value, lineNum)
-	}
-
-	// Use existing parseValue for basic type inference (numbers, booleans, etc.)
-	return parseValue(value), nil
-}
-
-// parseYAMLArray parses simple YAML array syntax [item1, item2, item3].
-// Provides validation and error reporting for malformed arrays.
-func parseYAMLArray(arrayStr string, lineNum int) (interface{}, error) {
-	// Remove brackets and validate structure
-	content := strings.Trim(arrayStr, "[]")
-	if content == "" {
-		return []interface{}{}, nil
-	}
-
-	// Check for unmatched brackets or other issues
-	if strings.Count(arrayStr, "[") != strings.Count(arrayStr, "]") {
-		return nil, errors.New(ErrCodeInvalidConfig,
-			fmt.Sprintf("invalid YAML array at line %d: unmatched brackets",
-				lineNum))
-	}
-
-	items := strings.Split(content, ",")
-	result := make([]interface{}, 0, len(items))
-
-	for i, item := range items {
-		item = strings.TrimSpace(item)
-		if item != "" {
-			// Recursively parse each item with validation
-			parsedItem, err := parseYAMLValue(item, lineNum)
-			if err != nil {
-				return nil, errors.New(ErrCodeInvalidConfig,
-					fmt.Sprintf("invalid YAML array item %d at line %d: %v",
-						i+1, lineNum, err))
-			}
-			result = append(result, parsedItem)
-		}
-	}
-
-	return result, nil
 }
 
 // validateTOMLSection validates TOML section header format [section.name].

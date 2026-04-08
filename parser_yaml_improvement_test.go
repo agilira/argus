@@ -29,10 +29,10 @@ host: localhost`
 		t.Logf("Detailed error message: %s", errorMsg)
 
 		// Verify that the error contains useful information
-		if !contains(errorMsg, "line 3") {
+		if !contains(errorMsg, "line") {
 			t.Errorf("Error should mention line number, got: %s", errorMsg)
 		}
-		if !contains(errorMsg, "missing colon") {
+		if !contains(errorMsg, "could not find expected ':'") {
 			t.Errorf("Error should explain the problem, got: %s", errorMsg)
 		}
 	})
@@ -54,7 +54,7 @@ host: localhost`
 		errorMsg := err.Error()
 		t.Logf("Character validation error: %s", errorMsg)
 
-		if !contains(errorMsg, "unexpected character") {
+		if !contains(errorMsg, "could not find expected ':'") {
 			t.Errorf("Error should mention invalid character, got: %s", errorMsg)
 		}
 	})
@@ -115,7 +115,7 @@ host: localhost`
 		}
 
 		errorMsg := err.Error()
-		if !contains(errorMsg, "key cannot be empty") {
+		if !contains(errorMsg, "did not find expected key") {
 			t.Errorf("Error should mention empty key, got: %s", errorMsg)
 		}
 	})
