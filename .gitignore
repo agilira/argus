@@ -113,4 +113,7 @@ RECORDING.md
 benchmark-demo.sh
 
 # CLI binary (built from examples/cli)
+
+# Local dev notes (not for public repo)
+TODO_LOCAL.md
 argus
