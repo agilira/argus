@@ -230,15 +230,15 @@ func DetectFormat(filePath string) ConfigFormat {
 		return FormatProperties
 	}
 
-	// Check last 8 chars for .config
-	if length >= 8 &&
-		filePath[length-8] == '.' &&
-		(filePath[length-7]|32) == 'c' &&
-		(filePath[length-6]|32) == 'o' &&
-		(filePath[length-5]|32) == 'n' &&
-		(filePath[length-4]|32) == 'f' &&
-		(filePath[length-3]|32) == 'i' &&
-		(filePath[length-2]|32) == 'g' {
+	// Check last 7 chars for .config
+	if length >= 7 &&
+		filePath[length-7] == '.' &&
+		(filePath[length-6]|32) == 'c' &&
+		(filePath[length-5]|32) == 'o' &&
+		(filePath[length-4]|32) == 'n' &&
+		(filePath[length-3]|32) == 'f' &&
+		(filePath[length-2]|32) == 'i' &&
+		(filePath[length-1]|32) == 'g' {
 		return FormatINI
 	}
 

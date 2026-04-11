@@ -1,0 +1,105 @@
+# Argus v1.3.1 Release Notes
+
+**Release Date**: April 12, 2026
+**Type**: Security Fix + Test Hardening (Non-Breaking)
+
+## Overview
+
+This patch fixes a silent false-positive bug in DetectFormat() discovered by the new
+FuzzDetectFormat target, and adds five comprehensive fuzz targets covering all major
+external trust boundaries in argus. These targets are now part of the permanent
+adversarial test suite.
+
+## Security Fix
+
+### DetectFormat: Off-by-One in .config Extension Check (parsers.go)
+
+The hand-unrolled .config extension matcher checked byte positions
+[length-8 .. length-2], leaving the final character (length-1) unverified.
+Any path whose last 7 characters were exactly ".confi" followed by any byte
+was incorrectly returned as FormatINI.
+
+    Before: ".Config0" -> FormatINI  (incorrect: matched ".confi" + ignored byte)
+    After:  ".Config0" -> FormatUnknown  (correct)
+    After:  ".config"  -> FormatINI  (correct, unchanged)
+
+This is a logic error, not a path traversal vulnerability. In a worst case an
+attacker could craft a filename that causes argus to attempt INI parsing on a
+file that is not INI-format, resulting in a parse error rather than silent data
+exposure. Impact: low integrity risk, no confidentiality risk.
+
+Fix: corrected index offsets to check [length-7 .. length-1], matching the
+".config" extension exactly.
+
+## New Fuzz Targets (argus_fuzz_test.go)
+
+Five new FuzzXxx targets added to cover trust boundaries that were previously
+exercised only by unit tests:
+
+### FuzzDetectFormat
+Target: DetectFormat(filePath string)
+Attack surface: byte-level extension parser with |32 bitmask case-folding.
+Seeds: all known extensions, case variants, null bytes, high bytes (\xff),
+paths below the 3-char minimum, extremely long paths (10000 chars).
+Found and triggered the off-by-one fix above within 10 seconds.
+
+### FuzzLoadConfigFromEnv
+Target: LoadConfigFromEnv()
+Attack surface: environment variables as external trust boundary.
+CWE coverage: CWE-20 (improper input validation), CWE-400 (resource exhaustion),
+CWE-134 (format string injection).
+Seeds: malformed durations, integer overflow candidates, format string payloads,
+oversized values (10000 chars), control characters.
+Invariants: no panic, no env-value echo in error messages.
+
+### FuzzValidateConfigFile
+Target: ValidateConfigFile(configPath string)
+Attack surface: file path from untrusted input, performs os.Stat + file read.
+CWE coverage: CWE-22 (path traversal), CWE-476 (nil dereference), CWE-400.
+Seeds: traversal sequences (../../../../etc/passwd), null byte injection,
+Windows device names (CON, NUL.json), URL-encoded traversal (%2e%2e/...),
+deeply nested paths (200 levels), oversized paths (5000 chars).
+Invariants: empty path always rejected, successful validation requires
+the file to actually exist.
+
+### FuzzConfigBinder
+Target: NewConfigBinder / BindFromConfig
+Attack surface: unsafe.Pointer type switching + nested key traversal.
+CWE coverage: CWE-843 (type confusion), CWE-476 (nil dereference),
+CWE-400 (exhaustion via deep nesting), CWE-20 (key boundary bypass).
+Seeds: all bind types (string, int, bool, float64, duration) fuzzed against
+adversarial keys (null bytes, dots-only, 500-level nesting, bool/numeric names)
+and adversarial values (NaN, Inf, overflow, non-numeric strings for int binding).
+Invariant: NewConfigBinder and BindFromConfig produce identical behavior for
+all inputs.
+
+### FuzzLoadConfigMultiSource
+Target: LoadConfigMultiSource(configFile string)
+Attack surface: top-level orchestrator combining file loading + env override.
+CWE coverage: CWE-22, CWE-427 (file vs env precedence confusion), CWE-400.
+Seeds: empty path (env-only mode), traversal paths, Windows device names,
+oversized paths, null bytes.
+Invariants: no panic on any input, non-nil config on success, valid temp
+file always loads successfully.
+
+## Quality Gates
+
+All checks pass on this commit:
+
+    go test -race -count=1 ./...     PASS (all packages)
+    go vet ./...                     PASS
+    staticcheck ./...                PASS
+    errcheck ./...                   PASS
+    gosec -quiet ./...               PASS
+    gocyclo -over 10 .               no new violations
+
+## Fuzz Corpus
+
+Fuzz corpus entries generated during validation are stored in:
+    testdata/fuzz/FuzzDetectFormat/
+    testdata/fuzz/FuzzLoadConfigFromEnv/
+    testdata/fuzz/FuzzValidateConfigFile/
+    testdata/fuzz/FuzzConfigBinder/
+    testdata/fuzz/FuzzLoadConfigMultiSource/
+
+These seeds are committed and feed future CI runs via go test -run=FuzzXxx.
