@@ -10,5 +10,5 @@ require (
 	github.com/agilira/go-timecache v1.0.2
 	github.com/agilira/orpheus v1.1.11
 	github.com/mattn/go-sqlite3 v1.14.34
-	gopkg.in/yaml.v3 v3.0.1
+	go.yaml.in/yaml/v3 v3.0.4
 )
