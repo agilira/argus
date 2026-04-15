@@ -84,6 +84,8 @@ jobs:
         include:
           - os: macos-latest
             timeout: 5  # Shorter timeout for macOS due to runner availability issues
+          - os: windows-latest
+            test-timeout: 10m  # Windows runners are slower; fuzz seed corpus needs more time
     steps:
     - name: Checkout
       uses: actions/checkout@v4
@@ -99,5 +101,5 @@ jobs:
       timeout-minutes: ${{ matrix.timeout || 15 }}
 
     - name: Short Test (no race, faster)
-      run: go test -short -timeout 5m ./...
+      run: go test -short -timeout ${{ matrix.test-timeout || '5m' }} ./...
       timeout-minutes: ${{ matrix.timeout || 15 }}
