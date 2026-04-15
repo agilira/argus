@@ -18,7 +18,7 @@ import (
 	"unicode"
 
 	"github.com/agilira/go-errors"
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
 // parseJSON parses JSON configuration with pooled map to reduce allocations.
@@ -71,7 +71,7 @@ func validateJSONKey(key string) error {
 	return nil
 }
 
-// parseYAML parses YAML configuration using gopkg.in/yaml.v3 for full YAML 1.2
+// parseYAML parses YAML configuration using go.yaml.in/yaml/v3 for full YAML 1.2
 // spec compliance. Returns map[string]interface{} for backward compatibility.
 // yaml.v3 handles inline comments, anchors, tags, multiline scalars, and all
 // edge cases that the previous line-by-line parser could not cover.
