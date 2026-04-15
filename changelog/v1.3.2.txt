@@ -1,0 +1,55 @@
+# Argus v1.3.2 Release Notes
+
+**Release Date**: April 15, 2026
+**Type**: Maintenance (Non-Breaking)
+
+## Overview
+
+Maintenance release covering a YAML module migration to the new official upstream,
+dependency updates, a go vet fix, and a CI reliability improvement for Windows runners.
+
+## Changes
+
+### chore(yaml): migrate to go.yaml.in/yaml/v3 (#18)
+
+`gopkg.in/yaml.v3` is no longer maintained. This release migrates to
+`go.yaml.in/yaml/v3`, the new canonical home of the go-yaml project under the
+`yaml` GitHub organization. The two modules are fully API-compatible — no
+callsite changes were required. Contributors and users of argus should update
+any direct references to the old import path.
+
+    Before: gopkg.in/yaml.v3 v3.0.1
+    After:  go.yaml.in/yaml/v3 v3.0.4
+
+Thanks to @ccoVeille for flagging the abandoned module and opening the PR.
+
+### fix: non-constant format string in fmt.Errorf (go vet)
+
+Replaced a non-constant format string pattern flagged by `go vet`:
+
+    Before: fmt.Errorf(someString)
+    After:  fmt.Errorf("%s", someString)
+
+No behavioral change; eliminates the go vet warning that was causing noise in
+static analysis output.
+
+### ci: increase test timeout for Windows runners to 10m
+
+The fuzz test suite introduced in v1.3.1 (6 FuzzXxx targets with ~40-50 seeds
+each) made the total test duration exceed the 5-minute budget on windows-latest
+runners, which are slower than Linux especially for CGO/SQLite workloads. Windows
+now receives a 10-minute test timeout via a per-OS matrix variable; Linux and
+macOS retain the 5-minute default.
+
+## Dependency Updates
+
+| Dependency | Before | After |
+|---|---|---|
+| go.yaml.in/yaml/v3 (new) | gopkg.in/yaml.v3 v3.0.1 | v3.0.4 |
+| github.com/mattn/go-sqlite3 | v1.14.34 | v1.14.42 |
+| github.com/agilira/orpheus | v1.1.11 | v1.2.0 |
+| github.com/agilira/flash-flags | v1.1.6 | v1.1.7 |
+
+## Contributors
+
+- @ccoVeille — YAML module migration (PR #18)
