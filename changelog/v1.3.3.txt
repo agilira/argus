@@ -1,0 +1,29 @@
+# Argus v1.3.3 Release Notes
+
+**Release Date**: April 15, 2026
+**Type**: CI Fix (Non-Breaking)
+
+## Overview
+
+Hotfix for CI timeout regressions on Windows introduced by the fuzz test suite
+added in v1.3.1. No production code changes.
+
+## Changes
+
+### test(fuzz): skip seed corpus in short mode
+
+The 7 fuzz functions (FuzzValidateSecurePath, FuzzParseConfig, FuzzDetectFormat,
+FuzzLoadConfigFromEnv, FuzzValidateConfigFile, FuzzConfigBinder,
+FuzzLoadConfigMultiSource) each carry 30–50 seed corpus entries. When executed
+under `go test -short` — as the Build Matrix job does on all platforms — the
+cumulative SQLite/CGO work on windows-latest exceeded both the original 5m and
+the v1.3.2 10m timeouts.
+
+Fix: each fuzz function now calls `f.Skip()` when `testing.Short()` is true.
+
+    Before: fuzz seed corpus ran under -short, timing out Windows CI
+    After:  fuzz seed corpus skipped under -short, runs only in Test Suite (ubuntu)
+
+The full seed corpus continues to run in the Test Suite job on ubuntu-latest
+(no `-short` flag), so security coverage is fully preserved. The Windows
+Build Matrix completes in under 2 minutes.
