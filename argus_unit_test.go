@@ -6380,7 +6380,7 @@ func TestArgusGetValidationErrorCodeEdgeCases(t *testing.T) {
 	result := config.ValidateDetailed()
 	if len(result.Errors) > 0 {
 		// Errors are strings in ValidationResult, create an error from the string
-		stringErr := fmt.Errorf(result.Errors[0])
+		stringErr := fmt.Errorf("%s", result.Errors[0])
 		code := GetValidationErrorCode(stringErr)
 		t.Logf("GetValidationErrorCode with ValidationResult error returned: %s", code)
 	}
