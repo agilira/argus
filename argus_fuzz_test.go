@@ -62,6 +62,9 @@ import (
 // - Buffer overflow conditions with extremely long paths
 // - Race conditions in validation logic
 func FuzzValidateSecurePath(f *testing.F) {
+	if testing.Short() {
+		f.Skip("skipping fuzz seed corpus in short mode")
+	}
 	// SEED CORPUS: Based on real attack vectors and edge cases from existing tests
 	// This provides the fuzzer with a good starting point for mutations
 
@@ -457,6 +460,9 @@ func truncateString(s string, maxLen int) string {
 //
 // The fuzzer tests all supported configuration formats to ensure robust parsing.
 func FuzzParseConfig(f *testing.F) {
+	if testing.Short() {
+		f.Skip("skipping fuzz seed corpus in short mode")
+	}
 	// Seed corpus with valid configurations in different formats
 	f.Add([]byte(`{"key": "value", "number": 42}`), int(FormatJSON))
 	f.Add([]byte("key: value\nnumber: 42"), int(FormatYAML))
@@ -730,6 +736,9 @@ func TestUNCPathDeviceNameRegression(t *testing.T) {
 // - Null bytes and control characters in the path must not confuse detection
 // - Extremely long paths must not cause excessive memory or CPU usage
 func FuzzDetectFormat(f *testing.F) {
+	if testing.Short() {
+		f.Skip("skipping fuzz seed corpus in short mode")
+	}
 	// Seed corpus: valid extensions the parser explicitly handles
 	f.Add("config.json")
 	f.Add("config.yaml")
@@ -841,6 +850,9 @@ func FuzzDetectFormat(f *testing.F) {
 // - Error messages must not echo back raw env values (info leak)
 // - Returned config must have sane defaults when env is garbage
 func FuzzLoadConfigFromEnv(f *testing.F) {
+	if testing.Short() {
+		f.Skip("skipping fuzz seed corpus in short mode")
+	}
 	// Seed corpus: representative env value shapes
 	f.Add("5s", "100", "true")
 	f.Add("10m", "0", "false")
@@ -925,6 +937,9 @@ func FuzzLoadConfigFromEnv(f *testing.F) {
 // - Error messages must not leak absolute filesystem paths
 // - Traversal-heavy paths must not cause excessive syscall churn
 func FuzzValidateConfigFile(f *testing.F) {
+	if testing.Short() {
+		f.Skip("skipping fuzz seed corpus in short mode")
+	}
 	// Seed corpus: path shapes that stress different code paths
 	f.Add("")
 	f.Add("config.json")
@@ -984,6 +999,9 @@ func FuzzValidateConfigFile(f *testing.F) {
 // - Apply() must return an error (not panic) on type mismatch
 // - Deeply nested key traversal must not stack overflow
 func FuzzConfigBinder(f *testing.F) {
+	if testing.Short() {
+		f.Skip("skipping fuzz seed corpus in short mode")
+	}
 	// Seed corpus: key shapes and value types
 	f.Add("simple_key", "simple_value")
 	f.Add("nested.key.path", "value")
@@ -1091,6 +1109,9 @@ func FuzzConfigBinder(f *testing.F) {
 // - Empty configFile must produce a valid env-only config
 // - Non-existent files must not cause panics (graceful fallback)
 func FuzzLoadConfigMultiSource(f *testing.F) {
+	if testing.Short() {
+		f.Skip("skipping fuzz seed corpus in short mode")
+	}
 	f.Add("")
 	f.Add("config.json")
 	f.Add("/nonexistent/config.yaml")
