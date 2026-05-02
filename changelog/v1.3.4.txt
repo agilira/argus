@@ -1,0 +1,57 @@
+# Argus v1.3.4 Release Notes
+
+**Release Date**: May 3, 2026
+**Type**: Security + Maintenance (Non-Breaking)
+
+## Overview
+
+Bumps the minimum Go toolchain requirement to go1.25.9 to fix two standard
+library vulnerabilities, and isolates the cmd/cli package into its own Go module
+so that library consumers no longer receive orpheus as a transitive dependency.
+
+## Security Fix
+
+### Minimum Go toolchain: go1.25.0 → go1.25.9
+
+Two vulnerabilities in the Go standard library affected argus:
+
+**GO-2026-4341** — Memory exhaustion in query parameter parsing in net/url
+  Fixed in: go1.25.6
+  Impact on argus: audit_backend.go calls sql.DB.Begin which eventually calls
+  url.ParseQuery; a malicious query string could exhaust process memory.
+
+**GO-2026-4601** — Incorrect parsing of IPv6 host literals in net/url
+  Fixed in: go1.25.8
+  Impact on argus: remote_config.go calls url.Parse on provider URLs; a crafted
+  IPv6 literal could be parsed incorrectly, bypassing URL validation.
+
+Bumping the go directive to 1.25.9 ensures govulncheck reports no vulnerabilities
+and that the fixed standard library code is used at build time.
+
+## Maintenance
+
+### cmd/cli isolated into its own Go module
+
+cmd/cli (the Orpheus-powered CLI) has been moved into its own module:
+  github.com/agilira/argus/cmd/cli
+
+Previously cmd/cli lived inside the root module, which meant that any consumer
+doing `go get github.com/agilira/argus` would receive orpheus and its transitive
+dependencies (flash-flags, golang.org/x/term, golang.org/x/sys) as part of the
+argus module graph — even if they only use argus as a configuration library.
+
+After this change:
+- The root module (github.com/agilira/argus) no longer requires orpheus.
+- cmd/cli declares its own go.mod with a `replace` directive pointing to ../../
+  for local development, matching the existing pattern in examples/cli/.
+- All cmd/cli tests pass without modification (no code changes, only module
+  boundary moved).
+
+## Migration Notes
+
+No action required for library users. The public API of github.com/agilira/argus
+is unchanged.
+
+If you maintain a tool that explicitly depends on
+github.com/agilira/argus/cmd/cli, update its go.mod to require
+github.com/agilira/argus/cmd/cli directly (separate module path).
