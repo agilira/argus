@@ -21,12 +21,12 @@ High-performance configuration management framework for Go applications with zer
 See Argus in action - managing configurations across multiple formats with zero-allocation performance:
 
 <picture>
-  <source media="(max-width: 768px)" srcset="https://asciinema.org/a/iJZ6b5MbcbIwCfrmE8xdd5w6T.svg" width="100%">
-  <source media="(max-width: 1024px)" srcset="https://asciinema.org/a/iJZ6b5MbcbIwCfrmE8xdd5w6T.svg" width="90%">
-  <img src="https://asciinema.org/a/iJZ6b5MbcbIwCfrmE8xdd5w6T.svg" alt="Argus CLI Demo" style="max-width: 100%; height: auto;" width="800">
+  <source media="(max-width: 768px)" srcset="https://asciinema.org/a/ZuUskxFCGcotZJ61.svg" width="100%">
+  <source media="(max-width: 1024px)" srcset="https://asciinema.org/a/ZuUskxFCGcotZJ61.svg" width="90%">
+  <img src="https://asciinema.org/a/ZuUskxFCGcotZJ61.svg" alt="Argus CLI Demo" style="max-width: 100%; height: auto;" width="800">
 </picture>
 
-*[Click to view interactive demo](https://asciinema.org/a/iJZ6b5MbcbIwCfrmE8xdd5w6T)*
+*[Click to view interactive demo](https://asciinema.org/a/ZuUskxFCGcotZJ61)*
 
 </div>
 

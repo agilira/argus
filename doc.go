@@ -12,10 +12,13 @@
 //
 // Argus consists of six integrated subsystems:
 //  1. **BoreasLite Ring Buffer**: Ultra-fast MPSC event processing (1.6M+ ops/sec)
-//  2. **Universal Format Parsers**: Support for JSON, YAML, TOML, HCL, INI, Properties
+//  2. **Universal Format Parsers**: Support for JSON, YAML (1.2 spec via yaml.v3), TOML, HCL, INI, Properties
 //  3. **Zero-Reflection Config Binding**: Type-safe binding with unsafe.Pointer optimization
 //  4. **Comprehensive Audit System**: Security and compliance logging with SQLite backend
-//  5. **Security Hardening Layer**: Multi-layer protection against path traversal and DoS attacks
+//  5. **Security Hardening Layer**: Multi-layer protection against path traversal and DoS attacks;
+//     all external trust boundaries covered by adversarial fuzz targets (FuzzDetectFormat,
+//     FuzzParseConfig, FuzzLoadConfigFromEnv, FuzzValidateSecurePath, FuzzConfigBinder,
+//     FuzzValidateConfigFile, FuzzLoadConfigMultiSource)
 //  6. **Remote Configuration**: Distributed config management with graceful failover
 //
 // # Universal Configuration Watching
@@ -40,7 +43,7 @@
 //
 // Supported formats with zero configuration:
 //   - JSON (.json) - Native high-performance parsing
-//   - YAML (.yml, .yaml) - Built-in parser + plugin support
+//   - YAML (.yml, .yaml) - Full YAML 1.2 spec via yaml.v3 (anchors, aliases, multiline scalars, flow styles)
 //   - TOML (.toml) - Built-in parser + plugin support
 //   - HCL (.hcl, .tf) - HashiCorp configuration language
 //   - INI (.ini, .conf, .cfg) - Traditional configuration files

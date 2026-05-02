@@ -113,6 +113,8 @@ RECORDING.md
 benchmark-demo.sh
 
 # CLI binary (built from examples/cli)
+argus-bin
+examples/cli/argus-cli
 
 # Local dev notes (not for public repo)
 TODO_LOCAL.md
