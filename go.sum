@@ -1,9 +1,9 @@
-github.com/agilira/flash-flags v1.1.7 h1:r3/pLLU2vARm+pHZoUp8vTRErUad6MBn4ht79Sjf+lY=
-github.com/agilira/flash-flags v1.1.7/go.mod h1:vuuo9FRN+ZgREaa1WYRmUFac/h3+CwuvD4EvjF5JNIQ=
-github.com/agilira/go-errors v1.1.1 h1:angp1yM1HstZMPTNKY/iOID6953QdHAv7lXTgZxF/zU=
-github.com/agilira/go-errors v1.1.1/go.mod h1:PjmCIt/5BO7N8VdM2v4x31Tepo7PjFSWdyEQjB8J/JU=
-github.com/agilira/go-timecache v1.0.2 h1:8tmWsNhhXxmvopotfkX+IBnb+0wpclytdnsA3wPfmk4=
-github.com/agilira/go-timecache v1.0.2/go.mod h1:Td47wj2NGJVCV+G4y+RlfHapluz4STXDeS1cQ1SqKDo=
+github.com/agilira/flash-flags v1.1.8 h1:ceDp6hxIrAn8WPWdqsRA+sYOPb6Sht00ksUfemIgfj8=
+github.com/agilira/flash-flags v1.1.8/go.mod h1:ANHrYcqhbLzb4/1tENVi3ljHYixnm43wiX2YajI0XSU=
+github.com/agilira/go-errors v1.1.2 h1:ksOx5zi88VZCXOKh2IAYFLK6dQeVlE4EjxIA8CVmeOI=
+github.com/agilira/go-errors v1.1.2/go.mod h1:ciAR1Rs6aWYqG195/BDVYABTvlNnRNo6pX6eUhbIGDY=
+github.com/agilira/go-timecache v1.0.3 h1:O397lnI1dCIPRssiiBjDq6++izWALmpnF9SiMSSxZFI=
+github.com/agilira/go-timecache v1.0.3/go.mod h1:4e2uN0V00sIo5m0t0boLTQtORJmc2u2So/+LGvUbSs0=
 github.com/mattn/go-sqlite3 v1.14.44 h1:3VSe+xafpbzsLbdr2AWlAZk9yRHiBhTBakioXaCKTF8=
 github.com/mattn/go-sqlite3 v1.14.44/go.mod h1:pjEuOr8IwzLJP2MfGeTb0A35jauH+C2kbHKBr7yXKVQ=
 go.yaml.in/yaml/v3 v3.0.4 h1:tfq32ie2Jv2UxXFdLJdh3jXuOzWiL1fo0bu/FbuKpbc=
