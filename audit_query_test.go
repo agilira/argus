@@ -233,7 +233,7 @@ func TestQuery_EventPrefixFilter(t *testing.T) {
 		}
 	}()
 
-	ts := time.Now().UTC()
+	ts := time.Now().UTC().Add(-50 * time.Millisecond)
 	writeEventAt(t, al, ts, "secret.get", "c", AuditInfo)
 	writeEventAt(t, al, ts.Add(time.Millisecond), "secret.set", "c", AuditInfo)
 	writeEventAt(t, al, ts.Add(2*time.Millisecond), "config.change", "c", AuditInfo)
@@ -261,7 +261,7 @@ func TestQuery_ComponentFilter(t *testing.T) {
 		}
 	}()
 
-	ts := time.Now().UTC()
+	ts := time.Now().UTC().Add(-50 * time.Millisecond)
 	writeEventAt(t, al, ts, "ev", "secrets", AuditInfo)
 	writeEventAt(t, al, ts.Add(time.Millisecond), "ev", "secrets", AuditInfo)
 	writeEventAt(t, al, ts.Add(2*time.Millisecond), "ev", "config", AuditInfo)
@@ -289,7 +289,7 @@ func TestQuery_LevelFilter(t *testing.T) {
 		}
 	}()
 
-	ts := time.Now().UTC()
+	ts := time.Now().UTC().Add(-50 * time.Millisecond)
 	writeEventAt(t, al, ts, "info.ev", "c", AuditInfo)
 	writeEventAt(t, al, ts.Add(time.Millisecond), "warn.ev", "c", AuditWarn)
 	writeEventAt(t, al, ts.Add(2*time.Millisecond), "crit.ev", "c", AuditCritical)
@@ -388,7 +388,7 @@ func TestQuery_DetectsTamperedChecksum(t *testing.T) {
 		}
 	}()
 
-	base := time.Now().UTC()
+	base := time.Now().UTC().Add(-50 * time.Millisecond)
 	for i := 0; i < 5; i++ {
 		writeEventAt(t, al, base.Add(time.Duration(i)*time.Millisecond),
 			fmt.Sprintf("event.%d", i), "c", AuditInfo)
