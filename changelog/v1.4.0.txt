@@ -1,0 +1,48 @@
+v1.4.0 — 2026-05-19
+
+## Features
+
+- Add `(*AuditLogger).Query(AuditEventFilter) ([]AuditEvent, error)` for structured
+  event retrieval from the SQLite audit backend.
+  - Filters: Since, Until, EventPrefix (prefix-match, SQL metacharacters escaped),
+    Component (exact), Level (minimum), Limit (default 10 000, cap constant
+    `DefaultQueryLimit`).
+  - Results are returned newest-first.
+  - Every returned event is verified against its stored SHA-256 checksum; if any
+    event is tampered the full result slice is returned together with a typed
+    `ARGUS_AUDIT_CHAIN_BROKEN` error so operators can inspect up to the break.
+
+- Add `(*AuditLogger).GetStats() (*AuditDatabaseStats, error)` — returns total
+  row count and last-event timestamp from the SQLite backend.
+
+- New typed error codes:
+  - `ARGUS_AUDIT_CHAIN_BROKEN`      — checksum mismatch detected in query result
+  - `ARGUS_AUDIT_BACKEND_UNSUPPORTED` — Query called on non-SQLite backend (e.g. JSONL)
+  - `ARGUS_AUDIT_QUERY_ERROR`        — internal DB error (message does not leak SQL)
+
+- New constant `DefaultQueryLimit = 10_000`.
+
+## Security
+
+- SQL injection hardened: EventPrefix and Component are bound as parameters;
+  LIKE metacharacters (`%`, `_`, `\`) in EventPrefix are escaped with
+  `ESCAPE '\'` so filter values are always treated as literals.
+- Error messages never echo raw SQL, query parameters, or internal DB details
+  (CWE-209 protection).
+
+## Tests
+
+- `audit_query_test.go`: 17 unit tests covering all filters, ordering,
+  limit/default-limit, chain integrity detection, concurrent reads, JSONL guard,
+  and LIKE metacharacter edge cases.
+- `audit_query_security_test.go`: 6 security tests covering SQL injection via
+  EventPrefix and Component, LIKE escaping, null-byte handling, chain-tamper
+  detection, and error message non-leakage.
+- `audit_query_fuzz_test.go`: `FuzzQuery_Filter` harness with 16 seeds (SQL
+  metacharacters, control characters, overlong inputs); asserts no panic, all
+  errors are typed, and the backing DB is never mutated.
+
+## Compatibility
+
+Fully backward-compatible. No existing types, methods, or error codes changed.
+JSONL backend users receive `ARGUS_AUDIT_BACKEND_UNSUPPORTED` when calling Query.

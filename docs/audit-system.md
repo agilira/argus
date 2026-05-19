@@ -447,638 +447,87 @@ func analyzeAuditTrail() error {
 }
 ```
 
-## Legacy JSONL Log Analysis
+## Programmatic Event Query & Integrity Verification
 
-### Log Processing with jq
+### Querying Audit Events (v1.4.0+)
 
-```bash
-# Show all configuration changes today
-jq 'select(.event == "config_change" and .timestamp | startswith("2025-08-24"))' \
-   /var/log/argus/audit.jsonl
-
-# Find security events in the last hour
-jq 'select(.level == "SECURITY" and 
-    (.timestamp | fromdateiso8601) > (now - 3600))' \
-   /var/log/argus/audit.jsonl
-
-# Show all changes to database configuration
-jq 'select(.file_path | contains("database") and .event == "config_change")' \
-   /var/log/argus/audit.jsonl
-
-# Count events by level
-jq -r '.level' /var/log/argus/audit.jsonl | sort | uniq -c
-```
-
-### Log Analysis Queries
-
-```bash
-# Most frequently changed files
-jq -r '.file_path' /var/log/argus/audit.jsonl | sort | uniq -c | sort -nr
-
-# Changes by process
-jq -r '.process_name' /var/log/argus/audit.jsonl | sort | uniq -c
-
-# Timeline of changes for specific file
-jq 'select(.file_path == "/etc/app/config.json") | 
-    {timestamp, event, old_value, new_value}' \
-   /var/log/argus/audit.jsonl
-```
-
-### Integration with Log Aggregation
-
-#### ELK Stack Integration
-
-```yaml
-# Filebeat configuration
-filebeat.inputs:
-- type: log
-  enabled: true
-  paths:
-    - /var/log/argus/audit.jsonl
-  json.keys_under_root: true
-  json.add_error_key: true
-  fields:
-    logtype: argus_audit
-    environment: production
-```
-
-#### Fluentd Configuration
-
-```conf
-# Fluentd config for Argus audit logs
-<source>
-  @type tail
-  path /var/log/argus/audit.jsonl
-  pos_file /var/log/fluentd/argus-audit.log.pos
-  tag argus.audit
-  format json
-  time_key timestamp
-  time_format %Y-%m-%dT%H:%M:%S.%LZ
-</source>
-
-<match argus.audit>
-  @type elasticsearch
-  host elasticsearch.company.com
-  port 9200
-  index_name argus-audit-%Y%m%d
-  type_name audit
-</match>
-```
-
-## Security Considerations
-
-### File Permissions
-
-```bash
-# Secure audit log directory
-sudo mkdir -p /var/log/argus
-sudo chown myapp:myapp /var/log/argus
-sudo chmod 750 /var/log/argus
-
-# Audit logs should be readable only by app and security team
-sudo chmod 640 /var/log/argus/audit.jsonl
-sudo chown myapp:security /var/log/argus/audit.jsonl
-```
-
-### Tamper Detection
-
-Each audit entry includes a checksum for tamper detection:
-
-```go
-// Verify audit log integrity
-func verifyAuditLog(logPath string) error {
-    file, err := os.Open(logPath)
-    if err != nil {
-        return err
-    }
-    defer file.Close()
-    
-    scanner := bufio.NewScanner(file)
-    for scanner.Scan() {
-        var entry argus.AuditEvent
-        if err := json.Unmarshal(scanner.Bytes(), &entry); err != nil {
-            continue
-        }
-        
-        // Verify checksum
-        expectedChecksum := generateChecksum(entry)
-        if entry.Checksum != expectedChecksum {
-            return fmt.Errorf("tampered audit entry detected at %s", 
-                entry.Timestamp)
-        }
-    }
-    
-    return scanner.Err()
-}
-```
-
-### Log Rotation
-
-```bash
-# Logrotate configuration for Argus audit logs
-# /etc/logrotate.d/argus
-/var/log/argus/audit.jsonl {
-    daily
-    rotate 90
-    compress
-    delaycompress
-    missingok
-    notifempty
-    create 640 myapp security
-    postrotate
-        /bin/kill -HUP `cat /var/run/myapp.pid 2>/dev/null` 2>/dev/null || true
-    endscript
-}
-```
-
-## Performance Impact
-
-### Benchmark Results
-
-Based on comprehensive testing, the unified SQLite backend provides **superior performance**:
-
-- **SQLite backend:** WAL mode with prepared statements (~0.3µs per event)
-- **Cross-app correlation:** Zero additional overhead (shared database)
-- **Query performance:** Indexed queries 10-100x faster than JSONL parsing
-- **Memory overhead:** 12KB fixed + (250 bytes × buffer size)
-- **I/O overhead:** Transaction batching reduces disk writes by 1000x
-- **Application impact:** <0.001% for typical config change frequency
-
-### Performance Configuration
-
-```go
-// High-throughput unified audit configuration
-highThroughputAudit := argus.AuditConfig{
-    Enabled:       true,
-    OutputFile:    "",                   // Use unified SQLite backend
-    MinLevel:      argus.AuditCritical,  // Reduce noise
-    BufferSize:    5000,                 // Larger buffer for batching
-    FlushInterval: 10 * time.Second,     // Less frequent transaction commits
-    IncludeStack:  false,                // Skip expensive stack traces
-}
-
-// Real-time security audit configuration
-realTimeAudit := argus.AuditConfig{
-    Enabled:       true,
-    OutputFile:    "",                      // Unified SQLite for correlation
-    MinLevel:      argus.AuditSecurity,     // Security events only
-    BufferSize:    100,                     // Small buffer for immediate processing
-    FlushInterval: 100 * time.Millisecond, // Near real-time commits
-    IncludeStack:  true,                    // Full forensic detail
-}
-
-// Legacy JSONL for specific compliance requirements
-legacyAudit := argus.AuditConfig{
-    Enabled:       true,
-    OutputFile:    "/var/log/compliance/audit.jsonl", // .jsonl = JSONL backend
-    MinLevel:      argus.AuditInfo,
-    BufferSize:    1000,
-    FlushInterval: 5 * time.Second,
-}
-```
-
-## Compliance and Standards
-
-### SOX Compliance
-
-Argus audit supports **Sarbanes-Oxley** requirements:
-
-- **Immutable audit trails** with tamper detection
-- **Complete configuration change tracking** with before/after values
-- **Process accountability** with PID and process name tracking
-- **Timestamp precision** to microsecond level
-- **Retention policies** via log rotation
-
-### PCI-DSS Compliance
-
-For **Payment Card Industry** environments:
-
-- **Access logging** for all configuration changes
-- **Failed access attempts** via security-level events
-- **File integrity monitoring** through checksum validation
-- **Secure log storage** with proper file permissions
-- **Regular log review** capability through structured JSON
-
-### GDPR Compliance
-
-For **data protection** compliance:
-
-- **Data processing activity logging** via context fields
-- **Configuration change attribution** with process tracking
-- **Audit log retention controls** via rotation policies
-- **Right to explanation** through detailed change logs
-
-## Integration Examples
-
-### Kubernetes Operator
-
-```go
-// Kubernetes operator with full audit trail
-func (r *AppConfigReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-    // Watch ConfigMap changes with audit
-    configMapPath := "/etc/config/app.yaml"
-    
-    watcher, err := argus.UniversalConfigWatcherWithConfig(configMapPath,
-        func(config map[string]interface{}) {
-            // Apply configuration to pods
-            r.applyConfigToPods(ctx, config)
-        },
-        argus.Config{
-            Audit: argus.AuditConfig{
-                Enabled:    true,
-                OutputFile: "/var/log/k8s-audit/config-changes.jsonl",
-                Context: map[string]interface{}{
-                    "namespace":   req.Namespace,
-                    "resource":    req.Name,
-                    "operator":    "config-operator",
-                    "cluster":     os.Getenv("CLUSTER_NAME"),
-                },
-            },
-        },
-    )
-    
-    if err != nil {
-        return ctrl.Result{}, err
-    }
-    
-    return ctrl.Result{RequeueAfter: time.Minute * 5}, nil
-}
-```
-
-### Microservices Architecture
-
-```go
-// Service mesh configuration auditing
-type ServiceMeshConfig struct {
-    auditor *argus.AuditLogger
-}
-
-func (smc *ServiceMeshConfig) WatchServiceConfigs() error {
-    services := []string{
-        "/etc/istio/gateway.yaml",
-        "/etc/istio/virtualservice.yaml", 
-        "/etc/consul/service-mesh.json",
-    }
-    
-    for _, servicePath := range services {
-        watcher, err := argus.UniversalConfigWatcherWithConfig(servicePath,
-            func(config map[string]interface{}) {
-                smc.updateServiceMesh(servicePath, config)
-            },
-            argus.Config{
-                Audit: argus.AuditConfig{
-                    Enabled:    true,
-                    OutputFile: "/var/log/service-mesh/config-audit.jsonl",
-                    MinLevel:   argus.AuditCritical,
-                },
-                ErrorHandler: func(err error, path string) {
-                    smc.auditor.LogSecurityEvent("config_error", 
-                        fmt.Sprintf("Failed to process %s: %v", path, err),
-                        map[string]interface{}{
-                            "service": filepath.Base(path),
-                            "mesh":    "istio",
-                        },
-                    )
-                },
-            },
-        )
-        
-        if err != nil {
-            return err
-        }
-        
-        go watcher.Start()
-    }
-    
-    return nil
-}
-```
-
-## Troubleshooting
-
-### Common Issues
-
-#### Audit Log Permission Denied
-
-```bash
-# Check file permissions
-ls -la /var/log/argus/audit.jsonl
-
-# Fix permissions
-sudo chown myapp:myapp /var/log/argus/audit.jsonl
-sudo chmod 640 /var/log/argus/audit.jsonl
-```
-
-#### High Memory Usage
-
-```go
-// Reduce buffer size for memory-constrained environments
-config := argus.AuditConfig{
-    BufferSize:    100,  // Smaller buffer
-    FlushInterval: 1 * time.Second,  // More frequent flushes
-}
-```
-
-#### Missing Audit Events
-
-```go
-// Enable debug logging to troubleshoot
-config := argus.Config{
-    Audit: argus.AuditConfig{
-        Enabled:      true,
-        MinLevel:     argus.AuditInfo,  // Lower threshold
-        IncludeStack: true,             // Enable for debugging
-    },
-    ErrorHandler: func(err error, path string) {
-        log.Printf("DEBUG: Audit error for %s: %v", path, err)
-    },
-}
-```
-
-### Monitoring Audit Health
-
-```go
-// Monitor audit system health
-func monitorAuditHealth(auditor *argus.AuditLogger) {
-    ticker := time.NewTicker(1 * time.Minute)
-    defer ticker.Stop()
-    
-    for range ticker.C {
-        // Check if audit file is writable
-        if err := auditor.Flush(); err != nil {
-            log.Printf("ALERT: Audit system unhealthy: %v", err)
-            // Send alert to monitoring system
-            alertmanager.SendAlert("audit-system-failure", err.Error())
-        }
-    }
-}
-```
-
-## OpenTelemetry Integration
-
-### Overview
-
-Argus provides **optional OpenTelemetry tracing integration** through a non-invasive wrapper pattern. This enables seamless integration with distributed tracing systems like **Jaeger**, **Zipkin**, and observability platforms like **Prometheus**, **Grafana**, and **DataDog**.
-
-### Key Features
-
-- **Zero performance impact** on core audit operations
-- **Asynchronous tracing** with no blocking I/O
-- **Drop-in replacement** with identical API
-- **Graceful degradation** when OTEL is unavailable
-- **Standard semantic conventions** for audit events
-
-### Quick Start
+Argus v1.4.0 introduces a first-class API for querying audit events directly from Go code, with built-in integrity verification:
 
 ```go
 import (
     "github.com/agilira/argus"
-    "go.opentelemetry.io/otel"
-    "go.opentelemetry.io/otel/exporters/jaeger"
-    "go.opentelemetry.io/otel/sdk/trace"
+    goerrors "github.com/agilira/go-errors" // for HasCode
 )
 
-func main() {
-    // Initialize OTEL (optional)
-    jaegerExporter, err := jaeger.New(jaeger.WithCollectorEndpoint(
-        jaeger.WithEndpoint("http://jaeger:14268/api/traces"),
-    ))
-    if err != nil {
-        log.Fatal(err)
+// Query events from the audit database
+filter := argus.AuditEventFilter{
+    Since:       time.Now().Add(-24 * time.Hour), // Only last 24h
+    EventPrefix: "config.",                      // Only config events
+    Component:   "myapp",                        // Only this app
+    Level:       argus.AuditCritical,             // Only critical changes
+    Limit:       100,                             // Max 100 results
+}
+events, err := auditor.Query(filter)
+if err != nil {
+    // ErrCodeAuditChainBroken is a typed error code, not a sentinel error.
+    // Use goerrors.HasCode (or check via errors.ErrorCoder) — never errors.Is.
+    if goerrors.HasCode(err, argus.ErrCodeAuditChainBroken) {
+        // At least one event failed integrity check (checksum mismatch).
+        // The full result slice up to the break is still returned for forensics.
+        log.Printf("WARNING: Audit chain broken! Results up to break returned.")
+    } else {
+        log.Fatalf("Query failed: %v", err)
     }
-    
-    tp := trace.NewTracerProvider(trace.WithBatcher(jaegerExporter))
-    otel.SetTracerProvider(tp)
-    
-    // Create core audit logger (unchanged)
-    config := argus.DefaultAuditConfig()
-    coreLogger, err := argus.NewAuditLogger(config)
-    if err != nil {
-        log.Fatal(err)
-    }
-    defer coreLogger.Close()
-    
-    // Wrap with OTEL integration
-    tracer := otel.Tracer("argus-audit")
-    auditLogger, err := argus.NewOTELAuditWrapper(coreLogger, tracer, nil)
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    // Use exactly like regular audit logger
-    auditLogger.LogConfigChange("/etc/app/config.json", oldConfig, newConfig)
-    
-    // OTEL spans are created automatically and asynchronously
+}
+for _, ev := range events {
+    fmt.Printf("%s %s %s\n", ev.Timestamp, ev.Event, ev.Component)
 }
 ```
 
-### Configuration
+### AuditEventFilter Fields
+
+| Field        | Type        | Description                                      |
+| ------------| ----------- | ------------------------------------------------ |
+| Since       | time.Time   | Lower bound (inclusive) for event timestamp      |
+| Until       | time.Time   | Upper bound (inclusive) for event timestamp      |
+| EventPrefix | string      | Prefix match for event type (LIKE-escaped)       |
+| Component   | string      | Exact match for component                        |
+| Level       | AuditLevel  | Minimum level (INFO, WARN, CRITICAL, SECURITY)   |
+| Limit       | int         | Max results (default 10,000, capped)             |
+
+- **LIKE metacharacters** (`%`, `_`, `\`) in `EventPrefix` are always escaped for security; only literal prefix matches are allowed.
+- **Component** is always an exact match.
+
+### Integrity Verification
+
+Every event returned by `Query` is verified against its stored SHA-256 checksum. If any event fails verification, the full result slice is still returned, but the error will carry the code `ErrCodeAuditChainBroken` (a typed go-errors error). This allows operators to inspect all events up to the break point.
+
+> **Note:** `ErrCodeAuditChainBroken` is an error *code* (`string` constant), not a sentinel `error` value. Do **not** use `errors.Is`. Use `goerrors.HasCode(err, argus.ErrCodeAuditChainBroken)` or inspect the `errors.ErrorCoder` interface.
+
+### Error Codes
+
+- `ARGUS_AUDIT_CHAIN_BROKEN` — checksum mismatch detected in query result
+- `ARGUS_AUDIT_BACKEND_UNSUPPORTED` — Query called on non-SQLite backend (e.g. JSONL)
+- `ARGUS_AUDIT_QUERY_ERROR` — internal DB error (message does not leak SQL)
+
+### Database Statistics
+
+You can retrieve audit DB stats programmatically:
 
 ```go
-// Custom OTEL wrapper configuration
-config := &argus.OTELWrapperConfig{
-    BaseAttributes: []attribute.KeyValue{
-        attribute.String("service.name", "my-application"),
-        attribute.String("service.version", "1.2.3"),
-        attribute.String("deployment.environment", "production"),
-    },
-    IncludeEventContext: true,  // Include audit context in spans
-    IncludeChecksums:    false, // Skip checksums for performance
-    MaxContextSize:      1024,  // Limit context data size
+stats, err := auditor.GetStats()
+if err != nil {
+    log.Fatalf("GetStats failed: %v", err)
 }
-
-wrapper, err := argus.NewOTELAuditWrapper(coreLogger, tracer, config)
+fmt.Printf("Total events: %d, Last event: %s\n", stats.TotalEvents, stats.LastEventTimestamp)
 ```
 
-### OTEL Span Structure
+### Security Notes
 
-Argus creates structured OTEL spans following semantic conventions:
-
-```yaml
-# Configuration change span
-span_name: "audit.config_change"
-attributes:
-  service.name: "my-application"
-  audit.level: "CRITICAL"
-  audit.event: "config_change" 
-  audit.component: "argus"
-  audit.operation: "log"
-  file.path: "/etc/app/config.json"
-  audit.timestamp: "2025-09-22T10:30:00.123Z"
-  audit.context.deployment: "v2.1.0"
-  audit.context.operator: "jane.doe"
-
-# Security event span  
-span_name: "audit.security.unauthorized_access"
-attributes:
-  audit.level: "SECURITY"
-  audit.event: "unauthorized_access"
-  audit.security_critical: true
-  audit.context.source_ip: "192.168.1.100"
-  audit.context.user_id: "unknown"
-```
-
-### Performance Characteristics
-
-| Configuration | Latency Impact | Memory Overhead |
-|---------------|----------------|-----------------|
-| **No OTEL** | 0ns (baseline) | 0 bytes |
-| **OTEL Disabled** | +71ns (+23%) | 30 bytes |
-| **OTEL Enabled** | +598ns (async) | 1.2KB |
-
-The wrapper ensures **zero impact on hot path performance** through asynchronous span creation.
-
-### Integration Examples
-
-#### Jaeger Distributed Tracing
-
-```go
-func setupJaegerTracing() trace.TracerProvider {
-    exporter, err := jaeger.New(jaeger.WithCollectorEndpoint(
-        jaeger.WithEndpoint("http://jaeger-collector:14268/api/traces"),
-    ))
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    return trace.NewTracerProvider(
-        trace.WithBatcher(exporter),
-        trace.WithSampler(trace.TraceIDRatioBased(0.1)), // 10% sampling
-        trace.WithResource(resource.NewWithAttributes(
-            semconv.SchemaURL,
-            semconv.ServiceNameKey.String("argus-audit"),
-            semconv.ServiceVersionKey.String("1.0.0"),
-        )),
-    )
-}
-```
-
-#### Prometheus Metrics Export
-
-```go
-import "go.opentelemetry.io/otel/exporters/prometheus"
-
-func setupPrometheusMetrics() {
-    exporter, err := prometheus.New()
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    provider := metric.NewMeterProvider(metric.WithReader(exporter))
-    otel.SetMeterProvider(provider)
-    
-    // Audit events will appear as Prometheus metrics
-    // argus_audit_events_total{level="CRITICAL",component="argus"}
-}
-```
-
-#### OTLP Generic Export
-
-```go
-func setupOTLPExport() {
-    exporter, err := otlptrace.New(context.Background(),
-        otlptracegrpc.NewClient(
-            otlptracegrpc.WithEndpoint("http://otel-collector:4317"),
-            otlptracegrpc.WithInsecure(),
-        ),
-    )
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    return trace.NewTracerProvider(trace.WithBatcher(exporter))
-}
-```
-
-### Kubernetes Integration
-
-```yaml
-# Deployment with OTEL sidecar
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: app-with-audit
-spec:
-  template:
-    spec:
-      containers:
-      - name: app
-        image: myapp:latest
-        env:
-        - name: OTEL_EXPORTER_JAEGER_ENDPOINT
-          value: "http://jaeger-collector:14268/api/traces"
-        - name: OTEL_SERVICE_NAME
-          value: "myapp"
-        - name: OTEL_RESOURCE_ATTRIBUTES
-          value: "deployment.environment=production"
-          
-      # Optional: OTEL Collector sidecar  
-      - name: otel-collector
-        image: otel/opentelemetry-collector-contrib:latest
-        ports:
-        - containerPort: 4317 # OTLP gRPC
-        - containerPort: 4318 # OTLP HTTP
-```
-
-### Best Practices
-
-#### 1. **Performance Optimization**
-- Use OTEL sampling to reduce overhead in high-frequency scenarios
-- Configure appropriate buffer sizes for batch export
-- Monitor OTEL exporter health independently from audit system
-
-#### 2. **Observability Strategy**
-- Include meaningful service metadata in base attributes
-- Use consistent span naming conventions across services
-- Leverage OTEL context propagation for distributed traces
-
-#### 3. **Error Handling**
-- Monitor wrapper tracing errors via `GetTracingErrors()`
-- Implement OTEL exporter fallback strategies
-- Ensure audit reliability is never compromised by OTEL issues
-
-#### 4. **Security Considerations**
-- Avoid including sensitive data in OTEL attributes
-- Use secure transport for OTEL exports (TLS)
-- Consider data retention policies for tracing data
-
-## Best Practices
-
-### 1. **Backend Selection Strategy**
-- Use **unified SQLite backend** (default) for cross-application correlation
-- Use **JSONL backend** only when required by legacy systems or compliance tools
-- Leverage automatic fallback for maximum reliability
-
-### 2. **Audit Level Strategy**
-- Use `AuditInfo` for development and testing
-- Use `AuditCritical` for production configuration changes
-- Use `AuditSecurity` for security-sensitive environments
-
-### 3. **Performance Optimization**
-- Set appropriate buffer sizes (1000-5000 for high throughput)
-- Adjust flush intervals based on audit requirements
-- Use faster storage for unified database (SSD, dedicated volumes)
-- Leverage SQLite WAL mode benefits for concurrent access
-
-### 4. **Cross-Application Correlation**
-- Use consistent component naming across applications
-- Include meaningful context in audit events
-- Design queries for incident investigation workflows
-- Implement automated correlation alerts for critical patterns
-
-### 5. **Security Hardening**
-- Store unified audit database on separate filesystem
-- Implement database-level access controls
-- Use log shipping to central SIEM systems
-- Regular audit database integrity checks
-
-### 6. **Operational Excellence**
-- Monitor unified database growth and implement retention policies
-- Test audit database recovery procedures
-- Document cross-application analysis procedures
-- Train operations team on SQL-based audit investigation
-
-Argus's Audit System provides professional-grade audit capabilities that meet the most stringent compliance and security requirements while maintaining ultra-high performance and operational simplicity.
+- All query filters are parameterized; SQL injection is not possible.
+- LIKE metacharacters in `EventPrefix` are always escaped (`ESCAPE '\'`).
+- Error messages never leak raw SQL or user input (CWE-209 safe).
+- JSONL backend does not support Query and returns a typed error.
 
 ---
 
