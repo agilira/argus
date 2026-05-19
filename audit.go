@@ -272,8 +272,13 @@ func (al *AuditLogger) flushBufferUnsafe() error {
 // generateChecksum creates a tamper-detection checksum using SHA-256
 func (al *AuditLogger) generateChecksum(event AuditEvent) string {
 	// Cryptographic hash for tamper detection
+	// UTC-normalize so checksum is timezone-independent. Pairs with the
+	// matching .UTC() at the SQL write site (audit_backend.go) so the
+	// hash computed on read (any timezone string parsed → UTC) matches
+	// the hash computed at write. Lexical SQL bounds comparison stays
+	// correct because both sides are UTC RFC3339Nano.
 	data := fmt.Sprintf("%s:%s:%s:%v:%v",
-		event.Timestamp.Format(time.RFC3339Nano),
+		event.Timestamp.UTC().Format(time.RFC3339Nano),
 		event.Event, event.Component, event.OldValue, event.NewValue)
 	hash := sha256.Sum256([]byte(data))
 	return fmt.Sprintf("%x", hash)

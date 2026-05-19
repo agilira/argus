@@ -764,9 +764,13 @@ func (s *sqliteAuditBackend) insertEvent(stmt *sql.Stmt, event AuditEvent) error
 		contextJSON = string(data)
 	}
 
-	// Execute insert with proper parameter binding
+	// Execute insert with proper parameter binding. Timestamp is
+	// UTC-normalized so query-time lexical comparison against
+	// .UTC() bounds (audit_query.go normalizeFilter) is correct
+	// regardless of the writer's local timezone — same RFC3339Nano
+	// shape used by the checksum in audit.go.generateChecksum.
 	_, err := stmt.Exec(
-		event.Timestamp.Format(time.RFC3339Nano),
+		event.Timestamp.UTC().Format(time.RFC3339Nano),
 		event.Level.String(),
 		event.Event,
 		event.Component,

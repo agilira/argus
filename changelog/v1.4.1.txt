@@ -1,0 +1,23 @@
+v1.4.1 — 2026-05-19
+
+## Bug Fixes
+
+- **audit.go** `generateChecksum`: normalize event timestamp to UTC before
+  formatting as RFC3339Nano. Previously, a timestamp with a non-UTC location
+  would produce a different string from the UTC-parsed value read back from
+  SQLite, causing every Query call to return ARGUS_AUDIT_CHAIN_BROKEN even on
+  untampered data.
+
+- **audit_backend.go** `insertEvent`: normalize event timestamp to UTC before
+  writing to SQLite. Ensures lexical bounds comparisons in `normalizeFilter`
+  (Since / Until) are correct regardless of the writer's local timezone, and
+  guarantees the stored timestamp string matches the shape expected by
+  `generateChecksum` on read.
+
+Both fixes pair together: write UTC → store UTC → read UTC → checksum matches.
+
+## Compatibility
+
+No API or behavior change for callers already using UTC timestamps (the common
+case). Callers using non-UTC locations now get correct checksum verification
+and accurate time-range filtering.
