@@ -138,7 +138,10 @@ func TestSec_LikeMetacharacters_Escaped(t *testing.T) {
 		}
 	}()
 
-	ts := time.Now().UTC()
+	// Anchor events in the past so that the default Until=time.Now() bound in
+	// each Query call always includes all four events, even on platforms with
+	// coarse clock resolution (e.g. macOS CI runners).
+	ts := time.Now().UTC().Add(-time.Second)
 	// Store one event whose name literally contains %, one with _, and decoys.
 	writeEventAt(t, al, ts, "ev%literal", "c", AuditInfo)
 	writeEventAt(t, al, ts.Add(time.Millisecond), "ev_literal", "c", AuditInfo)
