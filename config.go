@@ -85,8 +85,16 @@ func (c *Config) setFileDefaults() {
 	}
 }
 
-// setAuditDefaults sets default audit configuration
+// setAuditDefaults sets default audit configuration.
+//
+// DisableAudit wins over the secure default: when set, audit is forced off and
+// the enabled default is never applied (argus.New then installs an inert logger
+// that opens no backend). Otherwise an unset Audit gets the enabled default.
 func (c *Config) setAuditDefaults() {
+	if c.DisableAudit {
+		c.Audit = AuditConfig{Enabled: false}
+		return
+	}
 	if c.Audit == (AuditConfig{}) {
 		c.Audit = DefaultAuditConfig()
 	}

@@ -145,6 +145,20 @@ type Config struct {
 	// Default: Enabled with secure defaults
 	Audit AuditConfig
 
+	// DisableAudit opts out of the unified system audit trail entirely.
+	//
+	// When true, argus.New installs an inert audit logger: no SQLite backend is
+	// opened (no system-audit.db under TempDir) and no flush goroutine is
+	// started. This is the correct setting for a host that already owns its own
+	// audit trail and does not want Argus to stand up a second one — each
+	// argus.New otherwise creates its own system audit logger, so several
+	// watchers in one process would each open the shared system database.
+	//
+	// Precedence: DisableAudit overrides Audit. The secure default is unchanged
+	// — leave this false (the zero value) to keep audit enabled.
+	// Default: false (audit enabled).
+	DisableAudit bool
+
 	// ErrorHandler is called when errors occur during file watching/parsing
 	// If nil, errors are logged to stderr (backward compatible)
 	// Example: func(err error, path string) { metrics.Increment("config.errors") }
@@ -396,11 +410,19 @@ func New(config Config) *Watcher {
 	cfg := config.WithDefaults()
 	ctx, cancel := context.WithCancel(context.Background())
 
-	// Initialize audit logger
-	auditLogger, err := NewAuditLogger(cfg.Audit)
-	if err != nil {
-		// Fallback to disabled audit if setup fails
-		auditLogger, _ = NewAuditLogger(AuditConfig{Enabled: false})
+	// Initialize audit logger. DisableAudit installs an inert logger that opens
+	// no backend and starts no goroutine (see newDisabledAuditLogger) — the
+	// opt-out for hosts that own their own audit trail.
+	var auditLogger *AuditLogger
+	if cfg.DisableAudit {
+		auditLogger = newDisabledAuditLogger()
+	} else {
+		var err error
+		auditLogger, err = NewAuditLogger(cfg.Audit)
+		if err != nil {
+			// Fallback to disabled audit if setup fails
+			auditLogger, _ = NewAuditLogger(AuditConfig{Enabled: false})
+		}
 	}
 
 	watcher := &Watcher{

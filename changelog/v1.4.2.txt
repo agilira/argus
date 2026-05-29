@@ -1,0 +1,89 @@
+argus v1.4.2 — Config.DisableAudit: opt out of the system audit trail
+====================================================================
+
+Released: 2026-05-30
+Commit:   (see git log)
+Authors:  Antonio Giordano
+
+STATUS: STABLE — additive API, no breaking changes.
+
+
+NEW
+---
+
+1. Config.DisableAudit — inert audit logger for hosts with their own trail
+
+       DisableAudit bool
+
+   When true, argus.New installs an INERT audit logger: no SQLite backend is
+   opened (no system-audit.db under TempDir) and no flush goroutine is started.
+
+   WHY: every argus.New otherwise stands up its own unified system audit logger
+   (createAuditBackend opens the shared TempDir/argus/system-audit.db, and a
+   FlushInterval>0 starts a flush goroutine). A host that runs several watchers
+   in one process — and that already owns its own audit trail — ends up with
+   several redundant system-audit databases and flush goroutines it never asked
+   for. DisableAudit is the clean opt-out.
+
+   Precedence: DisableAudit overrides Audit. The secure default is unchanged —
+   leave it false (zero value) to keep audit enabled with secure settings.
+
+       // host owns its own audit; tell argus not to open a second one
+       w := argus.New(argus.Config{
+           OptimizationStrategy: argus.OptimizationLight,
+           DisableAudit:         true,
+       })
+
+
+### Technical Details
+
+setAuditDefaults now short-circuits on DisableAudit:
+
+    func (c *Config) setAuditDefaults() {
+        if c.DisableAudit {
+            c.Audit = AuditConfig{Enabled: false}
+            return
+        }
+        if c.Audit == (AuditConfig{}) {
+            c.Audit = DefaultAuditConfig()
+        }
+    }
+
+argus.New routes through a new newDisabledAuditLogger() when DisableAudit is
+set, instead of NewAuditLogger (which always opens a backend). The inert logger
+is safe on every method: Log returns early on the nil backend, Flush sees an
+empty buffer, GetStats/Query return a typed error, Close is a no-op beyond
+closing stopCh.
+
+
+COMPATIBILITY
+-------------
+
+Additive: a new optional Config field defaulting to false. Existing
+configurations behave exactly as before — audit stays enabled by default.
+
+
+TEST INVENTORY
+--------------
+
+New test file: audit_disable_test.go
+  TestConfig_DisableAudit_TurnsAuditOff      — flag wins over secure default
+  TestConfig_AuditDefaultStaysEnabled        — regression: default stays ON
+  TestNewDisabledAuditLogger_Inert           — inert logger safe on all methods
+  TestNew_DisableAudit_NoBackend             — New(DisableAudit) → nil backend
+  TestNew_AuditEnabledByDefault              — regression: default New has backend
+  TestNew_AuditBackendFailure_FallsBackToDisabled — error-fallback path covered
+
+Coverage of new code: newDisabledAuditLogger 100%, setAuditDefaults 100%; the
+New() audit block (DisableAudit branch, enabled branch, error fallback) all
+covered.
+
+
+QUALITY GATES
+-------------
+
+  go fmt ./...        PASS
+  go vet ./...        PASS
+  staticcheck ./...   PASS (0 issues)
+  gosec ./...         PASS (0 issues)
+  go test -race ./... PASS (all packages)

@@ -159,6 +159,26 @@ func NewAuditLogger(config AuditConfig) (*AuditLogger, error) {
 	return logger, nil
 }
 
+// newDisabledAuditLogger returns an inert AuditLogger: no storage backend and
+// no flush goroutine. Every method stays safe on it — Log returns early on the
+// nil backend (buffering nothing), Flush sees an empty buffer, GetStats/Query
+// return a typed error, and Close is a no-op beyond closing stopCh.
+//
+// WHY a dedicated constructor instead of NewAuditLogger(AuditConfig{Enabled:false}):
+// NewAuditLogger always calls createAuditBackend, which opens the unified SQLite
+// system database regardless of Enabled. That is exactly the resource we want
+// to avoid when a host opts out via Config.DisableAudit. This constructor opens
+// nothing.
+func newDisabledAuditLogger() *AuditLogger {
+	return &AuditLogger{
+		config:      AuditConfig{Enabled: false},
+		backend:     nil,
+		stopCh:      make(chan struct{}),
+		processID:   os.Getpid(),
+		processName: getProcessName(),
+	}
+}
+
 // Log records an audit event with ultra-high performance
 func (al *AuditLogger) Log(level AuditLevel, event, component, filePath string, oldVal, newVal interface{}, context map[string]interface{}) {
 	if al == nil || al.backend == nil || !al.config.Enabled || level < al.config.MinLevel {
