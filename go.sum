@@ -4,8 +4,8 @@ github.com/agilira/go-errors v1.1.2 h1:ksOx5zi88VZCXOKh2IAYFLK6dQeVlE4EjxIA8CVme
 github.com/agilira/go-errors v1.1.2/go.mod h1:ciAR1Rs6aWYqG195/BDVYABTvlNnRNo6pX6eUhbIGDY=
 github.com/agilira/go-timecache v1.0.3 h1:O397lnI1dCIPRssiiBjDq6++izWALmpnF9SiMSSxZFI=
 github.com/agilira/go-timecache v1.0.3/go.mod h1:4e2uN0V00sIo5m0t0boLTQtORJmc2u2So/+LGvUbSs0=
-github.com/mattn/go-sqlite3 v1.14.44 h1:3VSe+xafpbzsLbdr2AWlAZk9yRHiBhTBakioXaCKTF8=
-github.com/mattn/go-sqlite3 v1.14.44/go.mod h1:pjEuOr8IwzLJP2MfGeTb0A35jauH+C2kbHKBr7yXKVQ=
+github.com/mattn/go-sqlite3 v1.14.46 h1:ZfaNcYO/CGNMRxkN1vvG9qf+Y+uvXfgT9a6MlEw+HmU=
+github.com/mattn/go-sqlite3 v1.14.46/go.mod h1:6JTjA44L93a0QCyJef5YvlPoKXntQPjzWv5gtm9sB6w=
 go.yaml.in/yaml/v3 v3.0.4 h1:tfq32ie2Jv2UxXFdLJdh3jXuOzWiL1fo0bu/FbuKpbc=
 go.yaml.in/yaml/v3 v3.0.4/go.mod h1:DhzuOOF2ATzADvBadXxruRBLzYTpT36CKvDb3+aBEFg=
 gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405 h1:yhCVgyC4o1eVCa2tZl7eS0r+SDo693bJlVdllGtEeKM=
