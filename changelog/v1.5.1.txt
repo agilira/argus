@@ -1,0 +1,93 @@
+argus v1.5.1 — platform fixes for the v1.5.0 audit
+==================================================
+
+Released: 2026-09-20
+Commit:   (see git log)
+Authors:  Antonio Giordano
+
+STATUS: PATCH — fixes two regressions introduced by v1.5.0 on macOS and
+Windows. Linux was unaffected.
+
+
+WHY THIS RELEASE EXISTS
+-----------------------
+
+v1.5.0 was verified on Linux. The CI build matrix covers macOS and Windows as
+well, and both failed after the tag had already been pushed. The audit's own
+lesson applies to the audit: a check that only ever runs on one platform tells
+you about one platform.
+
+
+FIXES
+-----
+
+1. The watcher stored files under their RESOLVED path
+
+   Fixing the dead symlink guard in v1.5.0, validateAndSecurePath started
+   returning the path that filepath.EvalSymlinks produced instead of the one
+   the caller passed.
+
+   Symlink resolution decides WHETHER a file may be watched. It must not change
+   the identity the caller gets back. Returning the target stored the file under
+   a key the caller had never mentioned, so Unwatch looked in the wrong place
+   and ChangeEvent reported a path nobody asked for.
+
+   That is not an edge case off Linux:
+
+     macOS    /var is a symlink to /private/var, so every temporary file
+              reaches its target through a symlinked parent
+     Windows  every 8.3 short path (C:\Users\RUNNER~1\...) expands
+
+   It took out Unwatch, WatcherBasicFunctionality, WatcherMultipleFiles and
+   SimpleFileWatcher — tests that passed before v1.5.0.
+
+   The guard itself is unchanged and still fires: a symlink into /etc is
+   refused, and directory watching still refuses to read through a link that
+   leaves the watched tree.
+
+2. isSystemDirectory blocked all of macOS's temporary storage
+
+   The first fix for (1) added /private/var to the list of protected system
+   directories, reasoning that macOS reaches /etc and /var through /private.
+
+   /private/var IS macOS's /var. It holds /var/folders, where every temporary
+   file on the platform lives, and /var was never on the block list to begin
+   with. Every watch on macOS was refused.
+
+   Only the directories already listed get their resolved spelling, which means
+   /private/etc and nothing else.
+
+3. Audit file-mode tests asserted a property Windows does not have
+
+   TestAuditDatabase_IsNotWorldReadable and its sidecar counterpart check that
+   the SQLite audit database is 0600. Go reports every readable file on Windows
+   as 0666 whatever mode it was created with, so the assertion was about
+   something the platform cannot express; access control there is an ACL, a
+   different question from the one these tests ask.
+
+   They skip on Windows now. The code was correct — only the tests were
+   platform-blind.
+
+
+TEST INVENTORY
+--------------
+
+  TestWatcher_SymlinkedParentKeepsCallerPath
+      Watches a file through a symlinked parent directory — the shape macOS
+      has natively — and asserts both halves: the event carries the caller's
+      path, and Unwatch finds the file.
+
+  TestIsSystemDirectory_ResolvedFormsCount
+      /private/etc is refused; /private/var/folders and /var/folders are not.
+
+
+QUALITY GATES
+-------------
+
+  gofmt -l .              PASS (clean)
+  go vet ./...            PASS
+  staticcheck ./...       PASS (0 issues)
+  gosec -conf .gosec.json PASS (0 issues)
+  go test -race ./...     PASS
+  CI build matrix         PASS on ubuntu-latest, macos-latest, windows-latest
+  submodules              10/10 build, vet and test
