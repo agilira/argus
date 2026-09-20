@@ -1,0 +1,409 @@
+argus v1.5.0 — full audit: 48 defects fixed, audit trail is a real hash chain
+=============================================================================
+
+Released: 2026-09-20
+Commit:   (see git log)
+Authors:  Antonio Giordano
+
+STATUS: see COMPATIBILITY — this release contains behaviour changes.
+
+
+SUMMARY
+-------
+
+A complete audit of the library, conducted test-first: every defect below was
+reproduced by a failing test before it was fixed. 48 defects found and closed.
+
+Four of them were stubs that reported success without doing their job, and they
+are the spine of this release:
+
+  ConfigManager.LoadConfigFile          returned nil, read nothing
+  env_config.loadConfigFromFile         parsed the file, discarded the result
+  ConfigManager.SetDefault              an empty body
+  RemoteConfigManager.loadLocalFallback returned a placeholder, never opened
+                                        the emergency file
+
+Each had a passing test written around it.
+
+
+CRASHES AND HANGS
+-----------------
+
+1. Start() after Stop() panicked with "close of closed channel", inside the
+   polling goroutine where no caller could recover it. A watcher is single-use:
+   Start now returns ARGUS_WATCHER_STOPPED. Start, Stop and Close are
+   serialised by a lifecycle mutex.
+
+2. AuditLogger.Close() panicked on a second call. It is idempotent now.
+
+3. The watcher ran the user callback while holding filesMu.RLock, so a callback
+   calling Watch or Unwatch — the natural shape of a one-shot watch —
+   deadlocked the event processor permanently. The callback is now looked up
+   under the lock and invoked after releasing it.
+
+4. DirectoryWatcher had the same shape in notifyMerged: a merged callback that
+   called Close() deadlocked.
+
+5. AuditLogger.Flush() had no nil-receiver guard while Log, GetStats and Query
+   all had one.
+
+6. NewRemoteConfigManager accepted a nil watcher and dereferenced it at Start.
+
+
+SILENT DATA LOSS
+----------------
+
+7.  Events were lost for any watched file whose absolute path exceeded 109
+    bytes. BoreasLite truncates the path into a fixed inline buffer, and the
+    watcher looked the file up BY that truncated path — so the watch registered
+    successfully and then never fired. Kubernetes ConfigMap mounts and nested
+    project trees exceed 109 bytes routinely.
+
+    FileChangeEvent now carries a WatchID assigned when the file is registered,
+    and delivery no longer depends on the path fitting. The struct is still
+    exactly 128 bytes, now with a compile-time assertion.
+
+    The existing long-path tests t.Skip()ed precisely the lengths that failed.
+    They no longer skip, and a case past the buffer was added.
+
+8.  LoadConfigMultiSource read nothing from the configuration file. Its
+    documented "environment > file > defaults" precedence was really
+    "environment > defaults".
+
+    Two causes: loadConfigFromFile discarded its parse result, and the
+    environment layer was merged AFTER applying defaults, so PollInterval=5s
+    and MaxWatchedFiles=100 looked like explicit environment settings and
+    overwrote the file underneath.
+
+9.  ConfigManager ignored every environment variable. Parse called
+    flags.Parse() BEFORE installing the env prefix, and FlashFlags reads the
+    environment from inside Parse. Every APPNAME_* variable arrived too late.
+
+10. A malformed configuration file fell through to defaults in silence,
+    starting applications on settings nobody chose.
+
+11. ConfigBinder could not reach a flat dotted key. The Properties and INI
+    parsers emit exactly those ("database.host"), so binding a .properties file
+    returned the caller's default for every key. Lookup now tries the direct
+    key first, then the nested path.
+
+12. LogSecurityEvent accepted a `details` argument and never used it. Every
+    security record reached storage without its explanation.
+
+13. OptimizationLight was unreachable from the environment: missing from both
+    the allow-list and the converter. The spelling table is now shared between
+    the environment loader and the configuration-file loader.
+
+14. ARGUS_REMOTE_INTERVAL and ARGUS_REMOTE_TIMEOUT swallowed parse errors while
+    every other ARGUS_* duration reported them.
+
+15. Audit environment variables were gated on ARGUS_AUDIT_ENABLED, so setting
+    only ARGUS_AUDIT_MIN_LEVEL or ARGUS_AUDIT_BUFFER_SIZE did nothing.
+
+
+SECURITY
+--------
+
+16. The audit trail is now a REAL HASH CHAIN (schema v3). It was documented as
+    a "SHA-chain" while every record hashed independently — deleting a record,
+    or reordering records, was undetectable.
+
+        checksum = SHA256(prev_checksum || record_digest)
+
+    prev_checksum is a new column, written inside the insert transaction where
+    the record's position is known and cannot race. A chain_head row anchors
+    where the trail ends, which is what makes a truncated tail visible.
+
+    New API: AuditLogger.VerifyAuditChain() walks the trail in insertion order
+    and verifies continuity. Query() keeps verifying each record it returns; it
+    cannot check continuity, because a filtered subset has no adjacency.
+
+    The anchor's limit is documented, not glossed: it lives in the same file,
+    so an attacker with write access can delete records and rewrite it. It
+    catches accidental truncation, partial restores, tools that pruned the
+    table, and an attacker who did not know to look. A guarantee against a
+    fully privileged local attacker needs the head anchored outside Argus.
+
+17. The record digest now covers Level, FilePath, ProcessID, ProcessName and
+    Context. It previously covered only timestamp, event, component and the
+    old/new values — leaving the three fields that carry the security meaning
+    unprotected (CWE-345). Proven: a record could be rewritten from
+    /etc/shadow to /tmp/harmless.json, or downgraded from SECURITY to INFO,
+    and still verify. Fields are length-prefixed and interface{} values hashed
+    as canonical JSON.
+
+18. The SQLite audit database was created world-readable (0644) while the JSONL
+    backend of the same system deliberately used 0600. Both the database and
+    its WAL sidecars are now 0600, created before SQLite touches them.
+
+19. The unified audit database moved out of the shared temporary directory.
+    os.TempDir()/argus/ is world-writable: the first account to create it owned
+    the audit trail of every other account on the host, and a pre-created
+    symlink would have redirected it (CWE-377). Resolution order is now
+    $ARGUS_AUDIT_DIR, $XDG_STATE_HOME/argus, ~/.local/state/argus,
+    os.UserConfigDir()/argus, and only then a uid-scoped temp directory.
+
+20. The symlink system-directory guard was dead code. validateAndSecurePath
+    replaced absPath with the resolved target and only THEN called
+    validateSymlinks, which resolved the already-resolved path, found it
+    unchanged, and skipped the guard. A symlink into /etc was accepted every
+    time. Related: isSystemDirectory matched "/etc/" but not "/etc" itself.
+
+21. Directory watching followed symlinks out of the watched tree. filepath.Walk
+    handed every matching name to os.ReadFile, which follows the link, so
+    "innocent.json -> ~/.ssh/id_rsa" dropped into a watched directory had its
+    contents parsed and delivered to the callback. Entries are now required to
+    resolve inside the watched tree. The directory itself may still be reached
+    through a symlink — that is how Kubernetes mounts ConfigMaps.
+
+22. ConfigWriter wrote through a predictable temp file name
+    ("<path>.tmp.<UnixNano>") with os.WriteFile, which has no O_EXCL: a guessed
+    name pre-created as a symlink would have redirected the write. It uses
+    os.CreateTemp now, and fsyncs both the file and the directory — rename is
+    atomic, but on a crash the metadata can land before the data and leave a
+    zero-length configuration file.
+
+23. AuditConfig.OutputFile is path-validated, matching what
+    ARGUS_AUDIT_OUTPUT_FILE already did.
+
+24. (fuzz) ValidateSecurePath accepted the Windows device name "00\Prn":
+    filepath.Base does not split on backslash outside Windows, so a
+    cross-platform guard worked only on the platform that needs it least.
+
+25. (fuzz) ParseConfig accepted the YAML document `"": v` and produced an entry
+    under the empty string. The INI and Properties parsers both reject an empty
+    key with a typed error; YAML did not. No lookup path in the package can
+    address such an entry — lookupConfigValue, ConfigBinder and ConfigManager
+    all reach a value by name — so it was parsed, stored and unreadable. Keys
+    are validated recursively now, control characters included.
+
+26. (fuzz) A YAML parse error formatted the decoder's message, which quotes the
+    offending document text — the configuration itself — into an error the
+    application logs. The diagnosis and position are kept; the quoted span is
+    redacted.
+
+
+RESOURCE LEAKS
+--------------
+
+27. Stop() on a watcher that was never started returned an error and released
+    nothing, leaving the audit logger's SQLite handle and flush goroutine with
+    no way to reclaim them. Close() is now the idempotent release and is valid
+    before Start — `defer watcher.Close()` is correct on every path.
+
+28. UniversalConfigWatcherWithConfig and SimpleFileWatcher returned nil,err on
+    every failure path without closing the watcher New had already built.
+
+
+CONCURRENCY
+-----------
+
+29. ParseConfig read the customParsers slice header outside the mutex on its
+    fast path, justified by a comment claiming append-only made it safe.
+    Appending rewrites the slice header; the race detector confirms it. The
+    registry is an atomic.Pointer now, so the read is genuinely lock-free.
+
+30. WatchDirectoryMerged started mergeLoop ON TOP OF the pollLoop
+    watchDirectoryInternal had already started: two goroutines walking the same
+    directory and mutating the same state every interval.
+
+31. ConfigManager was not safe for concurrent use, while WatchConfigFile
+    reloads from the watcher's goroutine.
+
+32. _txlock=immediate is now set on the SQLite DSN. The write path reads the
+    chain tail before inserting, and a deferred transaction cannot upgrade from
+    reader to writer — _busy_timeout does not apply to an upgrade — so
+    concurrent writers failed with "database is locked" immediately.
+
+
+CLAIMS THAT DID NOT MATCH THE CODE
+----------------------------------
+
+33. Config.Remote was documented as enabling distributed configuration with
+    fallback, and every field was validated and defaulted — but argus.New never
+    read it and NewRemoteConfigManager had no caller in the library. It is
+    wired now: New builds the manager, Start starts it, Close stops it, and the
+    new Watcher.RemoteConfig() returns the last loaded configuration.
+
+34. Wiring it up exposed the fourth stub. loadLocalFallback never opened
+    FallbackPath: it returned a hardcoded {"fallback": true, "source": …,
+    "message": …} and reported success. That file is read only when every
+    remote source is already down, so an application asking for its emergency
+    database URL received three meaningless keys and no sign of failure. It is
+    parsed with the universal parser now, and an unreadable fallback is an
+    error. Its test looked for the placeholder's key while writing a file with
+    different content — it asserted the stub, not the feature.
+
+35. Each retry attempt called the loader with its own default options, nesting
+    a second retry policy: the documented three attempts reached the remote
+    twelve times, with constant delays absent from the documented schedule.
+
+36. Every remote_config audit call passed "remote_config" as the EVENT and the
+    action as the COMPONENT — the opposite of every other call site — so
+    filtering an audit query by Component or EventPrefix skipped them entirely.
+
+37. RemoteConfigManager.Stop() documented "blocks until the sync loop has fully
+    terminated" and returned straight after cancel(). It blocks now, and the
+    manager can be started again after being stopped.
+
+38. NewRemoteConfigManager wrote defaults into the caller's RemoteConfig. It
+    works on a copy now.
+
+39. The configMapPool's note claimed "~40% fewer parse allocations, ~15% more
+    throughput". A parsed map is RETURNED to the caller, so nothing could put
+    it back: only error paths ever fed the pool. The pool is gone and the note
+    now explains why pooling cannot apply here.
+
+40. copyMap was documented as a deep copy and copied one level, so an audit
+    record's "before" snapshot shared every nested container with its "after".
+
+
+BUILD AND CI
+------------
+
+41. Every submodule had stopped compiling. cmd/cli — the product binary — all
+    seven examples and both benchmark modules declared an older go directive
+    than the root module requires. CI only ran ./... on the root module, so
+    nothing noticed. benchmarks/go.mod also carried a replace pointing outside
+    the repository, so it only ever resolved on one machine.
+
+    A CI job now builds, vets and tests every submodule.
+
+42. gosec ran with BOTH continue-on-error: true AND "|| true". It could not
+    fail a build. It is blocking now, and the code passes it with 0 issues.
+
+43. ConfigWriter printed to stdout with fmt.Printf on temp-file cleanup
+    failure, polluting any CLI that emits JSON.
+
+44. DirectoryWatcher.watchers was allocated, iterated and deleted from, and
+    never written to.
+
+45. loadAndNotify discarded its errors and left the file unrecorded, so a
+    malformed file was silently re-read and re-parsed on every scan, forever.
+    DirectoryWatchOptions.ErrorHandler is new; a file that fails is recorded at
+    its modification time and retried when it changes.
+
+
+RELEASE PIPELINE
+----------------
+
+46. **The published "CLI binaries" were not executables, and no CLI existed.**
+    release.yml built the ROOT package — a library — into five files named
+    argus-linux-amd64 and friends, and published them under the heading "CLI
+    Binary" with release notes telling people to run `./argus config get`.
+    Verified: they are `ar archive`, mode 0644.
+
+    There was no `package main` anywhere in the repository. cmd/cli is
+    `package cli`, a Manager with Run(args) and no entry point; the only main
+    was in examples/cli, pinned to a published version of cmd/cli rather than
+    the working tree.
+
+    cmd/cli/argus is that entry point now, in the cmd/cli module because the
+    CLI depends on Orpheus and the library must not. It is verified end to end
+    against the command the README documents. The release job builds from
+    there and REFUSES TO PUBLISH anything that is not an executable — a
+    library package produces an archive silently, which is how this went
+    unnoticed.
+
+    The binaries are built with CGO_ENABLED=0, since go-sqlite3 needs cgo and
+    cross-compiling it would need a toolchain per target. Config and watch
+    operations are complete; the SQLite audit backend degrades to disabled,
+    which was measured, not assumed. The release notes say so and point at
+    `go install github.com/agilira/argus/cmd/cli/argus@<tag>` for a full build.
+
+47. release.yml pinned Go 1.24 while go.mod moved to 1.25.9, so every step of
+    the release job would have failed. It follows 'stable' now.
+
+48. `make build` and `make install` built the library root, producing the same
+    archive. They build cmd/cli/argus now.
+
+
+DEPENDENCIES
+------------
+
+flash-flags v1.1.8 → v1.3.0, which carries the --help/-h fix from the Orpheus
+audit: the framework claims those spellings only when the application has not
+registered a flag of that name itself. Argus had a second copy of the same bug
+in ConfigManager.Parse, intercepting the two strings before any lookup; that
+copy is gone.
+
+
+COMPATIBILITY
+-------------
+
+Behaviour changes a caller can observe:
+
+  * FileChangeEvent layout. Path is [102]byte (was [110]) and the struct
+    carries a new WatchID uint64. Still exactly 128 bytes. Source-breaking only
+    for code that hardcodes the array size. WriteFileChangeWithID is new;
+    WriteFileChange is unchanged.
+
+  * Audit checksum formula. Records written by an earlier version verify only
+    under the old formula, so Query and VerifyAuditChain report them as broken.
+    Intended: those checksums never protected file_path, level or context.
+
+  * Audit database location. Existing deployments will not find the old file
+    at os.TempDir()/argus/system-audit.db. Set ARGUS_AUDIT_DIR to keep it, or
+    move the file.
+
+  * Audit schema v3. Migration is automatic and idempotent.
+
+  * LoadConfigMultiSource reports a malformed or unsupported configuration
+    file instead of silently falling back. A MISSING file is still optional
+    and silent.
+
+  * Watcher.Close() no longer returns an error when the watcher is not
+    running, and releases resources on a watcher that was never started.
+    Watcher.Stop() keeps its contract unchanged.
+
+  * Watcher.Start() refuses a stopped watcher instead of panicking.
+
+  * ConfigManager honours its documented precedence, its environment
+    variables, SetDefault and LoadConfigFile — all of which previously did
+    nothing.
+
+  * ErrCodeHelpRequested is a new error code. Detect help with
+    IsHelpRequested(err); comparing error strings never worked.
+
+New: the `argus` CLI binary actually exists and is published. Install it with
+`go install github.com/agilira/argus/cmd/cli/argus@v1.5.0`.
+
+New API: Watcher.RemoteConfig(), AuditLogger.VerifyAuditChain(),
+ConfigManager.GetFloat64(), DirectoryWatchOptions.ErrorHandler,
+AuditEvent.PrevChecksum, ErrHelpRequested, IsHelpRequested,
+BoreasLite.WriteFileChangeWithID, ARGUS_AUDIT_DIR.
+
+
+TEST INVENTORY
+--------------
+
+New test files:
+  argus_audit_test.go              — watcher lifecycle, long paths, symlinks
+  audit_chain_test.go              — deletion, reordering, truncation, reopen
+  audit_integrity_audit_test.go    — checksum coverage, file modes, location
+  config_binding_audit_test.go     — config-map binding, deep copy, accessors
+  config_sources_audit_test.go     — multi-source precedence, binder, registry
+  directory_remote_audit_test.go   — directory watching, remote, fallback
+  integration_audit_test.go        — ConfigManager precedence and help
+
+Updated in place: the tests that documented the defects — long_path_test.go
+(stopped skipping the failing lengths), config_validation_security_test.go
+(asserts the symlink guard instead of logging), env_config_test.go and
+examples/multi_source_config (assert the file's values instead of "handles it
+gracefully"), remote_config_fallback_test.go (asserts the fallback file's
+content instead of the placeholder's key), argus_fuzz_test.go (an invariant
+that flagged its own error vocabulary as a leak).
+
+
+QUALITY GATES
+-------------
+
+  gofmt -l .              PASS (clean)
+  go vet ./...            PASS
+  staticcheck ./...       PASS (0 issues)
+  gosec -conf .gosec.json PASS (0 issues, now blocking in CI)
+  govulncheck ./...       PASS (0 vulnerabilities)
+  go test -race ./...     PASS (47s)
+  coverage                88.0% (was 87.3%)
+  fuzz targets            7/7 PASS
+  submodules              10/10 build, vet and test

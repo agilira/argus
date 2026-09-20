@@ -52,7 +52,7 @@ See Argus in action - managing configurations across multiple formats with zero-
 
 ## Compatibility and Support
 
-Argus is designed for Go 1.24+ environments and follows Long-Term Support guidelines to ensure consistent performance across production deployments.
+Argus is designed for Go 1.25+ environments and follows Long-Term Support guidelines to ensure consistent performance across production deployments.
 
 ## Installation
 
@@ -102,25 +102,37 @@ watcher, err := argus.UniversalConfigWatcher("config.yaml",
     })
 
 watcher.Start()
-defer watcher.Stop()
+defer watcher.Close()
 ```
 
 ### Remote Configuration
 ```go
 // Distributed configuration with automatic fallback
-remoteManager := argus.NewRemoteConfigWithFallback(
-    "https://consul.internal:8500/v1/kv/app/config",  // Primary
-    "https://backup-consul.internal:8500/v1/kv/app/config", // Fallback
-    "/etc/myapp/fallback.json", // Local fallback
-)
-
 watcher := argus.New(argus.Config{
-    Remote: remoteManager.Config(),
+    Remote: argus.RemoteConfig{
+        Enabled:      true,
+        PrimaryURL:   "consul://consul.internal:8500/config/myapp",
+        FallbackURL:  "consul://backup-consul.internal:8500/config/myapp",
+        FallbackPath: "/etc/myapp/fallback.json",
+        SyncInterval: 30 * time.Second,
+        Timeout:      10 * time.Second,
+    },
 })
+
+// Start() begins remote synchronisation along with file watching.
+if err := watcher.Start(); err != nil {
+    log.Printf("argus: %v", err) // file watching runs; the remote load is retried
+}
+
+// The most recently loaded remote configuration, and when it arrived.
+config, loadedAt, err := watcher.RemoteConfig()
 
 // Graceful shutdown for Kubernetes deployments
 defer watcher.GracefulShutdown(30 * time.Second)
 ```
+
+The provider for the URL scheme must be registered first — import
+`github.com/agilira/argus-provider-consul` (or redis, or git) for its side effect.
 
 ### Directory Watching
 ```go
@@ -128,6 +140,9 @@ defer watcher.GracefulShutdown(30 * time.Second)
 watcher, err := argus.WatchDirectory("/etc/myapp/config.d", argus.DirectoryWatchOptions{
     Patterns:  []string{"*.yaml", "*.json"},
     Recursive: true,
+    ErrorHandler: func(err error, path string) {
+        log.Printf("argus: %s: %v", path, err) // a file that will not parse
+    },
 }, func(update argus.DirectoryConfigUpdate) {
     if update.IsDelete {
         fmt.Printf("Config removed: %s\n", update.FilePath)
@@ -148,6 +163,10 @@ watcher, err := argus.WatchDirectoryMerged("/etc/myapp/config.d", argus.Director
 
 ### CLI Usage
 ```bash
+# Install the CLI
+go install github.com/agilira/argus/cmd/cli/argus@latest
+
+
 # Ultra-fast configuration management CLI
 argus config get config.yaml server.port
 argus config set config.yaml database.host localhost

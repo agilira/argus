@@ -26,6 +26,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/agilira/go-errors"
 )
@@ -78,11 +79,44 @@ type ConfigParser interface {
 	Name() string
 }
 
-// Global registry of custom parsers (production environments can register advanced parsers)
+// Global registry of custom parsers (production environments can register
+// advanced parsers).
+//
+// The list is held behind an atomic.Pointer and replaced wholesale on
+// registration, so the read on the parse path is genuinely lock-free. It used
+// to be a plain slice read outside the mutex on the fast path, justified by a
+// comment claiming "append-only is safe": appending rewrites the slice header,
+// so that read raced with every registration and the race detector confirms it.
 var (
-	customParsers []ConfigParser
-	parserMutex   sync.RWMutex
+	customParsers atomic.Pointer[[]ConfigParser]
+	parserMutex   sync.Mutex // serialises registration only
 )
+
+// loadParsers returns the current registry snapshot, never nil.
+func loadParsers() []ConfigParser {
+	if parsers := customParsers.Load(); parsers != nil {
+		return *parsers
+	}
+	return nil
+}
+
+// snapshotParsers returns a copy of the registry. Used by tests that need to
+// restore the global state they modified.
+func snapshotParsers() []ConfigParser {
+	current := loadParsers()
+	snapshot := make([]ConfigParser, len(current))
+	copy(snapshot, current)
+	return snapshot
+}
+
+// restoreParsers replaces the registry wholesale.
+func restoreParsers(parsers []ConfigParser) {
+	parserMutex.Lock()
+	defer parserMutex.Unlock()
+	replacement := make([]ConfigParser, len(parsers))
+	copy(replacement, parsers)
+	customParsers.Store(&replacement)
+}
 
 // RegisterParser registers a custom parser for production use cases.
 // Custom parsers are tried before built-in parsers, allowing for full
@@ -98,56 +132,40 @@ var (
 func RegisterParser(parser ConfigParser) {
 	parserMutex.Lock()
 	defer parserMutex.Unlock()
-	customParsers = append(customParsers, parser)
+
+	current := loadParsers()
+	updated := make([]ConfigParser, len(current), len(current)+1)
+	copy(updated, current)
+	updated = append(updated, parser)
+	customParsers.Store(&updated)
 }
 
-// configMapPool is a sync.Pool for reusing map[string]interface{} to reduce allocations
+// getConfigMap allocates the map a parser fills.
 //
 // ═══════════════════════════════════════════════════════════════════════════════
-// ENGINEERING NOTE: Object Pooling for Hot Path Optimization
+// ENGINEERING NOTE: Why There Is No Pool Here
 // ═══════════════════════════════════════════════════════════════════════════════
-// Every config parse operation needs a map[string]interface{} to store results.
-// Without pooling, this means:
-//   - 1 allocation for the map header (24 bytes)
-//   - 1 allocation for the bucket array (grows with entries)
-//   - GC pressure from short-lived objects
+// This used to draw from a sync.Pool, with a note claiming ~40% fewer parse
+// allocations and ~15% more throughput. Neither number was reachable: a parsed
+// map is RETURNED to the caller and handed on to user callbacks, which keep it
+// for as long as they like. Nothing could put it back, so only the error paths
+// ever fed the pool and the hot path allocated every time regardless.
 //
-// sync.Pool solves this by recycling maps between parse operations. The pool
-// is automatically cleared by the GC during collection, so we don't leak memory.
+// Worse, the shape invited a real bug: adding the "missing" putConfigMap on a
+// success path would have recycled a map the application was still reading,
+// handing the same map to two callers.
 //
-// The clear-on-get pattern (deleting all keys before reuse) is crucial:
-//   - Ensures no stale data from previous parses
-//   - Faster than allocating a new map (O(n) delete vs allocation + GC)
-//   - Keeps the map's internal bucket structure for fast re-population
-//
-// In benchmarks, this reduces parse allocations by ~40% and improves throughput
-// by ~15% under sustained load. The benefit is most visible in scenarios like
-// Kubernetes ConfigMap watching where many small configs are parsed frequently.
+// Pooling can only return here if parsing stops handing its map to the caller.
 // ═══════════════════════════════════════════════════════════════════════════════
-var configMapPool = sync.Pool{
-	New: func() interface{} {
-		return make(map[string]interface{})
-	},
-}
-
-// getConfigMap gets a map from the pool and clears it for reuse.
-// Part of the memory optimization system to reduce allocations during parsing.
 func getConfigMap() map[string]interface{} {
-	if config, ok := configMapPool.Get().(map[string]interface{}); ok {
-		// Clear the map for reuse
-		for k := range config {
-			delete(config, k)
-		}
-		return config
-	}
-	// Fallback if type assertion fails
 	return make(map[string]interface{})
 }
 
-// putConfigMap returns a map to the pool for reuse.
-// Should be called when a map is no longer needed to prevent memory leaks.
+// putConfigMap releases a map a parser allocated but will not return, e.g. when
+// parsing fails partway through. It exists so the error paths read naturally;
+// there is no pool behind it (see getConfigMap).
 func putConfigMap(config map[string]interface{}) {
-	configMapPool.Put(config)
+	_ = config
 }
 
 // String returns the string representation of the config format for debugging and logging.
@@ -297,23 +315,19 @@ func DetectFormat(filePath string) ConfigFormat {
 //   - map[string]interface{}: Parsed configuration data
 //   - error: Any parsing errors
 func ParseConfig(data []byte, format ConfigFormat) (map[string]interface{}, error) {
-	// Fast path: Check if we have any custom parsers without locking
-	// This is safe because customParsers is only appended to, never modified
-	if len(customParsers) == 0 {
+	// One atomic load gives a stable snapshot for the whole call: registration
+	// replaces the pointer rather than mutating the slice we are ranging over.
+	parsers := loadParsers()
+	if len(parsers) == 0 {
 		// No custom parsers, go straight to built-in
 		return parseBuiltin(data, format)
 	}
 
-	// Slow path: Check custom parsers with minimal lock time
-	parserMutex.RLock()
-	for _, parser := range customParsers {
+	for _, parser := range parsers {
 		if parser.Supports(format) {
-			config, err := parser.Parse(data)
-			parserMutex.RUnlock()
-			return config, err
+			return parser.Parse(data)
 		}
 	}
-	parserMutex.RUnlock()
 
 	// No custom parser found, use built-in
 	return parseBuiltin(data, format)

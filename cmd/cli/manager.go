@@ -1,5 +1,4 @@
-// Package cli provides the command-line interface for Argus configuration management.package cli
-
+// Package cli provides the command-line interface for Argus configuration management.
 //
 // This package implements a high-performance CLI using the Orpheus framework,
 // providing 7x-53x better performance than traditional Cobra-based CLIs.

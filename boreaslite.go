@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"sync/atomic"
 	"time"
+	"unsafe"
 )
 
 // FileChangeEvent represents a file change optimized for minimal memory footprint
@@ -30,17 +31,51 @@ import (
 //  3. MEMORY ALIGNMENT: The 8-byte int64 fields are placed first to ensure natural
 //     alignment without compiler-inserted padding, giving us maximum usable space.
 //
-// The 110-byte path buffer supports 99.7% of real-world config file paths while
-// maintaining the 128-byte boundary. This is a calculated trade-off: longer paths
-// are truncated, but we gain ~40% performance from cache-friendly access patterns.
+// The inline path buffer holds most real-world config paths while maintaining
+// the 128-byte boundary. Longer paths are truncated in the buffer, which is why
+// WatchID exists: the identity of the watched file travels with the event and
+// does not depend on the path fitting.
+//
+// WHY WatchID: the Watcher used to resolve an incoming event by looking the
+// inline path up in its map of watched files. For any path longer than the
+// buffer, the truncated key matched nothing and the user's callback was never
+// called — the watch registered successfully and then silently did nothing.
+// Kubernetes ConfigMap mounts and nested project trees exceed the buffer
+// routinely. The identifier is assigned once when the file is registered, so
+// delivery no longer depends on path length.
 // ═══════════════════════════════════════════════════════════════════════════════
 type FileChangeEvent struct {
 	ModTime int64     // Unix nanoseconds (8 bytes, aligned first)
 	Size    int64     // File size (8 bytes)
-	Path    [110]byte // FULL POWER: 110 bytes for any file path (109 chars + null terminator)
-	PathLen uint8     // Actual path length (1 byte)
+	WatchID uint64    // Identity of the watched file, 0 when unknown (8 bytes)
+	Path    [102]byte // Inline path, truncated past maxInlinePathLen
+	PathLen uint8     // Actual path length held inline (1 byte)
 	Flags   uint8     // Create(1), Delete(2), Modify(4) bits (1 byte)
-	// Total: 8+8+110+1+1 = 128 bytes exactly with proper alignment
+	// Total: 8+8+8+102+1+1 = 128 bytes exactly with proper alignment
+}
+
+// maxInlinePathLen is the longest path the inline buffer can hold. One byte is
+// left spare so the buffer is always NUL-terminated for C-style inspection.
+const maxInlinePathLen = 101
+
+// Compile-time guarantee that an event still occupies exactly one 128-byte
+// slot. Both constants must be non-negative, which is only true at equality.
+const (
+	_ = 128 - unsafe.Sizeof(FileChangeEvent{})
+	_ = unsafe.Sizeof(FileChangeEvent{}) - 128
+)
+
+// copyInlinePath copies as much of path as the inline buffer holds and records
+// the length actually stored.
+func copyInlinePath(event *FileChangeEvent, path string) {
+	pathBytes := []byte(path)
+	copyLen := len(pathBytes)
+	if copyLen > maxInlinePathLen {
+		copyLen = maxInlinePathLen
+	}
+	copy(event.Path[:], pathBytes[:copyLen])
+	// Safe conversion: copyLen is bounds-checked against maxInlinePathLen above.
+	event.PathLen = uint8(copyLen) // #nosec G115 -- bounds checked above
 }
 
 // Event flags for file changes
@@ -231,20 +266,22 @@ func (b *BoreasLite) WriteFileEvent(event *FileChangeEvent) bool {
 // Returns:
 //   - bool: true if event was successfully queued, false if buffer is full
 func (b *BoreasLite) WriteFileChange(path string, modTime time.Time, size int64, isCreate, isDelete, isModify bool) bool {
+	return b.WriteFileChangeWithID(0, path, modTime, size, isCreate, isDelete, isModify)
+}
+
+// WriteFileChangeWithID is WriteFileChange with the identity of the watched
+// file attached, so the consumer can resolve the event without relying on the
+// inline path — which is truncated past maxInlinePathLen.
+//
+// watchID 0 means "unknown"; the consumer then falls back to the inline path.
+func (b *BoreasLite) WriteFileChangeWithID(watchID uint64, path string, modTime time.Time, size int64, isCreate, isDelete, isModify bool) bool {
 	event := FileChangeEvent{
 		ModTime: modTime.UnixNano(),
 		Size:    size,
+		WatchID: watchID,
 	}
 
-	// Copy path with bounds checking
-	pathBytes := []byte(path)
-	copyLen := len(pathBytes)
-	if copyLen > 109 { // Use full buffer capacity (110 bytes - 1 for safety)
-		copyLen = 109
-	}
-	copy(event.Path[:], pathBytes[:copyLen])
-	// Safe conversion: copyLen is guaranteed <= 109 (fits in uint8)
-	event.PathLen = uint8(copyLen) // #nosec G115 -- bounds checked above, copyLen <= 109
+	copyInlinePath(&event, path)
 
 	// Set flags
 	if isCreate {
@@ -705,14 +742,7 @@ func ConvertChangeEventToFileEvent(event ChangeEvent) FileChangeEvent {
 	}
 
 	// Copy path
-	pathBytes := []byte(event.Path)
-	copyLen := len(pathBytes)
-	if copyLen > 109 { // Use full buffer capacity (110 bytes - 1 for safety)
-		copyLen = 109
-	}
-	copy(fileEvent.Path[:], pathBytes[:copyLen])
-	// Safe conversion: copyLen is guaranteed <= 109 (fits in uint8)
-	fileEvent.PathLen = uint8(copyLen) // #nosec G115 -- bounds checked above, copyLen <= 109
+	copyInlinePath(&fileEvent, event.Path)
 
 	// Set flags
 	if event.IsCreate {

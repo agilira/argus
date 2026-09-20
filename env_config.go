@@ -52,6 +52,26 @@ type EnvConfig struct {
 // LoadConfigFromEnv loads Argus configuration from environment variables
 // This provides an intuitive interface for container deployments
 func LoadConfigFromEnv() (*Config, error) {
+	config, err := loadConfigFromEnvRaw()
+	if err != nil {
+		return nil, err
+	}
+
+	// Apply defaults for any unset values
+	return config.WithDefaults(), nil
+}
+
+// loadConfigFromEnvRaw reads the environment into a Config WITHOUT applying
+// defaults, so every field left at its zero value means "the environment did
+// not set this".
+//
+// That distinction is what makes precedence work. LoadConfigFromEnv applies
+// defaults because its caller wants a usable Config; LoadConfigMultiSource
+// must not, because mergeConfigs decides "did the environment set this?" by
+// testing for the zero value. Merging a defaulted Config made every default —
+// PollInterval 5s, MaxWatchedFiles 100 — look like an explicit environment
+// setting and silently overwrite the configuration file underneath.
+func loadConfigFromEnvRaw() (*Config, error) {
 	config := &Config{}
 	envConfig := &EnvConfig{}
 
@@ -64,9 +84,6 @@ func LoadConfigFromEnv() (*Config, error) {
 	if err := convertEnvToConfig(envConfig, config); err != nil {
 		return nil, errors.Wrap(err, ErrCodeInvalidConfig, "failed to convert environment configuration")
 	}
-
-	// Apply defaults for any unset values
-	config = config.WithDefaults()
 
 	return config, nil
 }
@@ -97,16 +114,21 @@ func LoadConfigMultiSource(configFile string) (*Config, error) {
 	// Start with file-based configuration
 	config := &Config{}
 
-	// Load from file if provided
+	// Load from file if provided.
+	//
+	// A file that is absent is a legitimate configuration: the caller asked for
+	// an optional file and the other two sources cover the settings. A file
+	// that is present but malformed is not — reporting it is the whole point of
+	// a configuration framework, and falling through to defaults in silence
+	// started applications on settings nobody chose.
 	if configFile != "" {
 		if _, err := os.Stat(configFile); err == nil {
-			// File exists, load and parse it
-			if fileConfig, err := loadConfigFromFile(configFile); err == nil {
-				config = fileConfig
-			} else {
-				// File parsing failed, start with defaults but continue
-				config = config.WithDefaults()
+			fileConfig, err := loadConfigFromFile(configFile)
+			if err != nil {
+				return config.WithDefaults(), errors.Wrap(err, ErrCodeInvalidConfig,
+					"failed to load configuration file")
 			}
+			config = fileConfig
 		} else {
 			// File doesn't exist, start with defaults
 			config = config.WithDefaults()
@@ -115,8 +137,10 @@ func LoadConfigMultiSource(configFile string) (*Config, error) {
 		config = config.WithDefaults()
 	}
 
-	// Override with environment variables
-	envConfig, err := LoadConfigFromEnv()
+	// Override with environment variables. The raw form is deliberate: only
+	// fields the environment actually set are non-zero, so the merge below
+	// cannot mistake a default for an override of the file.
+	envConfig, err := loadConfigFromEnvRaw()
 	if err != nil {
 		return config, err // Return file config with error
 	}
@@ -126,7 +150,9 @@ func LoadConfigMultiSource(configFile string) (*Config, error) {
 		return config, errors.Wrap(err, ErrCodeInvalidConfig, "failed to merge configurations")
 	}
 
-	return config, nil
+	// Re-apply defaults: the merge may have introduced values whose guard rails
+	// (CacheTTL <= PollInterval, capacity a power of two) need re-checking.
+	return config.WithDefaults(), nil
 }
 
 // loadEnvVars loads environment variables into the EnvConfig struct
@@ -262,18 +288,15 @@ func loadOptimizationStrategy(envConfig *EnvConfig) error {
 		return nil
 	}
 
-	// SECURITY: Only allow known valid optimization strategies
-	validStrategies := []string{"auto", "single", "singleevent", "small", "smallbatch", "large", "largebatch"}
-	lowerStrategy := strings.ToLower(optimizationStr)
-
-	for _, valid := range validStrategies {
-		if lowerStrategy == valid {
-			envConfig.OptimizationStrategy = optimizationStr
-			return nil
-		}
+	// SECURITY: Only allow known valid optimization strategies. The allow-list
+	// lives in parseOptimizationStrategy so the environment and the config file
+	// can never drift apart on which names exist.
+	if _, err := parseOptimizationStrategy(optimizationStr); err != nil {
+		return err
 	}
 
-	return errors.New(ErrCodeInvalidConfig, "invalid optimization strategy")
+	envConfig.OptimizationStrategy = optimizationStr
+	return nil
 }
 
 // loadBoreasLiteCapacity loads and validates BoreasLite capacity from environment
@@ -411,16 +434,22 @@ func loadRemoteConfig(envConfig *EnvConfig) error {
 	// Remote Configuration Sources
 	envConfig.RemoteURL = os.Getenv("ARGUS_REMOTE_URL")
 
+	// A malformed duration is an error here as it is everywhere else in this
+	// file. Swallowing it left the operator with a silently ignored setting.
 	if remoteStr := os.Getenv("ARGUS_REMOTE_INTERVAL"); remoteStr != "" {
-		if duration, err := time.ParseDuration(remoteStr); err == nil {
-			envConfig.RemoteInterval = duration
+		duration, err := time.ParseDuration(remoteStr)
+		if err != nil {
+			return errors.New(ErrCodeInvalidConfig, "invalid ARGUS_REMOTE_INTERVAL format")
 		}
+		envConfig.RemoteInterval = duration
 	}
 
 	if timeoutStr := os.Getenv("ARGUS_REMOTE_TIMEOUT"); timeoutStr != "" {
-		if duration, err := time.ParseDuration(timeoutStr); err == nil {
-			envConfig.RemoteTimeout = duration
+		duration, err := time.ParseDuration(timeoutStr)
+		if err != nil {
+			return errors.New(ErrCodeInvalidConfig, "invalid ARGUS_REMOTE_TIMEOUT format")
 		}
+		envConfig.RemoteTimeout = duration
 	}
 
 	envConfig.RemoteHeaders = os.Getenv("ARGUS_REMOTE_HEADERS")
@@ -472,18 +501,11 @@ func convertCoreConfig(envConfig *EnvConfig, config *Config) {
 // convertPerformanceConfig converts performance configuration from EnvConfig to Config
 func convertPerformanceConfig(envConfig *EnvConfig, config *Config) error {
 	if envConfig.OptimizationStrategy != "" {
-		switch strings.ToLower(envConfig.OptimizationStrategy) {
-		case "auto":
-			config.OptimizationStrategy = OptimizationAuto
-		case "single", "singleevent":
-			config.OptimizationStrategy = OptimizationSingleEvent
-		case "small", "smallbatch":
-			config.OptimizationStrategy = OptimizationSmallBatch
-		case "large", "largebatch":
-			config.OptimizationStrategy = OptimizationLargeBatch
-		default:
-			return errors.New(ErrCodeInvalidConfig, "invalid optimization strategy")
+		strategy, err := parseOptimizationStrategy(envConfig.OptimizationStrategy)
+		if err != nil {
+			return err
 		}
+		config.OptimizationStrategy = strategy
 	}
 	if envConfig.BoreasLiteCapacity > 0 {
 		config.BoreasLiteCapacity = envConfig.BoreasLiteCapacity
@@ -491,9 +513,18 @@ func convertPerformanceConfig(envConfig *EnvConfig, config *Config) error {
 	return nil
 }
 
-// convertAuditConfig converts audit configuration from EnvConfig to Config
+// convertAuditConfig converts audit configuration from EnvConfig to Config.
+//
+// Any audit variable being present is enough to convert. Gating on
+// AuditEnabled alone meant that setting only ARGUS_AUDIT_MIN_LEVEL or
+// ARGUS_AUDIT_BUFFER_SIZE was silently ignored, because ARGUS_AUDIT_ENABLED
+// being unset leaves AuditEnabled at false.
 func convertAuditConfig(envConfig *EnvConfig, config *Config) error {
-	if envConfig.AuditEnabled || envConfig.AuditOutputFile != "" {
+	if envConfig.AuditEnabled ||
+		envConfig.AuditOutputFile != "" ||
+		envConfig.AuditMinLevel != "" ||
+		envConfig.AuditBufferSize > 0 ||
+		envConfig.AuditFlushInterval > 0 {
 		return convertAuditSettings(envConfig, config)
 	}
 	return nil
@@ -687,21 +718,195 @@ func loadConfigFromFile(configFile string) (*Config, error) {
 	}
 
 	// Parse using universal parser
-	_, err = ParseConfig(data, format)
+	configMap, err := ParseConfig(data, format)
 	if err != nil {
 		return nil, errors.Wrap(err, ErrCodeInvalidConfig, "failed to parse configuration file")
 	}
 
-	// Convert parsed map to Config struct using binding system
-	// For now, we start with defaults and validate the file is parseable
-	// This is the foundation - file is loaded and validated
-	config := (&Config{}).WithDefaults()
+	config := &Config{}
+	if err := bindConfigMap(configMap, config); err != nil {
+		return nil, errors.Wrap(err, ErrCodeInvalidConfig, "invalid value in configuration file")
+	}
 
-	// TODO: Implement Config struct binding from parsed configMap
-	// This would use the same binding system as user-facing API:
-	// err = BindFromConfig(configMap).BindToStruct(config).Apply()
+	return config.WithDefaults(), nil
+}
 
-	return config, nil
+// bindConfigMap fills a Config from a parsed configuration map.
+//
+// Every key is optional; a key that is absent leaves the field at its zero
+// value so WithDefaults and the environment layer can still fill it. Keys are
+// resolved through lookupConfigValue, so both a flat "audit.enabled" (what the
+// Properties and INI parsers emit) and a nested audit: { enabled: } (what
+// JSON, YAML and TOML emit) reach the same field.
+//
+// The names mirror the ARGUS_* environment variables one for one, and the
+// audit/remote sub-keys mirror the json tags already declared on AuditConfig
+// and RemoteConfig, so the three sources describe the same settings with the
+// same vocabulary.
+func bindConfigMap(configMap map[string]interface{}, config *Config) error {
+	if err := bindCoreConfigMap(configMap, config); err != nil {
+		return err
+	}
+	if err := bindAuditConfigMap(configMap, config); err != nil {
+		return err
+	}
+	return bindRemoteConfigMap(configMap, config)
+}
+
+// bindMapDuration assigns a duration-valued key when present.
+func bindMapDuration(configMap map[string]interface{}, key string, target *time.Duration) error {
+	value, ok := lookupConfigValue(configMap, key)
+	if !ok {
+		return nil
+	}
+	converted, err := convertToDuration(value)
+	if err != nil {
+		return errors.Wrap(err, ErrCodeInvalidConfig, "invalid duration for "+key)
+	}
+	*target = converted
+	return nil
+}
+
+// bindMapInt assigns an int-valued key when present.
+func bindMapInt(configMap map[string]interface{}, key string, target *int) error {
+	value, ok := lookupConfigValue(configMap, key)
+	if !ok {
+		return nil
+	}
+	converted, err := convertToInt(value)
+	if err != nil {
+		return errors.Wrap(err, ErrCodeInvalidConfig, "invalid integer for "+key)
+	}
+	*target = converted
+	return nil
+}
+
+// bindMapInt64 assigns an int64-valued key when present.
+func bindMapInt64(configMap map[string]interface{}, key string, target *int64) error {
+	value, ok := lookupConfigValue(configMap, key)
+	if !ok {
+		return nil
+	}
+	converted, err := convertToInt64(value)
+	if err != nil {
+		return errors.Wrap(err, ErrCodeInvalidConfig, "invalid integer for "+key)
+	}
+	*target = converted
+	return nil
+}
+
+// bindMapBool assigns a bool-valued key when present.
+func bindMapBool(configMap map[string]interface{}, key string, target *bool) error {
+	value, ok := lookupConfigValue(configMap, key)
+	if !ok {
+		return nil
+	}
+	converted, err := convertToBool(value)
+	if err != nil {
+		return errors.Wrap(err, ErrCodeInvalidConfig, "invalid boolean for "+key)
+	}
+	*target = converted
+	return nil
+}
+
+// bindMapString assigns a string-valued key when present.
+func bindMapString(configMap map[string]interface{}, key string, target *string) {
+	if value, ok := lookupConfigValue(configMap, key); ok {
+		*target = convertToString(value)
+	}
+}
+
+func bindCoreConfigMap(configMap map[string]interface{}, config *Config) error {
+	if err := bindMapDuration(configMap, "poll_interval", &config.PollInterval); err != nil {
+		return err
+	}
+	if err := bindMapDuration(configMap, "cache_ttl", &config.CacheTTL); err != nil {
+		return err
+	}
+	if err := bindMapInt(configMap, "max_watched_files", &config.MaxWatchedFiles); err != nil {
+		return err
+	}
+	if err := bindMapInt64(configMap, "boreas_capacity", &config.BoreasLiteCapacity); err != nil {
+		return err
+	}
+	if err := bindMapBool(configMap, "disable_audit", &config.DisableAudit); err != nil {
+		return err
+	}
+
+	if value, ok := lookupConfigValue(configMap, "optimization_strategy"); ok {
+		strategy, err := parseOptimizationStrategy(convertToString(value))
+		if err != nil {
+			return err
+		}
+		config.OptimizationStrategy = strategy
+	}
+
+	return nil
+}
+
+func bindAuditConfigMap(configMap map[string]interface{}, config *Config) error {
+	if err := bindMapBool(configMap, "audit.enabled", &config.Audit.Enabled); err != nil {
+		return err
+	}
+	bindMapString(configMap, "audit.output_file", &config.Audit.OutputFile)
+	if err := bindMapInt(configMap, "audit.buffer_size", &config.Audit.BufferSize); err != nil {
+		return err
+	}
+	if err := bindMapDuration(configMap, "audit.flush_interval", &config.Audit.FlushInterval); err != nil {
+		return err
+	}
+	if err := bindMapBool(configMap, "audit.include_stack", &config.Audit.IncludeStack); err != nil {
+		return err
+	}
+
+	if value, ok := lookupConfigValue(configMap, "audit.min_level"); ok {
+		level, err := parseAuditLevel(convertToString(value))
+		if err != nil {
+			return err
+		}
+		config.Audit.MinLevel = level
+	}
+
+	return nil
+}
+
+func bindRemoteConfigMap(configMap map[string]interface{}, config *Config) error {
+	if err := bindMapBool(configMap, "remote.enabled", &config.Remote.Enabled); err != nil {
+		return err
+	}
+	bindMapString(configMap, "remote.primary_url", &config.Remote.PrimaryURL)
+	bindMapString(configMap, "remote.fallback_url", &config.Remote.FallbackURL)
+	bindMapString(configMap, "remote.fallback_path", &config.Remote.FallbackPath)
+	if err := bindMapDuration(configMap, "remote.sync_interval", &config.Remote.SyncInterval); err != nil {
+		return err
+	}
+	if err := bindMapDuration(configMap, "remote.timeout", &config.Remote.Timeout); err != nil {
+		return err
+	}
+	if err := bindMapInt(configMap, "remote.max_retries", &config.Remote.MaxRetries); err != nil {
+		return err
+	}
+	return bindMapDuration(configMap, "remote.retry_delay", &config.Remote.RetryDelay)
+}
+
+// parseOptimizationStrategy maps a strategy name to its constant. It is the
+// single place that spelling is decided, shared by the environment loader and
+// the configuration-file loader so a name accepted by one is accepted by both.
+func parseOptimizationStrategy(name string) (OptimizationStrategy, error) {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "", "auto":
+		return OptimizationAuto, nil
+	case "single", "singleevent":
+		return OptimizationSingleEvent, nil
+	case "small", "smallbatch":
+		return OptimizationSmallBatch, nil
+	case "large", "largebatch":
+		return OptimizationLargeBatch, nil
+	case "light":
+		return OptimizationLight, nil
+	default:
+		return OptimizationAuto, errors.New(ErrCodeInvalidConfig, "invalid optimization strategy: "+name)
+	}
 }
 
 // validateSecureAuditPath validates audit file paths using the same security checks as file watching.

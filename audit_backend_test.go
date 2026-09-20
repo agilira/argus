@@ -316,8 +316,8 @@ func TestSQLiteBackend_SchemaVersioning(t *testing.T) {
 		t.Fatalf("Failed to get schema version: %v", err)
 	}
 
-	if version != 2 { // Current schema version should be 2
-		t.Errorf("Expected schema version 2, got %d", version)
+	if version != 3 { // Current schema version should be 2
+		t.Errorf("Expected schema version 3, got %d", version)
 	}
 }
 
@@ -744,8 +744,8 @@ func TestSQLiteBackend_SchemaMigration_Security(t *testing.T) {
 		t.Errorf("Schema info not found: %v", err)
 	}
 
-	if version != 2 {
-		t.Errorf("Expected schema version 2, got %d", version)
+	if version != 3 {
+		t.Errorf("Expected schema version 3, got %d", version)
 	}
 
 	// Check audit_events table exists with all required columns
@@ -948,8 +948,8 @@ func TestSQLiteBackend_DatabaseStats_Comprehensive(t *testing.T) {
 		t.Errorf("Database size should not be negative, got %d", stats.DatabaseSize)
 	}
 
-	if stats.SchemaVersion != 2 {
-		t.Errorf("Expected schema version 2, got %d", stats.SchemaVersion)
+	if stats.SchemaVersion != 3 {
+		t.Errorf("Expected schema version 3, got %d", stats.SchemaVersion)
 	}
 }
 
@@ -1348,7 +1348,7 @@ func TestSQLiteBackend_SchemaErrors_Advanced(t *testing.T) {
 	stats, err := backend.GetStats()
 	if err != nil {
 		t.Errorf("Failed to get stats from migrated database: %v", err)
-	} else if stats.SchemaVersion != 2 {
+	} else if stats.SchemaVersion != 3 {
 		t.Errorf("Expected schema version 2 after migration, got %d", stats.SchemaVersion)
 	}
 }
@@ -1428,8 +1428,8 @@ func TestSQLiteBackend_MigrationEdgeCases(t *testing.T) {
 	if err != nil {
 		t.Errorf("Failed to get stats from migrated v1 database: %v", err)
 	} else {
-		if stats.SchemaVersion != 2 {
-			t.Errorf("Expected schema version 2 after v1→v2 migration, got %d", stats.SchemaVersion)
+		if stats.SchemaVersion != 3 {
+			t.Errorf("Expected schema version 3 after migration, got %d", stats.SchemaVersion)
 		}
 		if stats.TotalEvents < 1 {
 			t.Errorf("Should have at least 1 event from legacy data, got %d", stats.TotalEvents)

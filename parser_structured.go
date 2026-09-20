@@ -14,6 +14,7 @@ package argus
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"unicode"
 
@@ -71,6 +72,54 @@ func validateJSONKey(key string) error {
 	return nil
 }
 
+// yamlLinePattern extracts the "line N" reference yaml.v3 puts in its errors.
+var yamlLinePattern = regexp.MustCompile(`line (\d+)`)
+
+// yamlQuotedContent matches the spans in which yaml.v3 echoes document text,
+// e.g. "cannot unmarshal !!int `secret-token` into ...".
+var yamlQuotedContent = regexp.MustCompile("`[^`]*`|\"[^\"]*\"")
+
+// yamlErrorSummary turns a decoder error into a message that keeps the
+// diagnosis and the position but not the document.
+//
+// The decoder's own vocabulary ("could not find expected ':'", "did not find
+// expected key") is what makes the error actionable, so it is preserved. What
+// is removed is the quoted span in which the decoder echoes the offending
+// text: in a configuration file that text is the configuration, and the error
+// travels wherever the application logs it.
+func yamlErrorSummary(err error, data []byte) string {
+	message := strings.TrimPrefix(err.Error(), "yaml: ")
+	message = strings.Join(strings.Fields(message), " ")
+	message = yamlQuotedContent.ReplaceAllString(message, "<redacted>")
+
+	// Belt and braces: if any of the document survived anyway, fall back to
+	// the position alone rather than risk carrying it into a log.
+	if errorEchoesInput(message, data) {
+		if match := yamlLinePattern.FindStringSubmatch(err.Error()); match != nil {
+			return "invalid YAML at line " + match[1]
+		}
+		return "invalid YAML"
+	}
+
+	return "invalid YAML: " + message
+}
+
+// errorEchoesInput reports whether message still carries a recognisable run of
+// the parsed document.
+func errorEchoesInput(message string, data []byte) bool {
+	const minRun = 8
+	if len(data) < minRun {
+		return false
+	}
+
+	probe := string(data)
+	if len(probe) > 50 {
+		probe = probe[:50]
+	}
+
+	return strings.Contains(message, probe)
+}
+
 // parseYAML parses YAML configuration using go.yaml.in/yaml/v3 for full YAML 1.2
 // spec compliance. Returns map[string]interface{} for backward compatibility.
 // yaml.v3 handles inline comments, anchors, tags, multiline scalars, and all
@@ -78,8 +127,13 @@ func validateJSONKey(key string) error {
 func parseYAML(data []byte) (map[string]interface{}, error) {
 	var raw map[string]interface{}
 	if err := yaml.Unmarshal(data, &raw); err != nil {
-		return nil, errors.New(ErrCodeInvalidConfig,
-			fmt.Sprintf("invalid YAML: %v", err))
+		// The decoder quotes the offending document text, which for a
+		// configuration file is the configuration itself. Formatting it into
+		// the message put that text wherever the error is logged. The position
+		// is kept because it is what an operator needs; the full decoder error
+		// stays reachable through errors.Unwrap for a debugger that has the
+		// file in front of it anyway.
+		return nil, errors.Wrap(err, ErrCodeInvalidConfig, yamlErrorSummary(err, data))
 	}
 	if raw == nil {
 		raw = make(map[string]interface{})
@@ -93,7 +147,47 @@ func parseYAML(data []byte) (map[string]interface{}, error) {
 	if !ok {
 		return nil, errors.New(ErrCodeInvalidConfig, "YAML root must be a mapping")
 	}
+
+	if err := validateYAMLKeys(result); err != nil {
+		return nil, err
+	}
+
 	return result, nil
+}
+
+// validateYAMLKeys enforces the same key policy the INI and Properties parsers
+// already apply, recursively through nested mappings.
+//
+// YAML permits an empty key, but a configuration entry under "" cannot be
+// addressed by any lookup path in this package — lookupConfigValue, the
+// binder, ConfigManager — so accepting one only produces a value nobody can
+// read. Control characters are rejected for the same reason they are rejected
+// in JSON keys: a key is a name, and a name with a newline in it is a way to
+// forge structure in whatever consumes the configuration.
+//
+// The key is never included in the error, for the same reason the decoder's
+// quoted text is redacted: it is document content.
+func validateYAMLKeys(config map[string]interface{}) error {
+	for key, value := range config {
+		if key == "" {
+			return errors.New(ErrCodeInvalidConfig, "invalid YAML key: key cannot be empty")
+		}
+
+		for _, char := range key {
+			if char < 32 && char != '\t' {
+				return errors.New(ErrCodeInvalidConfig,
+					fmt.Sprintf("invalid YAML key: control character %d not allowed in keys", char))
+			}
+		}
+
+		if nested, ok := value.(map[string]interface{}); ok {
+			if err := validateYAMLKeys(nested); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
 
 // normalizeYAMLTypes recursively walks a yaml.v3 decoded structure and ensures

@@ -126,6 +126,8 @@ func (c *Config) getDefaultCapacityByStrategy() int64 {
 		return 128 // Balanced for 3-20 files
 	case OptimizationLargeBatch:
 		return 256 // High throughput for 20+ files
+	case OptimizationLight:
+		return 64 // Rare events, sleep-only processing: minimal memory
 	default: // OptimizationAuto
 		return 128 // Safe default, will adjust at runtime
 	}

@@ -49,12 +49,10 @@ jobs:
     - name: Vulnerability Check
       run: govulncheck ./...
 
+    # gosec must be able to fail the build. It previously ran with BOTH
+    # continue-on-error and "|| true", so a finding could never stop a merge.
     - name: Security Scan (gosec)
-      continue-on-error: true
-      run: |
-        echo "Running security scan..."
-        gosec -conf .gosec.json ./... || true
-        echo "Security scan completed"
+      run: gosec -conf .gosec.json ./...
 
     - name: Test with Race Detection
       run: go test -race -timeout 5m -v ./...
@@ -103,3 +101,35 @@ jobs:
     - name: Short Test (no race, faster)
       run: go test -short -timeout ${{ matrix.test-timeout || '5m' }} ./...
       timeout-minutes: ${{ matrix.timeout || 15 }}
+
+  # The root module is only part of the repository. cmd/cli, the examples and
+  # the benchmarks are separate modules that "go build ./..." never reaches, so
+  # they drifted until none of them compiled: every one declared an older go
+  # directive than the root module requires. This job keeps them honest.
+  submodules:
+    name: Submodules
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: 'stable'
+        cache: true
+
+    - name: Type-check documentation examples
+      run: ./scripts/check-doc-examples.sh
+
+    - name: Build and test every submodule
+      run: |
+        set -euo pipefail
+        status=0
+        for mod in $(find . -mindepth 2 -name go.mod | sort); do
+          dir=$(dirname "$mod")
+          echo "::group::$dir"
+          (cd "$dir" && go build ./... && go vet ./... && go test -count=1 -timeout 5m ./...) || status=1
+          echo "::endgroup::"
+        done
+        exit $status

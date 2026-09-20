@@ -471,7 +471,7 @@ func TestBoreasLiteEdgeCases(t *testing.T) {
 	// Test WriteFileEvent with empty path
 	bl := NewBoreasLite(64, OptimizationAuto, func(event *FileChangeEvent) {})
 	event := &FileChangeEvent{
-		Path:    [110]byte{},
+		Path:    [102]byte{},
 		PathLen: 0,
 	}
 	result := bl.WriteFileEvent(event)
@@ -488,8 +488,8 @@ func TestBoreasLiteEdgeCases(t *testing.T) {
 
 // TestBoreasLiteConvertChangeEventToFileEvent tests conversion edge cases
 func TestBoreasLiteConvertChangeEventToFileEvent(t *testing.T) {
-	// Test with long path (longer than 109 chars)
-	longPath := string(make([]byte, 300)) // Longer than 109 chars
+	// Test with long path (longer than the inline buffer)
+	longPath := string(make([]byte, 300)) // Longer than maxInlinePathLen
 	for i := range longPath {
 		longPath = longPath[:i] + "a" + longPath[i+1:]
 	}
@@ -504,8 +504,8 @@ func TestBoreasLiteConvertChangeEventToFileEvent(t *testing.T) {
 	}
 
 	fileEvent := ConvertChangeEventToFileEvent(event)
-	if fileEvent.PathLen > 109 {
-		t.Error("Path should be truncated to 109 characters")
+	if fileEvent.PathLen > maxInlinePathLen {
+		t.Error("Path should be truncated to maxInlinePathLen bytes")
 	}
 
 	// Test with normal path
@@ -1155,8 +1155,8 @@ func TestBoreasLiteSimple(t *testing.T) {
 	}
 
 	fileEvent := ConvertChangeEventToFileEvent(event)
-	if fileEvent.PathLen > 109 {
-		t.Errorf("Path length should be <= 109, got %d", fileEvent.PathLen)
+	if fileEvent.PathLen > maxInlinePathLen {
+		t.Errorf("Path length should be <= maxInlinePathLen, got %d", fileEvent.PathLen)
 	}
 }
 
@@ -1439,7 +1439,7 @@ func TestBoreasLiteAdvanced(t *testing.T) {
 	bl := NewBoreasLite(64, OptimizationSingleEvent, func(event *FileChangeEvent) {})
 
 	event := &FileChangeEvent{
-		Path:    [110]byte{},
+		Path:    [102]byte{},
 		PathLen: 0,
 	}
 	copy(event.Path[:], "/test/file.json")
@@ -3601,7 +3601,7 @@ func TestBoreasLiteHighCoverage(t *testing.T) {
 
 		// Test WriteFileEvent with edge cases to push from 81.8% to 100%
 		event := &FileChangeEvent{
-			Path:    [110]byte{},
+			Path:    [102]byte{},
 			PathLen: 0,
 			ModTime: time.Now().UnixNano(),
 			Size:    100,

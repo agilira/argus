@@ -60,6 +60,11 @@ type DirectoryWatchOptions struct {
 	// PollInterval for directory scanning (default: 1 second)
 	PollInterval time.Duration
 
+	// ErrorHandler is called when a matching file cannot be read or parsed.
+	// If nil, such errors are silent — which is what made a single malformed
+	// file invisible while being re-read on every scan.
+	ErrorHandler func(err error, path string)
+
 	// Context for cancellation (optional)
 	Context context.Context
 }
@@ -72,13 +77,17 @@ type DirectoryWatcher struct {
 
 	mu             sync.RWMutex
 	files          map[string]fileState
-	watchers       map[string]*Watcher
 	ctx            context.Context
 	cancel         context.CancelFunc
 	scanTicker     *time.Ticker
 	closed         bool
 	closedCh       chan struct{}
 	individualMode bool
+
+	// resolvedDir is dirPath with symlinks resolved, computed once. Entries
+	// found during a scan are required to resolve inside it; see
+	// isWithinWatchedTree.
+	resolvedDir string
 }
 
 // fileState tracks known files and their modification times
@@ -153,12 +162,6 @@ func (dw *DirectoryWatcher) Close() error {
 		dw.scanTicker.Stop()
 	}
 
-	// Close all individual file watchers
-	for path, w := range dw.watchers {
-		_ = w.Close()
-		delete(dw.watchers, path)
-	}
-
 	close(dw.closedCh)
 	return nil
 }
@@ -194,6 +197,15 @@ func watchDirectoryInternal(
 		return nil, errors.New("argus: path traversal not allowed")
 	}
 
+	// Security: the directory argument goes through the same validation as a
+	// watched file. It is deliberately NOT applied to the entries found inside:
+	// a Kubernetes ConfigMap mount points each key at ..data/<key>, and
+	// ValidateSecurePath rejects any path containing "..". Entries are checked
+	// for containment instead (isWithinWatchedTree).
+	if err := ValidateSecurePath(cleanPath); err != nil {
+		return nil, fmt.Errorf("argus: unsafe directory path: %w", err)
+	}
+
 	// Verify directory exists and is a directory
 	info, err := os.Stat(cleanPath)
 	if err != nil {
@@ -201,6 +213,14 @@ func watchDirectoryInternal(
 	}
 	if !info.IsDir() {
 		return nil, errors.New("argus: path is not a directory")
+	}
+
+	// Resolve the base once. The watched directory may legitimately be reached
+	// through a symlink (again, ConfigMap mounts); what matters is that the
+	// files inside stay under the same resolved root.
+	resolvedDir, err := filepath.EvalSymlinks(cleanPath)
+	if err != nil {
+		return nil, fmt.Errorf("argus: cannot resolve directory: %w", err)
 	}
 
 	// Default patterns if none specified
@@ -225,11 +245,11 @@ func watchDirectoryInternal(
 		options:        options,
 		callback:       callback,
 		files:          make(map[string]fileState),
-		watchers:       make(map[string]*Watcher),
 		ctx:            ctx,
 		cancel:         cancel,
 		closedCh:       make(chan struct{}),
 		individualMode: individualMode,
+		resolvedDir:    resolvedDir,
 	}
 
 	// Initial scan
@@ -238,11 +258,38 @@ func watchDirectoryInternal(
 		return nil, fmt.Errorf("argus: initial directory scan failed: %w", err)
 	}
 
-	// Start directory polling for new/deleted files
+	// Start the single scan loop for this mode.
+	//
+	// Merged mode runs mergeLoop instead, which performs its own scan on the
+	// same ticker. Starting pollLoop as well put two goroutines through
+	// filepath.Walk and through dw.files every interval, doubling the I/O and
+	// racing one scan's processDeletedFiles against the other's loadAndNotify.
 	dw.scanTicker = time.NewTicker(options.PollInterval)
-	go dw.pollLoop()
+	if individualMode {
+		go dw.pollLoop()
+	}
 
 	return dw, nil
+}
+
+// isWithinWatchedTree reports whether path, once symlinks are resolved, is
+// still inside the directory being watched.
+//
+// A path that cannot be resolved (a broken symlink, or a file deleted between
+// the walk and this check) is treated as outside: there is nothing safe to
+// read there.
+func (dw *DirectoryWatcher) isWithinWatchedTree(path string) bool {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return false
+	}
+
+	rel, err := filepath.Rel(dw.resolvedDir, resolved)
+	if err != nil {
+		return false
+	}
+
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 // matchesPatterns checks if filename matches any of the configured patterns
@@ -271,10 +318,6 @@ func (dw *DirectoryWatcher) processDeletedFiles(foundFiles map[string]bool) {
 		}
 
 		delete(dw.files, path)
-		if w, ok := dw.watchers[path]; ok {
-			_ = w.Close()
-			delete(dw.watchers, path)
-		}
 
 		if dw.individualMode && dw.callback != nil {
 			relPath, _ := filepath.Rel(dw.dirPath, path)
@@ -307,6 +350,16 @@ func (dw *DirectoryWatcher) scan() error {
 			return nil
 		}
 
+		// Security: a matching name may be a symlink pointing anywhere.
+		// loadAndNotify reads it with os.ReadFile, which follows the link, so
+		// an attacker who can drop "innocent.json -> ~/.ssh/id_rsa" into the
+		// watched directory would have its contents parsed and handed to the
+		// application's callback. Single-file watching has always resolved and
+		// validated symlinks; directory watching did not.
+		if !dw.isWithinWatchedTree(path) {
+			return nil
+		}
+
 		foundFiles[path] = true
 
 		dw.mu.RLock()
@@ -314,7 +367,9 @@ func (dw *DirectoryWatcher) scan() error {
 		dw.mu.RUnlock()
 
 		if !exists || !info.ModTime().Equal(existing.modTime) {
-			_ = dw.loadAndNotify(path, info)
+			if err := dw.loadAndNotify(path, info); err != nil {
+				dw.reportError(err, path)
+			}
 		}
 
 		return nil
@@ -336,12 +391,14 @@ func (dw *DirectoryWatcher) loadAndNotify(path string, info os.FileInfo) error {
 	// #nosec G304 -- Path is constrained to validated directory via filepath.Walk
 	data, err := os.ReadFile(path)
 	if err != nil {
+		dw.markSeen(path, info.ModTime())
 		return err
 	}
 
 	format := DetectFormat(path)
 	config, err := ParseConfig(data, format)
 	if err != nil {
+		dw.markSeen(path, info.ModTime())
 		return err
 	}
 
@@ -368,6 +425,25 @@ func (dw *DirectoryWatcher) loadAndNotify(path string, info os.FileInfo) error {
 	return nil
 }
 
+// markSeen records a file we could not load at its current modification time.
+//
+// Without it a malformed file is re-read and re-parsed on every single scan,
+// forever, and the error is reported again each time. Recording the modtime
+// with no configuration means the file contributes nothing to the merged view
+// and is retried only once it changes.
+func (dw *DirectoryWatcher) markSeen(path string, modTime time.Time) {
+	dw.mu.Lock()
+	dw.files[path] = fileState{modTime: modTime}
+	dw.mu.Unlock()
+}
+
+// reportError hands an error to the caller's handler, if one was configured.
+func (dw *DirectoryWatcher) reportError(err error, path string) {
+	if dw.options.ErrorHandler != nil {
+		dw.options.ErrorHandler(err, path)
+	}
+}
+
 // pollLoop periodically scans for new/deleted files
 func (dw *DirectoryWatcher) pollLoop() {
 	for {
@@ -387,9 +463,6 @@ func (dw *DirectoryWatcher) mergeLoop(callback func(map[string]interface{}, []st
 	// Initial merge
 	dw.notifyMerged(callback)
 
-	ticker := time.NewTicker(dw.options.PollInterval)
-	defer ticker.Stop()
-
 	lastHash := dw.computeHash()
 
 	for {
@@ -398,7 +471,7 @@ func (dw *DirectoryWatcher) mergeLoop(callback func(map[string]interface{}, []st
 			return
 		case <-dw.closedCh:
 			return
-		case <-ticker.C:
+		case <-dw.scanTicker.C:
 			_ = dw.scan()
 			newHash := dw.computeHash()
 			if newHash != lastHash {
@@ -409,10 +482,14 @@ func (dw *DirectoryWatcher) mergeLoop(callback func(map[string]interface{}, []st
 	}
 }
 
-// notifyMerged sends merged config to callback
+// notifyMerged sends merged config to callback.
+//
+// The merge happens under the read lock; the callback runs after it is
+// released. Holding dw.mu across user code deadlocks the watcher as soon as
+// that callback calls Close — the natural "stop once I have what I need"
+// shape — because Close takes the write lock.
 func (dw *DirectoryWatcher) notifyMerged(callback func(map[string]interface{}, []string)) {
 	dw.mu.RLock()
-	defer dw.mu.RUnlock()
 
 	// Get sorted file list
 	files := make([]string, 0, len(dw.files))
@@ -429,6 +506,7 @@ func (dw *DirectoryWatcher) notifyMerged(callback func(map[string]interface{}, [
 			merged[k] = v
 		}
 	}
+	dw.mu.RUnlock()
 
 	callback(merged, files)
 }

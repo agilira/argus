@@ -112,15 +112,25 @@ Removes a file from the watch list.
 
 ##### `Start() error`
 
-Starts the file watching process in a background goroutine.
+Starts the file watching process in a background goroutine, and remote
+synchronisation when `Config.Remote.Enabled` is set.
 
-**Returns:** `error` - Error if watcher is already running
+A watcher is single-use: `Start()` on a watcher that has been stopped returns
+`ARGUS_WATCHER_STOPPED` rather than accepting the call, because the shutdown
+channels cannot be reopened. Create a new watcher with `New` to resume.
+
+**Returns:** `error` - `ARGUS_WATCHER_BUSY` if already running,
+`ARGUS_WATCHER_STOPPED` if it was stopped, or `ARGUS_REMOTE_CONFIG_ERROR` if
+the initial remote load failed — in that last case file watching **is** running
+and the remote load will be retried on the next sync.
 
 ##### `Stop() error`
 
-Stops the file watching process and cleans up resources.
+Stops a running watcher and releases every resource it holds, including the
+audit logger.
 
-**Returns:** `error` - Error if watcher was not running
+**Returns:** `error` - `ARGUS_WATCHER_STOPPED` if the watcher was not running.
+Use `Close()` when you want to release a watcher whatever its state.
 
 ##### `GracefulShutdown(timeout time.Duration) error`
 
@@ -214,13 +224,26 @@ fmt.Printf("Cache entries: %d, oldest: %v\n", stats.Entries, stats.OldestAge)
 
 ##### `Close() error`
 
-Alias for Stop() that implements the common Close() interface for better resource management patterns.
+Releases every resource held by the watcher, stopping the polling loop first if
+it is running.
 
-**Returns:** `error` - Error if watcher was not running
+Unlike `Stop()`, `Close()` is idempotent and succeeds on a watcher that was
+never started. `New` opens an audit logger — a SQLite handle plus a flush
+goroutine — before any call to `Start()`, and `Close()` is the only thing that
+releases it. That makes `defer watcher.Close()` correct on every path,
+including the error paths of a constructor that gives up between `New` and
+`Start`.
+
+**Returns:** `error` - nil unless releasing a resource failed
 
 **Example:**
 ```go
-defer watcher.Close() // Can be used with defer for automatic cleanup
+watcher := argus.New(config)
+defer watcher.Close() // correct even if Start() is never reached
+
+if err := watcher.Watch(path, handler); err != nil {
+    return err // the audit logger is still released
+}
 ```
 
 ### Config
@@ -351,36 +374,60 @@ Interval for periodic remote configuration synchronization.
 
 #### Methods
 
-##### `NewRemoteConfigWithFallback(primaryURL, fallbackURL, localPath string) *RemoteConfigManager`
+#### Using Remote Configuration
 
-Creates a new RemoteConfig manager with automatic fallback sequence for.
-
-**Parameters:**
-- `primaryURL string`: Primary remote configuration endpoint
-- `fallbackURL string`: Secondary endpoint (can be empty)  
-- `localPath string`: Local fallback file path (can be empty)
-
-**Returns:** `*RemoteConfigManager` - Configured remote config manager
+Set `Config.Remote` and the watcher builds, starts and stops the remote
+configuration manager for you. `Start()` performs the initial load; a failure
+there is returned but does not stop file watching, because the fallback chain
+exists precisely for a remote that is temporarily unreachable.
 
 **Example:**
 ```go
-remoteManager := argus.NewRemoteConfigWithFallback(
-    "https://consul.internal:8500/v1/kv/app/config",
-    "https://backup-consul.internal:8500/v1/kv/app/config", 
-    "/etc/myapp/fallback.json",
-)
+watcher := argus.New(argus.Config{
+    Remote: argus.RemoteConfig{
+        Enabled:      true,
+        PrimaryURL:   "consul://consul.internal:8500/config/myapp",
+        FallbackURL:  "consul://backup-consul.internal:8500/config/myapp",
+        FallbackPath: "/etc/myapp/fallback.json",
+        SyncInterval: 30 * time.Second,
+        Timeout:      10 * time.Second,
+    },
+})
 
-config := argus.Config{
-    Remote: remoteManager.Config(),
+if err := watcher.Start(); err != nil {
+    log.Printf("argus: %v", err) // file watching is running; the load is retried
 }
-watcher := argus.New(config)
+defer watcher.Close() // stops remote synchronisation too
+
+config, loadedAt, err := watcher.RemoteConfig()
 ```
 
+A provider for the URL scheme must be registered first, either by importing one
+for its side effect (`argus-provider-consul`, `-redis`, `-git`) or through
+`argus.RegisterRemoteProvider`. A scheme with no provider makes `Start()` fail.
+
+##### `Watcher.RemoteConfig() (map[string]interface{}, time.Time, error)`
+
+Returns the most recently loaded remote configuration and the time it was
+loaded.
+
+**Returns:** the configuration, its load time, and an error — `ARGUS_CONFIG_NOT_FOUND`
+when remote configuration is disabled for this watcher or nothing has loaded yet.
+
+##### `NewRemoteConfigManager(config *RemoteConfig, watcher *Watcher) (*RemoteConfigManager, error)`
+
+Builds a manager by hand, for callers that want to drive synchronisation
+themselves rather than through `Config.Remote`. The `RemoteConfig` passed in is
+never modified; defaults are applied to an internal copy. `Stop()` blocks until
+the synchronisation loop has exited.
+
 **Fallback Sequence:**
-1. **Primary URL** → Try primary remote endpoint
-2. **Fallback URL** → Try secondary remote endpoint  
-3. **Local Path** → Load local configuration file
-4. **Error** → All sources failed
+1. **PrimaryURL** → Try primary remote endpoint, with `MaxRetries` attempts and
+   `RetryDelay * 2^N` backoff between them
+2. **FallbackURL** → Try secondary remote endpoint the same way
+3. **FallbackPath** → Load the local file, parsed with the universal parser, so
+   JSON, YAML, TOML, HCL, INI and Properties all work
+4. **Error** → All sources failed; the previously loaded configuration is kept
 
 #### Methods
 
@@ -857,45 +904,31 @@ config := argus.Config{
 }
 ```
 
-### Stats
+### Monitoring
 
-Performance and operational statistics.
+Argus exposes three separate views rather than one aggregate statistics struct.
 
-```go
-type Stats struct {
-    FilesWatched        int64
-    TotalPolls          int64
-    TotalChanges        int64
-    CacheHits           int64
-    CacheMisses         int64
-    LastPollDuration    time.Duration
-    AverageLatency      time.Duration
-    ErrorCount          int64
-}
-```
+##### `Watcher.WatchedFiles() int`
 
-#### Fields
+Number of files currently under observation.
 
-##### `FilesWatched int64`
-Current number of files being monitored.
+##### `Watcher.GetCacheStats() CacheStats`
 
-##### `TotalPolls int64`
-Total number of polling cycles completed.
+Statistics for the internal `os.Stat()` cache. See [CacheStats](#cachestats).
 
-##### `TotalChanges int64`
-Total number of file changes detected.
+##### `BoreasLite.Stats() map[string]int64`
 
-##### `CacheHits int64` / `CacheMisses int64`
-Statistics for the internal `os.Stat()` cache.
+Ring-buffer metrics, keyed by:
 
-##### `LastPollDuration time.Duration`
-Duration of the most recent polling cycle.
-
-##### `AverageLatency time.Duration`
-Average time from file change detection to callback execution.
-
-##### `ErrorCount int64`
-Total number of errors encountered.
+| Key | Meaning |
+|-----|---------|
+| `writer_position` | Current writer sequence number |
+| `reader_position` | Current reader sequence number |
+| `buffer_size` | Ring buffer capacity |
+| `items_buffered` | Events waiting to be processed |
+| `items_processed` | Events processed since startup |
+| `items_dropped` | Events dropped because the buffer was full |
+| `running` | 1 when the processor is running, 0 otherwise |
 
 ### CacheStats
 
@@ -1128,7 +1161,112 @@ const (
 )
 ```
 
+#### Integrity Verification
+
+##### `AuditLogger.Query(filter AuditEventFilter) ([]AuditEvent, error)`
+
+Returns matching events, newest first, and verifies each one against its own
+fields. A rewritten field is reported as `ARGUS_AUDIT_CHAIN_BROKEN`, with every
+retrieved event still returned so the caller can inspect past the break.
+
+##### `AuditLogger.VerifyAuditChain() error`
+
+Walks the whole trail in insertion order and verifies that it is continuous:
+every record follows the one before it. This is what catches a record deleted
+from the middle, records reordered, or a truncated tail — none of which
+`Query()` can see, because a filtered subset has no meaningful adjacency.
+
+```go
+if err := auditor.VerifyAuditChain(); err != nil {
+    if goerrors.HasCode(err, argus.ErrCodeAuditChainBroken) {
+        log.Printf("AUDIT TRAIL COMPROMISED: %v", err)
+    }
+}
+```
+
+Requires a SQLite-backed logger; the JSONL backend returns
+`ARGUS_AUDIT_BACKEND_UNSUPPORTED`. See
+[the audit system guide](./audit-system.md#what-the-chain-does-not-protect-against)
+for exactly how far the guarantee reaches.
+
+##### `Config.DisableAudit bool`
+
+Opts out of the audit trail entirely: `New` installs an inert logger that opens
+no database and starts no goroutine. The setting for a host that already owns
+its own audit trail. It overrides `Config.Audit`; the secure default is
+unchanged, so leaving it at `false` keeps audit on.
+
 **See [Audit System Documentation](./audit-system.md) for comprehensive usage examples and best practices.**
+
+### ConfigManager
+
+`ConfigManager` combines FlashFlags command-line parsing with Argus file
+watching behind one fluent API.
+
+```go
+config := argus.NewConfigManager("myapp").
+    SetDescription("My Application").
+    SetVersion("1.0.0").
+    StringFlag("host", "localhost", "Server host").
+    IntFlag("port", 8080, "Server port").
+    BoolFlag("debug", false, "Enable debug mode")
+
+if err := config.ParseArgs(); err != nil {
+    if argus.IsHelpRequested(err) {
+        config.PrintUsage()
+        os.Exit(0)
+    }
+    log.Fatal(err)
+}
+
+port := config.GetInt("port")
+```
+
+#### Precedence
+
+Values resolve from the highest-precedence source that has one:
+
+1. `Set(key, value)` — an explicit override from the application
+2. A flag the **command line or the environment** actually set
+3. `LoadConfigFile(path)` — values parsed from a configuration file
+4. The **default declared with the flag** when it was registered
+5. `SetDefault(key, value)` — a fallback for a key with no registered flag
+
+Environment variables are read by FlashFlags during `Parse`, under the prefix
+`APPNAME_`: `myapp` makes `--server-port` settable as `MYAPP_SERVER_PORT`.
+
+`ConfigManager` is safe for concurrent use, which matters because
+`WatchConfigFile` reloads from the watcher's goroutine while the application
+reads from its own.
+
+#### Methods
+
+| Method | Description |
+|--------|-------------|
+| `Parse(args []string) error` | Parses arguments and reads the environment |
+| `ParseArgs() error` | `Parse(os.Args[1:])` |
+| `ParseArgsOrExit()` | Parses, printing usage and exiting on help or error |
+| `LoadConfigFile(path string) error` | Loads a configuration file in any supported format into layer 3 |
+| `WatchConfigFile(path string, cb func()) error` | Reloads that file whenever it changes, then calls `cb` |
+| `StartWatching() / StopWatching() error` | Controls the file watcher |
+| `Set(key string, value interface{})` | Layer 1 |
+| `SetDefault(key string, value interface{})` | Layer 5 |
+| `GetString / GetInt / GetBool / GetDuration / GetFloat64 / GetStringSlice` | Typed access following the precedence above |
+| `PrintUsage()` | Prints help for all flags |
+| `GetStats() (total, valid int)` | Flag counts |
+| `GetBoundFlags() map[string]string` | Flag name to configuration key |
+
+`--help` and `-h` are left to FlashFlags, which claims them only when the
+application has not registered a flag of that name itself.
+
+##### `IsHelpRequested(err error) bool`
+
+Reports whether a `Parse` error means help was requested rather than that
+something went wrong. Use this rather than comparing error strings: go-errors
+renders an error as `[CODE]: message`, so `err.Error() == "help requested"`
+never matches. The sentinel is `ErrHelpRequested`, carrying its own code
+`ARGUS_HELP_REQUESTED` so an ordinary configuration error is never mistaken
+for a help request.
 
 ### Performance Monitoring
 
@@ -1137,13 +1275,11 @@ Real-time performance metrics:
 ```go
 go func() {
     ticker := time.NewTicker(30 * time.Second)
+    defer ticker.Stop()
     for range ticker.C {
-        stats := watcher.GetStats()
-        fmt.Printf("Files: %d, Changes: %d, Cache Hit Rate: %.2f%%\n",
-            stats.FilesWatched,
-            stats.TotalChanges,
-            float64(stats.CacheHits)/float64(stats.CacheHits+stats.CacheMisses)*100,
-        )
+        cache := watcher.GetCacheStats()
+        fmt.Printf("Files: %d, cache entries: %d, oldest: %v\n",
+            watcher.WatchedFiles(), cache.Entries, cache.OldestAge)
     }
 }()
 ```
@@ -1384,7 +1520,7 @@ watcher, err := argus.UniversalConfigWatcher("config.yml", func(config map[strin
         log.Printf("Port changed to: %d", port)
     }
 })
-defer watcher.Stop()
+defer watcher.Close()
 ```
 
 ##### `UniversalConfigWatcherWithConfig(configPath string, callback func(config map[string]interface{}), config Config) (*Watcher, error)`
@@ -1438,7 +1574,7 @@ if err != nil {
 
 // Must start manually
 watcher.Start()
-defer watcher.Stop()
+defer watcher.Close()
 ```
 
 ##### `GenericConfigWatcher(configPath string, callback func(config map[string]interface{})) (*Watcher, error)`
@@ -1477,37 +1613,37 @@ if err := argus.ValidateSecurePath(userProvidedPath); err != nil {
 
 ### Remote Configuration
 
-##### `NewRemoteConfigWithFallback(primaryURL, fallbackURL, localPath string) *RemoteConfigManager`
-
-Creates a new RemoteConfigManager with automatic fallback sequence for enterprise deployments.
-
-**Parameters:**
-- `primaryURL string`: Primary remote configuration endpoint (required)
-- `fallbackURL string`: Secondary endpoint for failover (optional, can be empty)  
-- `localPath string`: Local fallback file path (optional, can be empty)
-
-**Returns:** `*RemoteConfigManager` - Configured remote config manager
+Remote configuration is driven by `Config.Remote`: the watcher builds the
+manager, `Start()` starts it, `Close()` stops it. See
+[Using Remote Configuration](#using-remote-configuration) for the full field
+reference.
 
 **Fallback Sequence:**
-1. **Primary URL** → Try primary remote endpoint
-2. **Fallback URL** → Try secondary remote endpoint (if provided)
-3. **Local Path** → Load local configuration file (if provided)
-4. **Error** → All sources failed
+1. **PrimaryURL** → Try primary remote endpoint (`MaxRetries` attempts, `RetryDelay * 2^N` backoff)
+2. **FallbackURL** → Try secondary remote endpoint the same way (if provided)
+3. **FallbackPath** → Load the local file, in any supported format (if provided)
+4. **Error** → All sources failed; the last good configuration is kept
 
 **Example:**
 ```go
 // Full enterprise setup with all fallback layers
-remoteManager := argus.NewRemoteConfigWithFallback(
-    "https://consul.prod:8500/v1/kv/app/config",
-    "https://consul.backup:8500/v1/kv/app/config", 
-    "/etc/myapp/fallback.json",
-)
-
-// Use with watcher
 watcher := argus.New(argus.Config{
-    Remote: remoteManager.Config(),
+    Remote: argus.RemoteConfig{
+        Enabled:      true,
+        PrimaryURL:   "consul://consul.prod:8500/config/myapp",
+        FallbackURL:  "consul://consul.backup:8500/config/myapp",
+        FallbackPath: "/etc/myapp/fallback.json",
+        SyncInterval: 30 * time.Second,
+        Timeout:      10 * time.Second,
+        MaxRetries:   2,
+        RetryDelay:   time.Second,
+    },
 })
 
+if err := watcher.Start(); err != nil {
+    log.Printf("argus: %v", err)
+}
+defer watcher.Close()
 ```
 ---
 

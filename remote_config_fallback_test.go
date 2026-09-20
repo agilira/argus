@@ -586,21 +586,20 @@ func TestLoadWithFallbackChain(t *testing.T) {
 		err = manager.Start()
 		t.Logf("Start with failing provider returned: %v (expected failure)", err)
 
-		// Check what config we got - should be from loadLocalFallback
+		// The configuration must be the CONTENT of the fallback file. The
+		// assertion used to look for a "fallback" key, which was the hardcoded
+		// placeholder loadLocalFallback returned without opening the file —
+		// so it passed while the emergency configuration was never read.
 		currentConfig, _, configErr := manager.GetCurrentConfig()
-		if configErr == nil {
-			t.Logf("Config loaded from fallback: %v", currentConfig)
+		if configErr != nil {
+			t.Fatalf("Expected the local fallback file to load, got error: %v", configErr)
+		}
 
-			// Check if it's the fallback config from loadLocalFallback
-			if fallbackValue, exists := currentConfig["fallback"]; exists && fallbackValue == true {
-				t.Logf("SUCCESS: loadLocalFallback was called and returned fallback config")
-			} else if testValue, exists := currentConfig["test"]; exists {
-				t.Logf("Unexpected: Got mock provider response: test=%v", testValue)
-			} else {
-				t.Logf("Got some other config: %v", currentConfig)
-			}
-		} else {
-			t.Logf("Config load error: %v", configErr)
+		if currentConfig["fallback_loaded"] != true {
+			t.Errorf("fallback_loaded = %v, want true from %s", currentConfig["fallback_loaded"], fallbackFile)
+		}
+		if currentConfig["test_value"] != float64(42) {
+			t.Errorf("test_value = %v, want 42 from %s", currentConfig["test_value"], fallbackFile)
 		}
 
 		manager.Stop()
@@ -658,11 +657,10 @@ func TestLoadWithFallbackChain(t *testing.T) {
 		if configErr == nil {
 			t.Logf("Config from complete fallback chain: %v", currentConfig)
 
-			// Should be from loadLocalFallback since both remote URLs fail
-			if fallbackValue, exists := currentConfig["fallback"]; exists && fallbackValue == true {
-				t.Logf("SUCCESS: Complete fallback chain worked - used local fallback file")
-			} else {
-				t.Errorf("Expected fallback config, got: %v", currentConfig)
+			// Should be the content of the local fallback file, both remote URLs
+			// having failed.
+			if currentConfig["fallback_loaded"] != true || currentConfig["test_value"] != float64(42) {
+				t.Errorf("Expected the content of %s, got: %v", fallbackFile, currentConfig)
 			}
 		} else {
 			t.Errorf("Expected successful fallback load, got error: %v", configErr)

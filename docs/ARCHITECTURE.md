@@ -315,12 +315,14 @@ Argus automatically detects and parses multiple configuration formats:
 ```go
 // Custom change handler with context
 func customHandler(event argus.ChangeEvent) {
-    // Application-specific logic
-    switch event.Type {
-    case argus.EventModify:
-        reloadConfiguration(event.Path)
-    case argus.EventDelete:
+    // Application-specific logic. ChangeEvent carries one boolean per kind
+    // rather than a single Type, because a poll can observe a file that was
+    // both created and modified since the last cycle.
+    switch {
+    case event.IsDelete:
         handleConfigurationRemoval(event.Path)
+    case event.IsCreate, event.IsModify:
+        reloadConfiguration(event.Path)
     }
 }
 ```

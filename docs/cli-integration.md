@@ -231,22 +231,35 @@ package main
 
 import (
     "log"
-    "github.com/agilira/argus/internal/cli"
+    "os"
+
+    "github.com/agilira/argus"
+    cli "github.com/agilira/argus/cmd/cli"
 )
 
 func main() {
     // Create high-performance CLI manager
     manager := cli.NewManager()
-    
+
     // Optional: Enable audit logging
-    auditLogger := argus.NewAuditLogger("audit.log")
-    manager.WithAudit(auditLogger)
-    
+    auditLogger, err := argus.NewAuditLogger(argus.DefaultAuditConfig())
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer auditLogger.Close()
+    manager = manager.WithAudit(auditLogger)
+
     // Run with OS args
     if err := manager.Run(os.Args[1:]); err != nil {
         log.Fatal(err)
     }
 }
+```
+
+`cmd/cli` is a separate Go module, so add it to your own go.mod:
+
+```bash
+go get github.com/agilira/argus/cmd/cli@latest
 ```
 
 ### Custom CLI with Orpheus
@@ -255,36 +268,70 @@ func main() {
 package main
 
 import (
+    "log"
+    "os"
+
     "github.com/agilira/argus"
     "github.com/agilira/orpheus/pkg/orpheus"
 )
+
+type ServerConfig struct {
+    Host string
+    Port int
+}
 
 func main() {
     // Create custom CLI application
     app := orpheus.New("myapp").
         SetDescription("My application with Argus integration").
         SetVersion("1.0.0")
-    
+
     // Add custom commands with Argus integration
     configCmd := orpheus.NewCommand("server", "Start server")
     configCmd.SetHandler(func(ctx *orpheus.Context) error {
-        // Load configuration using Argus
-        cfg := argus.New()
-        cfg.AddFile("server.yaml")
-        cfg.AddEnv("MYAPP")
-        
-        var config ServerConfig
-        if err := cfg.Load(&config); err != nil {
+        // Load configuration: file first, then ARGUS_* environment overrides
+        raw, err := argus.LoadConfigMultiSource("server.yaml")
+        if err != nil {
             return err
         }
-        
+        _ = raw // the watcher settings; application values are bound below
+
+        values, err := argus.ParseConfig(mustRead("server.yaml"), argus.FormatYAML)
+        if err != nil {
+            return err
+        }
+
+        var config ServerConfig
+        if err := argus.BindFromConfig(values).
+            BindString(&config.Host, "server.host", "localhost").
+            BindInt(&config.Port, "server.port", 8080).
+            Apply(); err != nil {
+            return err
+        }
+
         return startServer(config)
     })
-    
+
     app.AddCommand(configCmd)
-    app.Run(os.Args[1:])
+    if err := app.Run(os.Args[1:]); err != nil {
+        log.Fatal(err)
+    }
 }
+
+func mustRead(path string) []byte {
+    data, err := os.ReadFile(path)
+    if err != nil {
+        log.Fatal(err)
+    }
+    return data
+}
+
+func startServer(cfg ServerConfig) error { /* ... */ return nil }
 ```
+
+`LoadConfigMultiSource` returns Argus's own `*Config` (poll interval, audit,
+remote). To bind your application's own settings, parse the file with
+`ParseConfig` and use `BindFromConfig`, as above.
 
 ### Advanced Integration with Config Writer
 

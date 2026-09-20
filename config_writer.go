@@ -22,9 +22,9 @@ import (
 	"hash/fnv"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/agilira/go-errors"
 )
@@ -228,17 +228,8 @@ func (w *ConfigWriter) WriteConfigAs(filePath string) error {
 	}
 
 	// Write to target file atomically
-	tempPath := filePath + ".tmp." + fmt.Sprintf("%d", time.Now().UnixNano())
-
-	if err := os.WriteFile(tempPath, serialized, 0600); err != nil {
-		return errors.Wrap(err, ErrCodeIOError, fmt.Sprintf("failed to write temp file: %v", err))
-	}
-
-	if err := os.Rename(tempPath, filePath); err != nil {
-		if removeErr := os.Remove(tempPath); removeErr != nil {
-			fmt.Printf("Failed to cleanup temp file %s: %v\n", tempPath, removeErr)
-		}
-		return errors.Wrap(err, ErrCodeIOError, fmt.Sprintf("failed to rename temp file: %v", err))
+	if err := writeFileAtomically(filePath, serialized); err != nil {
+		return errors.Wrap(err, ErrCodeIOError, "failed to write configuration file")
 	}
 
 	// Audit logging for file export operations (optional)
@@ -586,31 +577,79 @@ func (w *ConfigWriter) collectKeys(config map[string]interface{}, currentPrefix,
 }
 
 // atomicWrite performs atomic file write using temporary file + rename.
-// This prevents corruption if the process is interrupted during writing.
 func (w *ConfigWriter) atomicWrite(data []byte) error {
-	dir := filepath.Dir(w.filePath)
-	base := filepath.Base(w.filePath)
+	return writeFileAtomically(w.filePath, data)
+}
 
-	// Create temporary file in same directory (ensures same filesystem)
-	tempPath := filepath.Join(dir, "."+base+".tmp."+fmt.Sprintf("%d", time.Now().UnixNano()))
+// writeFileAtomically writes data to path through a temporary file in the same
+// directory, then renames it into place.
+//
+// UNPREDICTABLE NAME: the temporary file comes from os.CreateTemp, which opens
+// with O_CREATE|O_EXCL and a random suffix. The previous name was
+// "<path>.tmp.<UnixNano>" written with os.WriteFile, which has no O_EXCL: a
+// guessed name pre-created as a symlink would have redirected the write
+// (CWE-377). CreateTemp also creates the file 0600 from the start.
+//
+// DURABILITY: the temporary file is fsynced before the rename, and the
+// directory is fsynced after it. Rename alone is atomic with respect to other
+// processes, but on a crash the metadata can land before the data and leave a
+// zero-length configuration file — the very corruption this function exists to
+// prevent.
+func writeFileAtomically(path string, data []byte) error {
+	dir := filepath.Dir(path)
 
-	// Write to temporary file
-	if err := os.WriteFile(tempPath, data, 0600); err != nil {
+	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".tmp*")
+	if err != nil {
+		return fmt.Errorf("failed to create temp file: %w", err)
+	}
+	tempPath := tmp.Name()
+
+	discard := func() {
+		_ = tmp.Close()
+		_ = os.Remove(tempPath)
+	}
+
+	if _, err := tmp.Write(data); err != nil {
+		discard()
 		return fmt.Errorf("failed to write temp file: %w", err)
 	}
 
-	// Atomic rename
-	if err := os.Rename(tempPath, w.filePath); err != nil {
-		if removeErr := os.Remove(tempPath); removeErr != nil {
-			fmt.Printf("Failed to cleanup temp file %s: %v\n", tempPath, removeErr)
-		}
+	if err := tmp.Sync(); err != nil {
+		discard()
+		return fmt.Errorf("failed to flush temp file: %w", err)
+	}
+
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tempPath)
+		return fmt.Errorf("failed to close temp file: %w", err)
+	}
+
+	if err := os.Rename(tempPath, path); err != nil {
+		_ = os.Remove(tempPath)
 		return fmt.Errorf("failed to rename temp file: %w", err)
 	}
 
-	// Ensure file is visible on filesystem before returning (fixes race condition)
-	// This prevents flaky tests where os.Stat() is called immediately after WriteConfig()
-	if _, err := os.Stat(w.filePath); err != nil {
-		return fmt.Errorf("file not visible after atomic write: %w", err)
+	return syncDir(dir)
+}
+
+// syncDir flushes a directory entry so a completed rename survives a crash.
+//
+// Windows does not allow opening a directory as a file and provides the
+// guarantee through the filesystem instead, so the operation is skipped there
+// rather than reported as a failure.
+func syncDir(dir string) error {
+	if runtime.GOOS == "windows" {
+		return nil
+	}
+
+	handle, err := os.Open(dir) // #nosec G304 -- dir is the parent of a path the caller already owns
+	if err != nil {
+		return fmt.Errorf("failed to open directory for sync: %w", err)
+	}
+	defer func() { _ = handle.Close() }()
+
+	if err := handle.Sync(); err != nil {
+		return fmt.Errorf("failed to sync directory: %w", err)
 	}
 
 	return nil

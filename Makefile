@@ -122,13 +122,13 @@ clean: ## Clean build artifacts and test cache
 	rm -f coverage.out coverage.html
 	rm -f $(BINARY_NAME)
 
-build: ## Build the binary
+build: ## Build the argus CLI binary
 	@echo "$(YELLOW)Building $(BINARY_NAME)...$(NC)"
-	go build -ldflags="-w -s" -o $(BINARY_NAME) .
+	cd cmd/cli && go build -ldflags="-w -s" -o ../../$(BINARY_NAME) ./argus
 
-install: ## Install the binary to $GOPATH/bin
+install: ## Install the argus CLI to $GOPATH/bin
 	@echo "$(YELLOW)Installing $(BINARY_NAME)...$(NC)"
-	go install .
+	cd cmd/cli && go install ./argus
 
 bench: ## Run benchmarks
 	@echo "$(YELLOW)Running benchmarks...$(NC)"
