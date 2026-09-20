@@ -231,3 +231,46 @@ func TestLoadConfigMultiSource_NestedAndFlatKeys(t *testing.T) {
 		}
 	}
 }
+
+// TestParseYAML_RejectsEmptyKey: INI and Properties both reject an empty
+// configuration key with a typed error, and the fuzz invariant states the same
+// policy for YAML. YAML accepted it and produced a map entry under "", which
+// no lookup path — lookupConfigValue, the binder, ConfigManager — can address
+// usefully. Another defence applied on one parser and not its twins.
+func TestParseYAML_RejectsEmptyKey(t *testing.T) {
+	cases := []struct {
+		name string
+		data string
+	}{
+		{"top level", "\"\": value\n"},
+		{"nested", "server:\n  \"\": value\n"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, err := ParseConfig([]byte(tc.data), FormatYAML)
+			if err == nil {
+				t.Errorf("ParseConfig accepted an empty YAML key: %v", cfg)
+			}
+		})
+	}
+}
+
+// TestParseYAML_AcceptsOrdinaryKeys guards the fix against over-reach.
+func TestParseYAML_AcceptsOrdinaryKeys(t *testing.T) {
+	body := "server:\n  host: localhost\n  port: 8080\nfeature.flag: true\n"
+	cfg, err := ParseConfig([]byte(body), FormatYAML)
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	if cfg["feature.flag"] != true {
+		t.Errorf("feature.flag = %v, want true", cfg["feature.flag"])
+	}
+	server, ok := cfg["server"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("server = %T, want a nested map", cfg["server"])
+	}
+	if server["host"] != "localhost" {
+		t.Errorf("server.host = %v, want localhost", server["host"])
+	}
+}

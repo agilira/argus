@@ -147,7 +147,47 @@ func parseYAML(data []byte) (map[string]interface{}, error) {
 	if !ok {
 		return nil, errors.New(ErrCodeInvalidConfig, "YAML root must be a mapping")
 	}
+
+	if err := validateYAMLKeys(result); err != nil {
+		return nil, err
+	}
+
 	return result, nil
+}
+
+// validateYAMLKeys enforces the same key policy the INI and Properties parsers
+// already apply, recursively through nested mappings.
+//
+// YAML permits an empty key, but a configuration entry under "" cannot be
+// addressed by any lookup path in this package — lookupConfigValue, the
+// binder, ConfigManager — so accepting one only produces a value nobody can
+// read. Control characters are rejected for the same reason they are rejected
+// in JSON keys: a key is a name, and a name with a newline in it is a way to
+// forge structure in whatever consumes the configuration.
+//
+// The key is never included in the error, for the same reason the decoder's
+// quoted text is redacted: it is document content.
+func validateYAMLKeys(config map[string]interface{}) error {
+	for key, value := range config {
+		if key == "" {
+			return errors.New(ErrCodeInvalidConfig, "invalid YAML key: key cannot be empty")
+		}
+
+		for _, char := range key {
+			if char < 32 && char != '\t' {
+				return errors.New(ErrCodeInvalidConfig,
+					fmt.Sprintf("invalid YAML key: control character %d not allowed in keys", char))
+			}
+		}
+
+		if nested, ok := value.(map[string]interface{}); ok {
+			if err := validateYAMLKeys(nested); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
 
 // normalizeYAMLTypes recursively walks a yaml.v3 decoded structure and ensures
