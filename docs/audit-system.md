@@ -66,7 +66,7 @@ func main() {
     }
     
     watcher := argus.New(*config.WithDefaults())
-    defer watcher.Stop()
+    defer watcher.Close()
     
     // All configuration changes are automatically correlated
     // across applications via the unified audit database
@@ -78,6 +78,8 @@ func main() {
     watcher.Start()
     select {} // Keep running
 }
+
+func reloadConfig(path string) { /* your reload logic */ }
 ```
 
 ### Legacy JSONL Audit (Backward Compatibility)
@@ -122,7 +124,18 @@ Argus automatically selects the optimal audit backend based on configuration:
 ### **SQLite Unified Backend** (Recommended)
 - **Triggered by:** Empty `OutputFile` or non-JSONL extension
 - **Benefits:** Cross-application correlation, better performance, centralized management
-- **Storage:** System-wide database (typically `~/.local/share/argus/audit.db`)
+- **Storage:** Per-user database, resolved in this order:
+  1. `$ARGUS_AUDIT_DIR`
+  2. `$XDG_STATE_HOME/argus`
+  3. `~/.local/state/argus` (Linux and the BSDs)
+  4. `os.UserConfigDir()/argus` (macOS, Windows)
+  5. `os.TempDir()/argus-<uid>` as a last resort
+
+  The file is `system-audit.db`, created `0600`, with its WAL sidecars
+  restricted to match. It is deliberately **not** in the shared temporary
+  directory: an audit trail records which files a process watches and every
+  path it rejected, and the first account to create a shared `argus/` there
+  would have owned it for every other account on the host (CWE-377).
 
 ```go
 // These configurations use SQLite unified backend:
@@ -261,7 +274,32 @@ defaultConfig := argus.DefaultAuditConfig() // Returns:
 | `process_id` | number | Process ID of the watching application |
 | `process_name` | string | Name of the watching process |
 | `context` | object | Additional contextual information |
-| `checksum` | string | Tamper-detection checksum |
+| `prev_checksum` | string | The `checksum` of the record before this one; empty for the first record of a chain |
+| `checksum` | string | Chain link: SHA-256 over `prev_checksum` and the digest of this record's fields |
+
+### What the checksum covers
+
+The record digest hashes **timestamp, level, event, component, file_path,
+process_id, process_name, old_value, new_value and context** — every field a
+reader acts on. Each is length-prefixed, so no rearrangement of values produces
+the same digest, and the `interface{}` fields are hashed as their canonical JSON,
+which is exactly what the backend stores and what the reader parses back.
+
+The chain link then binds the record to its predecessor. Together they give two
+distinct guarantees:
+
+| Check | Catches | API |
+|-------|---------|-----|
+| Per-record | A rewritten field: a `file_path` changed from `/etc/shadow` to something harmless, a `SECURITY` level downgraded to `INFO`, a rewritten `context` | `Query()`, on every record it returns |
+| Continuity | A record deleted from the middle, records reordered, a truncated tail | `VerifyAuditChain()` |
+
+`Query()` cannot check continuity: a filter or a limit legitimately returns a
+subset, so adjacency means nothing there.
+
+> **Compatibility.** Records written before schema v3 have no `prev_checksum`
+> and their checksum used an older formula that did not cover `file_path`,
+> `level` or `context`. Both checks report them as broken. That is intended —
+> those checksums never protected the fields that carry the security meaning.
 
 ## Advanced Usage
 
@@ -446,6 +484,41 @@ func analyzeAuditTrail() error {
     return nil
 }
 ```
+
+## Verifying the whole trail
+
+`Query()` proves that the records it hands back were not altered. It cannot
+prove that none is **missing**. `VerifyAuditChain()` walks the entire trail in
+insertion order and checks that every record follows its recorded predecessor:
+
+```go
+if err := auditor.VerifyAuditChain(); err != nil {
+    if goerrors.HasCode(err, argus.ErrCodeAuditChainBroken) {
+        // The error carries the position of the first break:
+        //   WithContext("index", n) and WithContext("id", rowID)
+        log.Printf("AUDIT TRAIL COMPROMISED: %v", err)
+    } else {
+        log.Printf("verification failed: %v", err)
+    }
+}
+```
+
+Run it on a schedule, and after any restore or migration.
+
+### What the chain does not protect against
+
+Truncation is caught by an anchor row (`chain_head`) recording where the trail
+ends. **That anchor lives in the same database file.** An attacker with write
+access can delete records and rewrite it to match.
+
+This catches truncation by accident, by partial restore, by a tool that pruned
+the table, and by an attacker who did not know to look. It is not a guarantee
+against a fully privileged local attacker. For that, the head has to be
+anchored somewhere Argus does not control — shipped to a remote log, signed
+into a checkpoint, or written to append-only storage.
+
+Only a SQLite-backed logger can answer this; the JSONL backend keeps no
+ordering to verify and returns `ARGUS_AUDIT_BACKEND_UNSUPPORTED`.
 
 ## Programmatic Event Query & Integrity Verification
 

@@ -73,6 +73,9 @@ export ARGUS_MAX_WATCHED_FILES=500    # Monitor up to 500 files
 - `single` or `singleevent` - Ultra-low latency for 1-2 files
 - `small` or `smallbatch` - Balanced performance for 3-20 files  
 - `large` or `largebatch` - High throughput for 20+ files
+- `light` - Sleep-only processing, zero spin-wait. Near-zero CPU when idle, up
+  to 1ms of latency per event. The right choice for configuration files that
+  change every few minutes or hours.
 
 **Examples:**
 ```bash
@@ -89,6 +92,21 @@ export ARGUS_BOREAS_CAPACITY=256
 | `ARGUS_AUDIT_MIN_LEVEL` | String | `info` | Minimum audit level |
 | `ARGUS_AUDIT_BUFFER_SIZE` | Integer | `1000` | Audit buffer size |
 | `ARGUS_AUDIT_FLUSH_INTERVAL` | Duration | `5s` | How often to flush audit buffer |
+| `ARGUS_AUDIT_DIR` | String | *(per-user state dir)* | Directory holding the unified `system-audit.db` |
+| `ARGUS_ALLOW_AUDIT_DISABLE` | Boolean | `false` | Permits `ARGUS_AUDIT_ENABLED=false` to take effect |
+
+> **`ARGUS_AUDIT_ENABLED=false` is ignored on its own.** Audit stays on unless
+> `ARGUS_ALLOW_AUDIT_DISABLE` is also set: turning off a security audit trail
+> should take more than one environment variable in a deployment manifest. To
+> opt out from code instead — for a host that owns its own audit trail — set
+> `Config.DisableAudit`, which installs an inert logger that opens no database
+> and starts no goroutine.
+
+> **`ARGUS_AUDIT_DIR`** overrides where the unified database lives. Without it
+> Argus uses `$XDG_STATE_HOME/argus`, then `~/.local/state/argus`, then
+> `os.UserConfigDir()/argus`, and only as a last resort a uid-scoped directory
+> under `os.TempDir()`. See [the audit system guide](audit-system.md) for why
+> it is never the shared temporary directory.
 
 **Audit Levels:**
 - `info` - General configuration changes
@@ -104,6 +122,26 @@ export ARGUS_AUDIT_MIN_LEVEL=warn
 export ARGUS_AUDIT_BUFFER_SIZE=2000
 export ARGUS_AUDIT_FLUSH_INTERVAL=10s
 ```
+
+### Remote Configuration
+
+| Environment Variable | Type | Default | Description |
+|---------------------|------|---------|-------------|
+| `ARGUS_REMOTE_URL` | String | *(empty)* | Remote configuration source URL |
+| `ARGUS_REMOTE_INTERVAL` | Duration | *(unset)* | How often to re-sync |
+| `ARGUS_REMOTE_TIMEOUT` | Duration | *(unset)* | Per-request timeout |
+| `ARGUS_REMOTE_HEADERS` | String | *(empty)* | Extra request headers, as JSON |
+
+A malformed duration in either variable is reported as an error rather than
+ignored, exactly like every other `ARGUS_*` duration.
+
+### Validation Configuration
+
+| Environment Variable | Type | Default | Description |
+|---------------------|------|---------|-------------|
+| `ARGUS_VALIDATION_ENABLED` | Boolean | `false` | Enable configuration validation |
+| `ARGUS_VALIDATION_SCHEMA` | String | *(empty)* | Path to the validation schema |
+| `ARGUS_VALIDATION_STRICT` | Boolean | `false` | Fail on any validation warning |
 
 ## Boolean Values
 
@@ -144,13 +182,28 @@ When using `LoadConfigMultiSource()`, configuration is loaded with the following
 config, err := argus.LoadConfigMultiSource("config.json")
 ```
 
+Keys in the configuration file mirror the environment variables one for one:
+`poll_interval`, `cache_ttl`, `max_watched_files`, `optimization_strategy`,
+`boreas_capacity`, `disable_audit`, and the `audit.*` and `remote.*` groups
+(which mirror the json tags on `AuditConfig` and `RemoteConfig`). Both spellings
+resolve: a flat `"audit.buffer_size"` key, which the Properties and INI parsers
+produce, and a nested `audit: { buffer_size: }`, which JSON, YAML and TOML
+produce.
+
+**A file that is absent is fine** — the caller asked for an optional file and
+the other two sources cover the settings. **A file that is present but
+malformed, or in a format Argus cannot parse, is an error.** Usable defaults
+come back alongside it so the caller can decide whether to continue, but the
+failure is never silent: a typo in a configuration file used to start the
+application on settings nobody chose.
+
 ## Container Deployment Examples
 
 ### Docker
 
 ```dockerfile
 # Dockerfile
-FROM golang:1.23-alpine AS builder
+FROM golang:1.25-alpine AS builder
 COPY . /app
 WORKDIR /app
 RUN go build -o myapp

@@ -20,11 +20,12 @@ import (
 )
 
 func main() {
-    // Create watcher with sensible defaults
+    // Create watcher with sensible defaults.
+    // argus.New applies WithDefaults itself, so passing the Config is enough.
     watcher := argus.New(argus.Config{
         PollInterval: 1 * time.Second,
-    }.WithDefaults())
-    defer watcher.Stop()
+    })
+    defer watcher.Close()
 
     // Watch any file
     watcher.Watch("config.json", func(event argus.ChangeEvent) {
@@ -94,8 +95,8 @@ func main() {
     }
     
     // Watch for changes
-    watcher := argus.New(argus.Config{PollInterval: 2 * time.Second}.WithDefaults())
-    defer watcher.Stop()
+    watcher := argus.New(argus.Config{PollInterval: 2 * time.Second})
+    defer watcher.Close()
 
     watcher.Watch(configPath, func(event argus.ChangeEvent) {
         log.Printf("Config changed, reloading...")
@@ -155,7 +156,7 @@ package main
 import (
     "fmt"
     "log"
-    "time"
+
     "github.com/agilira/argus"
 )
 
@@ -180,7 +181,7 @@ func main() {
     if err != nil {
         log.Fatal(err)
     }
-    defer watcher.Stop()
+    defer watcher.Close()
     
     watcher.Start()
     select {}
@@ -221,8 +222,8 @@ package main
 
 import (
     "log"
-    "os"
     "time"
+
     "github.com/agilira/argus"
 )
 
@@ -256,7 +257,7 @@ func main() {
     if err != nil {
         log.Fatal(err)
     }
-    defer watcher.Stop()
+    defer watcher.Close()
     
     watcher.Start()
     
@@ -325,7 +326,7 @@ func main() {
     }
     
     watcher := argus.New(*config.WithDefaults())
-    defer watcher.Stop()
+    defer watcher.Close()
 
     // Watch multiple config files
     files := []string{
@@ -462,7 +463,11 @@ func main() {
 // GOOD: Proper cleanup
 func main() {
     watcher := argus.New(config)
-    defer watcher.Stop()  // ← Always defer Stop()
+    // Close, not Stop: New already opened the audit logger, and Close is
+    // idempotent and valid even if Start is never reached. Stop reports an
+    // error when the watcher is not running, which makes it wrong in a defer
+    // placed before Start.
+    defer watcher.Close()
     
     watcher.Start()
     

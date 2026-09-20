@@ -135,6 +135,9 @@
 //	watcher, err := argus.WatchDirectory("/etc/myapp/config.d", argus.DirectoryWatchOptions{
 //		Patterns:  []string{"*.yaml", "*.yml", "*.json"},
 //		Recursive: true,
+//		ErrorHandler: func(err error, path string) {
+//			log.Printf("argus: %s: %v", path, err) // a file that will not parse
+//		},
 //	}, func(update argus.DirectoryConfigUpdate) {
 //		if update.IsDelete {
 //			fmt.Printf("Config removed: %s\n", update.FilePath)
@@ -154,6 +157,16 @@
 //		// files like 00-base.yaml, 10-override.yaml are merged in order
 //		applyMergedConfig(merged)
 //	})
+//
+// Security: a file inside the directory that resolves outside it through a
+// symlink is skipped. Without that check, dropping "innocent.json -> ~/.ssh/id_rsa"
+// into a watched directory would have had its contents read and handed to the
+// callback. The watched directory itself may still be reached through a
+// symlink, which is how Kubernetes mounts ConfigMaps.
+//
+// A file that cannot be read or parsed is reported through ErrorHandler and
+// recorded at its current modification time, so it is retried when it changes
+// rather than on every scan.
 //
 // # Comprehensive Audit System
 //
@@ -215,23 +228,35 @@
 // Argus supports distributed configuration management with built-in failover,
 // synchronization, and conflict resolution for multi-instance deployments.
 //
-//	remoteConfig := argus.RemoteConfig{
-//		Enabled:        true,
-//		PrimaryURL:     "https://config.example.com/api/v1",
-//		FallbackPath:   "/etc/argus/fallback.json",
-//		SyncInterval:   30 * time.Second,
-//		TimeoutConfig: argus.TimeoutConfig{
-//			Connection: 5 * time.Second,
-//			Read:       10 * time.Second,
+//	watcher := argus.New(argus.Config{
+//		Remote: argus.RemoteConfig{
+//			Enabled:      true,
+//			PrimaryURL:   "https://config.example.com/api/v1",
+//			FallbackURL:  "https://config-backup.example.com/api/v1",
+//			FallbackPath: "/etc/argus/fallback.json",
+//			SyncInterval: 30 * time.Second,
+//			Timeout:      10 * time.Second,
+//			MaxRetries:   2,
+//			RetryDelay:   time.Second,
 //		},
+//	})
+//
+//	if err := watcher.Start(); err != nil {
+//		log.Printf("argus: %v", err)
 //	}
 //
+//	config, loadedAt, err := watcher.RemoteConfig()
+//
 // Remote configuration features:
-//   - Automatic failover to local fallback files
-//   - Conflict resolution with configurable merge strategies
-//   - Encrypted transport with TLS certificate validation
-//   - Graceful degradation when remote endpoints are unavailable
+//   - Automatic failover: PrimaryURL, then FallbackURL, then FallbackPath
+//   - FallbackPath is parsed with the universal parser, so the emergency file
+//     may be JSON, YAML, TOML, HCL, INI or Properties
+//   - Retries use exponential backoff: RetryDelay * 2^N, up to MaxRetries
+//   - Graceful degradation: a failed remote load never stops file watching
 //   - Audit logging of all remote configuration changes
+//
+// A provider for the URL scheme must be registered before use, either by
+// importing one for its side effect or through argus.RegisterRemoteProvider.
 //
 // # Graceful Shutdown System
 //
@@ -243,13 +268,13 @@
 //	defer watcher.GracefulShutdown(30 * time.Second) // 30s timeout
 //
 //	// Manual shutdown with custom timeout
-//	shutdownComplete := watcher.InitiateShutdown()
-//	select {
-//	case <-shutdownComplete:
-//		log.Info("Argus shutdown completed successfully")
-//	case <-time.After(10 * time.Second):
-//		log.Warn("Argus shutdown timeout, forcing termination")
+//	if err := watcher.GracefulShutdown(10 * time.Second); err != nil {
+//		log.Warn("Argus shutdown timed out; cleanup continues in background")
 //	}
+//
+//	// Close releases everything whatever the watcher's state, and is
+//	// idempotent, so it is safe to defer alongside GracefulShutdown.
+//	defer watcher.Close()
 //
 // Shutdown sequence includes:
 //   - Stop accepting new file watch requests
