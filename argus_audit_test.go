@@ -227,3 +227,105 @@ func TestValidateSecurePath_SymlinkToSystemDirectory(t *testing.T) {
 		t.Errorf("rejected, but not by the system-directory guard: %v", err)
 	}
 }
+
+// TestWatcher_SymlinkedParentKeepsCallerPath: the path a caller passes is the
+// identity they get back. Resolving symlinks decides WHETHER a file may be
+// watched; it must not change the key the file is stored under, or Unwatch
+// looks in the wrong place and ChangeEvent.Path reports a path the caller
+// never mentioned.
+//
+// This is the shape macOS has natively (/var -> /private/var, so every
+// TempDir reaches its file through a symlinked parent) and Windows has through
+// 8.3 short names.
+func TestWatcher_SymlinkedParentKeepsCallerPath(t *testing.T) {
+	real := t.TempDir()
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	path := filepath.Join(link, "config.json")
+	if err := os.WriteFile(path, []byte(`{"a":1}`), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	var mu sync.Mutex
+	var seen []string
+
+	w := New(Config{
+		PollInterval: 20 * time.Millisecond,
+		CacheTTL:     10 * time.Millisecond,
+		DisableAudit: true,
+	})
+	defer func() { _ = w.Close() }()
+
+	if err := w.Watch(path, func(e ChangeEvent) {
+		mu.Lock()
+		seen = append(seen, e.Path)
+		mu.Unlock()
+	}); err != nil {
+		t.Fatalf("Watch: %v", err)
+	}
+	if err := w.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	time.Sleep(60 * time.Millisecond)
+
+	if err := os.WriteFile(path, []byte(`{"a":2}`), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		n := len(seen)
+		mu.Unlock()
+		if n > 0 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	mu.Lock()
+	paths := append([]string(nil), seen...)
+	mu.Unlock()
+
+	if len(paths) == 0 {
+		t.Fatal("no event delivered through a symlinked parent directory")
+	}
+	if paths[0] != path {
+		t.Errorf("event path = %q, want the path the caller watched, %q", paths[0], path)
+	}
+
+	// Unwatch must find the file under the same key Watch used.
+	if err := w.Unwatch(path); err != nil {
+		t.Errorf("Unwatch: %v", err)
+	}
+	if n := w.WatchedFiles(); n != 0 {
+		t.Errorf("after Unwatch, WatchedFiles() = %d, want 0", n)
+	}
+}
+
+// TestIsSystemDirectory_ResolvedFormsCount: macOS reaches /etc through
+// /private/etc, so a guard that only knows the short form does not fire there.
+func TestIsSystemDirectory_ResolvedFormsCount(t *testing.T) {
+	w := New(Config{DisableAudit: true})
+	defer func() { _ = w.Close() }()
+
+	blocked := []string{
+		"/etc", "/etc/passwd", "/proc/1", "/sys/kernel", "/dev/null",
+		"/private/etc", "/private/etc/passwd", "/private/var/db",
+	}
+	for _, path := range blocked {
+		if !w.isSystemDirectory(path) {
+			t.Errorf("isSystemDirectory(%q) = false, want true", path)
+		}
+	}
+
+	allowed := []string{"/home/user/config.json", "/srv/app/etc.json", "/tmp/x", "/etcd/data"}
+	for _, path := range allowed {
+		if w.isSystemDirectory(path) {
+			t.Errorf("isSystemDirectory(%q) = true, want false", path)
+		}
+	}
+}

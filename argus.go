@@ -591,6 +591,9 @@ func (w *Watcher) Watch(path string, callback UpdateCallback) error {
 // Note the guard is deliberately about symlinks, not about /etc as such: an
 // application may name /etc/myapp/config.json directly. What it must not do is
 // be redirected there by a link planted inside a directory it watches.
+//
+// The path returned is always the caller's, not the resolved target: see
+// resolveAndValidateSymlink.
 func (w *Watcher) validateAndSecurePath(path string) (string, error) {
 	// SECURITY FIX: Validate path before processing to prevent path traversal attacks
 	if err := ValidateSecurePath(path); err != nil {
@@ -627,8 +630,15 @@ func (w *Watcher) validateAndSecurePath(path string) (string, error) {
 }
 
 // resolveAndValidateSymlink resolves absPath and validates the destination
-// when a symlink is involved, returning the path that should actually be
-// watched.
+// when a symlink is involved.
+//
+// It returns absPath UNCHANGED on success, never the resolved target.
+// Resolution decides whether a file may be watched; it must not change the
+// identity the caller gets back. Returning the target instead stored the file
+// under a key the caller had never mentioned, so Unwatch looked in the wrong
+// place and ChangeEvent reported a path nobody asked for — on macOS, where
+// /var is a symlink to /private/var, that was every temporary file, and on
+// Windows every 8.3 short path.
 func (w *Watcher) resolveAndValidateSymlink(absPath, originalPath string) (string, error) {
 	resolved, err := filepath.EvalSymlinks(absPath)
 	if err != nil {
@@ -654,7 +664,7 @@ func (w *Watcher) resolveAndValidateSymlink(absPath, originalPath string) (strin
 		return "", err
 	}
 
-	return resolved, nil
+	return absPath, nil
 }
 
 // validateSymlinks reports whether absPath may be watched as far as symlink
@@ -702,7 +712,12 @@ func (w *Watcher) validateSymlinkTarget(absPath, resolved, originalPath string) 
 // "/etc/" prefix let a symlink to "/etc" through, which is the more useful
 // target for an attacker than any single file under it.
 func (w *Watcher) isSystemDirectory(path string) bool {
-	for _, dir := range []string{"/etc", "/proc", "/sys", "/dev"} {
+	// Both spellings: macOS reaches /etc and /var through /private, so a guard
+	// that only knows the short form never fires on the resolved path there.
+	for _, dir := range []string{
+		"/etc", "/proc", "/sys", "/dev",
+		"/private/etc", "/private/var",
+	} {
 		if path == dir || strings.HasPrefix(path, dir+"/") {
 			return true
 		}
