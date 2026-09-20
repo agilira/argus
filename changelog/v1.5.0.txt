@@ -1,4 +1,4 @@
-argus v1.5.0 — full audit: 45 defects fixed, audit trail is a real hash chain
+argus v1.5.0 — full audit: 48 defects fixed, audit trail is a real hash chain
 =============================================================================
 
 Released: 2026-09-20
@@ -12,7 +12,7 @@ SUMMARY
 -------
 
 A complete audit of the library, conducted test-first: every defect below was
-reproduced by a failing test before it was fixed. 45 defects found and closed.
+reproduced by a failing test before it was fixed. 48 defects found and closed.
 
 Four of them were stubs that reported success without doing their job, and they
 are the spine of this release:
@@ -284,6 +284,40 @@ BUILD AND CI
     its modification time and retried when it changes.
 
 
+RELEASE PIPELINE
+----------------
+
+46. **The published "CLI binaries" were not executables, and no CLI existed.**
+    release.yml built the ROOT package — a library — into five files named
+    argus-linux-amd64 and friends, and published them under the heading "CLI
+    Binary" with release notes telling people to run `./argus config get`.
+    Verified: they are `ar archive`, mode 0644.
+
+    There was no `package main` anywhere in the repository. cmd/cli is
+    `package cli`, a Manager with Run(args) and no entry point; the only main
+    was in examples/cli, pinned to a published version of cmd/cli rather than
+    the working tree.
+
+    cmd/cli/argus is that entry point now, in the cmd/cli module because the
+    CLI depends on Orpheus and the library must not. It is verified end to end
+    against the command the README documents. The release job builds from
+    there and REFUSES TO PUBLISH anything that is not an executable — a
+    library package produces an archive silently, which is how this went
+    unnoticed.
+
+    The binaries are built with CGO_ENABLED=0, since go-sqlite3 needs cgo and
+    cross-compiling it would need a toolchain per target. Config and watch
+    operations are complete; the SQLite audit backend degrades to disabled,
+    which was measured, not assumed. The release notes say so and point at
+    `go install github.com/agilira/argus/cmd/cli/argus@<tag>` for a full build.
+
+47. release.yml pinned Go 1.24 while go.mod moved to 1.25.9, so every step of
+    the release job would have failed. It follows 'stable' now.
+
+48. `make build` and `make install` built the library root, producing the same
+    archive. They build cmd/cli/argus now.
+
+
 DEPENDENCIES
 ------------
 
@@ -330,6 +364,9 @@ Behaviour changes a caller can observe:
 
   * ErrCodeHelpRequested is a new error code. Detect help with
     IsHelpRequested(err); comparing error strings never worked.
+
+New: the `argus` CLI binary actually exists and is published. Install it with
+`go install github.com/agilira/argus/cmd/cli/argus@v1.5.0`.
 
 New API: Watcher.RemoteConfig(), AuditLogger.VerifyAuditChain(),
 ConfigManager.GetFloat64(), DirectoryWatchOptions.ErrorHandler,

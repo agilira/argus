@@ -1,5 +1,3 @@
-github.com/agilira/argus/cmd/cli v0.0.0-20260822223338-822971058276 h1:puRtERMhm6+B/nmgAUnFqRGAzkMsS3q3D5e++Ao9EC8=
-github.com/agilira/argus/cmd/cli v0.0.0-20260822223338-822971058276/go.mod h1:TF1W+aTgR3L+vtw1ppcJT1SRpQKCezEkoon9ZZVF0uE=
 github.com/agilira/flash-flags v1.3.0 h1:9KFxFrWcdhmetdrnYJUD03DDKq1r3yYn0LQjJwFSdrM=
 github.com/agilira/flash-flags v1.3.0/go.mod h1:ANHrYcqhbLzb4/1tENVi3ljHYixnm43wiX2YajI0XSU=
 github.com/agilira/go-errors v1.1.2 h1:ksOx5zi88VZCXOKh2IAYFLK6dQeVlE4EjxIA8CVmeOI=

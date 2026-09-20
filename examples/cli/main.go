@@ -1,8 +1,8 @@
-// Argus CLI Example - Complete command-line interfacepackage cli
-
+// Argus CLI Example - Complete command-line interface
 //
-// This example demonstrates the Orpheus-powered CLI for Argus configuration management.
-// It provides a production-ready CLI with all Argus features.
+// This example demonstrates the Orpheus-powered CLI for Argus configuration
+// management. The shipped binary is cmd/cli/argus; this example shows how to
+// embed the same Manager in an application of your own.
 //
 // Copyright (c) 2025 AGILira - A. Giordano
 // Series: an AGILira fragment

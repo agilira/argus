@@ -19,10 +19,12 @@ jobs:
       with:
         fetch-depth: 0
 
+    # 'stable' rather than a pinned minor: this job pinned 1.24 while go.mod
+    # moved to 1.25.9, which would have failed every step below.
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: '1.24'
+        go-version: 'stable'
 
     - name: Install development tools
       run: make tools
@@ -33,19 +35,48 @@ jobs:
     - name: Run security checks
       run: make security
 
+    # The CLI lives in the cmd/cli module (it depends on Orpheus, which the
+    # library must not). These commands used to build the ROOT package — a
+    # library — so the five published "CLI Binary" files were ar archives, not
+    # executables, while the release notes told people to run ./argus.
+    #
+    # CGO_ENABLED=0 because go-sqlite3 needs cgo and cross-compiling it would
+    # need a toolchain per target. The consequence is stated in the release
+    # notes rather than hidden: these binaries do config and watch operations
+    # fully, and degrade to no SQLite audit backend. `go install` produces a
+    # build with audit included.
     - name: Build artifacts
+      env:
+        CGO_ENABLED: 0
       run: |
+        set -euo pipefail
         mkdir -p dist
-        
-        # Build Argus CLI for multiple platforms
-        GOOS=linux GOARCH=amd64 go build -ldflags='-w -s -buildid=' -trimpath -o dist/argus-linux-amd64 .
-        GOOS=linux GOARCH=arm64 go build -ldflags='-w -s -buildid=' -trimpath -o dist/argus-linux-arm64 .
-        GOOS=darwin GOARCH=amd64 go build -ldflags='-w -s -buildid=' -trimpath -o dist/argus-darwin-amd64 .
-        GOOS=darwin GOARCH=arm64 go build -ldflags='-w -s -buildid=' -trimpath -o dist/argus-darwin-arm64 .
-        GOOS=windows GOARCH=amd64 go build -ldflags='-w -s -buildid=' -trimpath -o dist/argus-windows-amd64.exe .
-        
+        cd cmd/cli
+
+        build() {
+          GOOS="$1" GOARCH="$2" go build \
+            -ldflags='-w -s -buildid=' -trimpath \
+            -o "../../dist/$3" ./argus
+        }
+
+        build linux   amd64 argus-linux-amd64
+        build linux   arm64 argus-linux-arm64
+        build darwin  amd64 argus-darwin-amd64
+        build darwin  arm64 argus-darwin-arm64
+        build windows amd64 argus-windows-amd64.exe
+
+        # A library package silently produces an archive instead of a program,
+        # which is how the previous mistake went unnoticed. Refuse to publish
+        # anything that is not an executable.
+        cd ../../dist
+        for artifact in argus-*; do
+          if ! file "$artifact" | grep -qE 'executable|PE32'; then
+            echo "::error::$artifact is not an executable: $(file "$artifact")"
+            exit 1
+          fi
+        done
+
         # Create checksums
-        cd dist
         sha256sum * > checksums.txt
 
     - name: Generate build provenance attestation
@@ -84,6 +115,14 @@ jobs:
           
           **CLI Binary:**
           Download the appropriate binary for your platform from the attachments below.
+
+          The published binaries are built without cgo, so they handle every
+          config and watch operation but have no SQLite audit backend. For a
+          build with audit included:
+
+          ```bash
+          go install github.com/agilira/argus/cmd/cli/argus@${{ github.ref_name }}
+          ```
           
           ### CLI Usage
           ```bash

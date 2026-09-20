@@ -163,6 +163,10 @@ watcher, err := argus.WatchDirectoryMerged("/etc/myapp/config.d", argus.Director
 
 ### CLI Usage
 ```bash
+# Install the CLI
+go install github.com/agilira/argus/cmd/cli/argus@latest
+
+
 # Ultra-fast configuration management CLI
 argus config get config.yaml server.port
 argus config set config.yaml database.host localhost

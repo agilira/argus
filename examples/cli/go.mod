@@ -19,3 +19,5 @@ require (
 )
 
 replace github.com/agilira/argus => ../../
+
+replace github.com/agilira/argus/cmd/cli => ../../cmd/cli
