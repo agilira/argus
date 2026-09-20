@@ -1,4 +1,4 @@
-argus v1.5.0 — full audit: 44 defects fixed, audit trail is a real hash chain
+argus v1.5.0 — full audit: 45 defects fixed, audit trail is a real hash chain
 =============================================================================
 
 Released: 2026-09-20
@@ -12,7 +12,7 @@ SUMMARY
 -------
 
 A complete audit of the library, conducted test-first: every defect below was
-reproduced by a failing test before it was fixed. 44 defects found and closed.
+reproduced by a failing test before it was fixed. 45 defects found and closed.
 
 Four of them were stubs that reported success without doing their job, and they
 are the spine of this release:
@@ -170,7 +170,14 @@ SECURITY
     filepath.Base does not split on backslash outside Windows, so a
     cross-platform guard worked only on the platform that needs it least.
 
-25. (fuzz) A YAML parse error formatted the decoder's message, which quotes the
+25. (fuzz) ParseConfig accepted the YAML document `"": v` and produced an entry
+    under the empty string. The INI and Properties parsers both reject an empty
+    key with a typed error; YAML did not. No lookup path in the package can
+    address such an entry — lookupConfigValue, ConfigBinder and ConfigManager
+    all reach a value by name — so it was parsed, stored and unreadable. Keys
+    are validated recursively now, control characters included.
+
+26. (fuzz) A YAML parse error formatted the decoder's message, which quotes the
     offending document text — the configuration itself — into an error the
     application logs. The diagnosis and position are kept; the quoted span is
     redacted.
@@ -179,31 +186,31 @@ SECURITY
 RESOURCE LEAKS
 --------------
 
-26. Stop() on a watcher that was never started returned an error and released
+27. Stop() on a watcher that was never started returned an error and released
     nothing, leaving the audit logger's SQLite handle and flush goroutine with
     no way to reclaim them. Close() is now the idempotent release and is valid
     before Start — `defer watcher.Close()` is correct on every path.
 
-27. UniversalConfigWatcherWithConfig and SimpleFileWatcher returned nil,err on
+28. UniversalConfigWatcherWithConfig and SimpleFileWatcher returned nil,err on
     every failure path without closing the watcher New had already built.
 
 
 CONCURRENCY
 -----------
 
-28. ParseConfig read the customParsers slice header outside the mutex on its
+29. ParseConfig read the customParsers slice header outside the mutex on its
     fast path, justified by a comment claiming append-only made it safe.
     Appending rewrites the slice header; the race detector confirms it. The
     registry is an atomic.Pointer now, so the read is genuinely lock-free.
 
-29. WatchDirectoryMerged started mergeLoop ON TOP OF the pollLoop
+30. WatchDirectoryMerged started mergeLoop ON TOP OF the pollLoop
     watchDirectoryInternal had already started: two goroutines walking the same
     directory and mutating the same state every interval.
 
-30. ConfigManager was not safe for concurrent use, while WatchConfigFile
+31. ConfigManager was not safe for concurrent use, while WatchConfigFile
     reloads from the watcher's goroutine.
 
-31. _txlock=immediate is now set on the SQLite DSN. The write path reads the
+32. _txlock=immediate is now set on the SQLite DSN. The write path reads the
     chain tail before inserting, and a deferred transaction cannot upgrade from
     reader to writer — _busy_timeout does not apply to an upgrade — so
     concurrent writers failed with "database is locked" immediately.
@@ -212,13 +219,13 @@ CONCURRENCY
 CLAIMS THAT DID NOT MATCH THE CODE
 ----------------------------------
 
-32. Config.Remote was documented as enabling distributed configuration with
+33. Config.Remote was documented as enabling distributed configuration with
     fallback, and every field was validated and defaulted — but argus.New never
     read it and NewRemoteConfigManager had no caller in the library. It is
     wired now: New builds the manager, Start starts it, Close stops it, and the
     new Watcher.RemoteConfig() returns the last loaded configuration.
 
-33. Wiring it up exposed the fourth stub. loadLocalFallback never opened
+34. Wiring it up exposed the fourth stub. loadLocalFallback never opened
     FallbackPath: it returned a hardcoded {"fallback": true, "source": …,
     "message": …} and reported success. That file is read only when every
     remote source is already down, so an application asking for its emergency
@@ -227,34 +234,34 @@ CLAIMS THAT DID NOT MATCH THE CODE
     error. Its test looked for the placeholder's key while writing a file with
     different content — it asserted the stub, not the feature.
 
-34. Each retry attempt called the loader with its own default options, nesting
+35. Each retry attempt called the loader with its own default options, nesting
     a second retry policy: the documented three attempts reached the remote
     twelve times, with constant delays absent from the documented schedule.
 
-35. Every remote_config audit call passed "remote_config" as the EVENT and the
+36. Every remote_config audit call passed "remote_config" as the EVENT and the
     action as the COMPONENT — the opposite of every other call site — so
     filtering an audit query by Component or EventPrefix skipped them entirely.
 
-36. RemoteConfigManager.Stop() documented "blocks until the sync loop has fully
+37. RemoteConfigManager.Stop() documented "blocks until the sync loop has fully
     terminated" and returned straight after cancel(). It blocks now, and the
     manager can be started again after being stopped.
 
-37. NewRemoteConfigManager wrote defaults into the caller's RemoteConfig. It
+38. NewRemoteConfigManager wrote defaults into the caller's RemoteConfig. It
     works on a copy now.
 
-38. The configMapPool's note claimed "~40% fewer parse allocations, ~15% more
+39. The configMapPool's note claimed "~40% fewer parse allocations, ~15% more
     throughput". A parsed map is RETURNED to the caller, so nothing could put
     it back: only error paths ever fed the pool. The pool is gone and the note
     now explains why pooling cannot apply here.
 
-39. copyMap was documented as a deep copy and copied one level, so an audit
+40. copyMap was documented as a deep copy and copied one level, so an audit
     record's "before" snapshot shared every nested container with its "after".
 
 
 BUILD AND CI
 ------------
 
-40. Every submodule had stopped compiling. cmd/cli — the product binary — all
+41. Every submodule had stopped compiling. cmd/cli — the product binary — all
     seven examples and both benchmark modules declared an older go directive
     than the root module requires. CI only ran ./... on the root module, so
     nothing noticed. benchmarks/go.mod also carried a replace pointing outside
@@ -262,16 +269,16 @@ BUILD AND CI
 
     A CI job now builds, vets and tests every submodule.
 
-41. gosec ran with BOTH continue-on-error: true AND "|| true". It could not
+42. gosec ran with BOTH continue-on-error: true AND "|| true". It could not
     fail a build. It is blocking now, and the code passes it with 0 issues.
 
-42. ConfigWriter printed to stdout with fmt.Printf on temp-file cleanup
+43. ConfigWriter printed to stdout with fmt.Printf on temp-file cleanup
     failure, polluting any CLI that emits JSON.
 
-43. DirectoryWatcher.watchers was allocated, iterated and deleted from, and
+44. DirectoryWatcher.watchers was allocated, iterated and deleted from, and
     never written to.
 
-44. loadAndNotify discarded its errors and left the file unrecorded, so a
+45. loadAndNotify discarded its errors and left the file unrecorded, so a
     malformed file was silently re-read and re-parsed on every scan, forever.
     DirectoryWatchOptions.ErrorHandler is new; a file that fails is recorded at
     its modification time and retried when it changes.
@@ -360,6 +367,6 @@ QUALITY GATES
   gosec -conf .gosec.json PASS (0 issues, now blocking in CI)
   govulncheck ./...       PASS (0 vulnerabilities)
   go test -race ./...     PASS (47s)
-  coverage                87.8% (was 87.3%)
+  coverage                88.0% (was 87.3%)
   fuzz targets            7/7 PASS
   submodules              10/10 build, vet and test
