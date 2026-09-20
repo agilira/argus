@@ -10,10 +10,24 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 )
+
+// requirePOSIXPermissions skips a test that asserts a Unix file mode.
+//
+// Windows has no POSIX permission bits: Go reports every readable file as
+// 0666 whatever mode the file was created with, so the assertion describes
+// something the platform cannot express. Access control there is an ACL, which
+// is a separate question from the one these tests ask.
+func requirePOSIXPermissions(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("file mode bits are not meaningful on Windows")
+	}
+}
 
 func newTestAuditLogger(t *testing.T) (*AuditLogger, string) {
 	t.Helper()
@@ -138,6 +152,8 @@ func TestLogSecurityEvent_RecordsDetails(t *testing.T) {
 // (os.TempDir()/argus/system-audit.db) that is readable by anyone who can
 // reach the file.
 func TestAuditDatabase_IsNotWorldReadable(t *testing.T) {
+	requirePOSIXPermissions(t)
+
 	dbPath := filepath.Join(t.TempDir(), "audit.db")
 	al, err := NewAuditLogger(AuditConfig{
 		Enabled: true, OutputFile: dbPath, MinLevel: AuditInfo, BufferSize: 10,
@@ -217,6 +233,8 @@ func TestUnifiedAuditPath_RespectsExplicitDir(t *testing.T) {
 // hold committed records that have not been checkpointed into the database
 // yet, so they need the same protection as the database itself.
 func TestAuditDatabase_SidecarsAreNotWorldReadable(t *testing.T) {
+	requirePOSIXPermissions(t)
+
 	dbPath := filepath.Join(t.TempDir(), "audit.db")
 	al, err := NewAuditLogger(AuditConfig{
 		Enabled: true, OutputFile: dbPath, MinLevel: AuditInfo, BufferSize: 10,

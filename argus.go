@@ -712,11 +712,14 @@ func (w *Watcher) validateSymlinkTarget(absPath, resolved, originalPath string) 
 // "/etc/" prefix let a symlink to "/etc" through, which is the more useful
 // target for an attacker than any single file under it.
 func (w *Watcher) isSystemDirectory(path string) bool {
-	// Both spellings: macOS reaches /etc and /var through /private, so a guard
-	// that only knows the short form never fires on the resolved path there.
+	// /private/etc is the same directory as /etc on macOS, which resolves
+	// through /private. Only the directories already listed get their resolved
+	// spelling — NOT /private/var: that is macOS's /var, which was never
+	// blocked and which holds /var/folders, the standard temporary directory.
+	// Listing it made every temporary file on macOS unwatchable.
 	for _, dir := range []string{
 		"/etc", "/proc", "/sys", "/dev",
-		"/private/etc", "/private/var",
+		"/private/etc",
 	} {
 		if path == dir || strings.HasPrefix(path, dir+"/") {
 			return true

@@ -314,7 +314,7 @@ func TestIsSystemDirectory_ResolvedFormsCount(t *testing.T) {
 
 	blocked := []string{
 		"/etc", "/etc/passwd", "/proc/1", "/sys/kernel", "/dev/null",
-		"/private/etc", "/private/etc/passwd", "/private/var/db",
+		"/private/etc", "/private/etc/passwd",
 	}
 	for _, path := range blocked {
 		if !w.isSystemDirectory(path) {
@@ -322,7 +322,12 @@ func TestIsSystemDirectory_ResolvedFormsCount(t *testing.T) {
 		}
 	}
 
-	allowed := []string{"/home/user/config.json", "/srv/app/etc.json", "/tmp/x", "/etcd/data"}
+	// /private/var is macOS's /var: it holds /var/folders, where every
+	// temporary file lives. Blocking it made the whole platform unusable.
+	allowed := []string{
+		"/home/user/config.json", "/srv/app/etc.json", "/tmp/x", "/etcd/data",
+		"/private/var/folders/36/abc/T/config.json", "/var/folders/36/abc/T/config.json",
+	}
 	for _, path := range allowed {
 		if w.isSystemDirectory(path) {
 			t.Errorf("isSystemDirectory(%q) = true, want false", path)
