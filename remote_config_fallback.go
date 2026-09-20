@@ -19,6 +19,7 @@ package argus
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -52,6 +53,14 @@ type RemoteConfigManager struct {
 	ctx       context.Context
 	cancel    context.CancelFunc
 	syncMutex sync.Mutex // Protects sync operations (not hot path)
+
+	// lifecycleMu guards ctx, cancel and done, which Start replaces on every
+	// run so a manager can be stopped and started again.
+	lifecycleMu sync.Mutex
+
+	// done is closed by syncLoop on exit so Stop can wait for it, which is
+	// what Stop's documentation has always promised.
+	done chan struct{}
 }
 
 // NewRemoteConfigManager creates a new remote configuration manager.
@@ -72,6 +81,13 @@ func NewRemoteConfigManager(config *RemoteConfig, watcher *Watcher) (*RemoteConf
 
 	if !config.Enabled {
 		return nil, errors.New(ErrCodeInvalidConfig, "RemoteConfig is not enabled")
+	}
+
+	// The manager logs every sync through watcher.auditLogger, so a nil watcher
+	// is a nil dereference waiting for the first Start rather than a usable
+	// configuration.
+	if watcher == nil {
+		return nil, errors.New(ErrCodeInvalidConfig, "RemoteConfigManager requires a watcher")
 	}
 
 	if config.PrimaryURL == "" {
@@ -96,28 +112,35 @@ func NewRemoteConfigManager(config *RemoteConfig, watcher *Watcher) (*RemoteConf
 		}
 	}
 
+	// Defaults are applied to a COPY. The caller keeps ownership of the
+	// RemoteConfig it passed in: writing defaults straight into it changed a
+	// struct the application may still be reading, and rewrote the very
+	// Config.Remote a Watcher was built from.
+	settings := *config
+
 	// Validate and set SyncInterval with safe default
-	if config.SyncInterval <= 0 {
-		config.SyncInterval = 30 * time.Second // Safe default to prevent NewTicker panic
+	if settings.SyncInterval <= 0 {
+		settings.SyncInterval = 30 * time.Second // Safe default to prevent NewTicker panic
 	}
 
 	// Validate Timeout with safe default
-	if config.Timeout <= 0 {
-		config.Timeout = 10 * time.Second // Safe default
+	if settings.Timeout <= 0 {
+		settings.Timeout = 10 * time.Second // Safe default
 	}
 
 	// Ensure Timeout is not longer than SyncInterval
-	if config.Timeout >= config.SyncInterval {
-		config.Timeout = config.SyncInterval / 2
+	if settings.Timeout >= settings.SyncInterval {
+		settings.Timeout = settings.SyncInterval / 2
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 
 	manager := &RemoteConfigManager{
-		config:  config,
+		config:  &settings,
 		watcher: watcher,
 		ctx:     ctx,
 		cancel:  cancel,
+		done:    make(chan struct{}),
 	}
 
 	return manager, nil
@@ -137,25 +160,46 @@ func NewRemoteConfigManager(config *RemoteConfig, watcher *Watcher) (*RemoteConf
 // Returns:
 //   - error: Initial configuration load errors (sync continues in background)
 func (r *RemoteConfigManager) Start() error {
+	r.lifecycleMu.Lock()
 	if !r.running.CompareAndSwap(false, true) {
+		r.lifecycleMu.Unlock()
 		return errors.New(ErrCodeWatcherBusy, "RemoteConfigManager is already running")
 	}
 
+	// Each run gets its own context and completion channel. Stop cancelled and
+	// closed the previous pair, so reusing them would have started a sync loop
+	// that exits immediately and then closes an already-closed channel.
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	r.ctx, r.cancel, r.done = ctx, cancel, done
+	r.lifecycleMu.Unlock()
+
 	// Perform initial configuration load
-	config, err := r.loadWithFallback()
+	config, err := r.loadWithFallback(ctx)
 	if err != nil {
 		// Continue with sync loop even if initial load fails for recovery
-		r.watcher.auditLogger.Log(AuditInfo, "remote_config", "initial_load_failed", r.config.PrimaryURL, nil, nil, map[string]interface{}{"error": err.Error()})
+		r.auditRemote(AuditInfo, "remote_config_initial_load_failed", r.config.PrimaryURL, map[string]interface{}{"error": err.Error()})
 	} else {
 		r.currentConfig.Store(&config)
 		r.lastSync.Store(time.Now().UnixNano())
-		r.watcher.auditLogger.Log(AuditInfo, "remote_config", "initial_load_success", r.config.PrimaryURL, nil, nil, nil)
+		r.auditRemote(AuditInfo, "remote_config_initial_load_success", r.config.PrimaryURL, nil)
 	}
 
 	// Start background sync loop
-	go r.syncLoop()
+	go r.syncLoop(ctx, done)
 
 	return err
+}
+
+// auditRemote records a remote-configuration event.
+//
+// The component is "argus" and the event names the action, matching every
+// other audit call site in the library. The call sites here used to pass
+// "remote_config" as the EVENT and the action as the COMPONENT, so filtering
+// an audit query by Component or by EventPrefix skipped remote records
+// entirely.
+func (r *RemoteConfigManager) auditRemote(level AuditLevel, event, filePath string, context map[string]interface{}) {
+	r.watcher.auditLogger.Log(level, event, "argus", filePath, nil, nil, context)
 }
 
 // Stop terminates remote configuration synchronization.
@@ -170,7 +214,17 @@ func (r *RemoteConfigManager) Stop() {
 		return // Already stopped
 	}
 
-	r.cancel()
+	r.lifecycleMu.Lock()
+	cancel, done := r.cancel, r.done
+	r.lifecycleMu.Unlock()
+
+	cancel()
+
+	// Wait for syncLoop to exit. Returning straight after cancel() left a sync
+	// possibly still in flight, so "Stop returned" did not mean "nothing is
+	// touching the remote any more" — which is exactly what the caller needs
+	// before tearing down what the sync writes into.
+	<-done
 }
 
 // GetCurrentConfig returns the most recently loaded configuration.
@@ -197,16 +251,21 @@ func (r *RemoteConfigManager) GetCurrentConfig() (map[string]interface{}, time.T
 //
 // The loop uses a timer for precise interval control and reuses contexts
 // to minimize allocations during steady-state operation.
-func (r *RemoteConfigManager) syncLoop() {
+// syncLoop takes the context and completion channel of the run that started
+// it, rather than reading the manager's fields: Start may hand a fresh pair to
+// a later run while this one is still unwinding.
+func (r *RemoteConfigManager) syncLoop(ctx context.Context, done chan struct{}) {
+	defer close(done)
+
 	ticker := time.NewTicker(r.config.SyncInterval)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ticker.C:
-			r.performSync()
+			r.performSync(ctx)
 
-		case <-r.ctx.Done():
+		case <-ctx.Done():
 			return
 		}
 	}
@@ -215,13 +274,13 @@ func (r *RemoteConfigManager) syncLoop() {
 // performSync executes a single configuration synchronization cycle.
 // This method attempts to load configuration using the fallback sequence
 // and updates the cache atomically if successful.
-func (r *RemoteConfigManager) performSync() {
+func (r *RemoteConfigManager) performSync(ctx context.Context) {
 	r.syncMutex.Lock()
 	defer r.syncMutex.Unlock()
 
-	config, err := r.loadWithFallback()
+	config, err := r.loadWithFallback(ctx)
 	if err != nil {
-		r.watcher.auditLogger.Log(AuditWarn, "remote_config", "sync_failed", r.config.PrimaryURL, nil, nil, map[string]interface{}{"error": err.Error()})
+		r.auditRemote(AuditWarn, "remote_config_sync_failed", r.config.PrimaryURL, map[string]interface{}{"error": err.Error()})
 
 		// Call error handler if configured
 		if r.watcher.config.ErrorHandler != nil {
@@ -233,7 +292,7 @@ func (r *RemoteConfigManager) performSync() {
 	// Update cache atomically
 	r.currentConfig.Store(&config)
 	r.lastSync.Store(time.Now().UnixNano())
-	r.watcher.auditLogger.Log(AuditInfo, "remote_config", "sync_success", r.config.PrimaryURL, nil, nil, nil)
+	r.auditRemote(AuditInfo, "remote_config_sync_success", r.config.PrimaryURL, nil)
 }
 
 // loadWithFallback implements the complete fallback sequence for configuration loading.
@@ -247,11 +306,11 @@ func (r *RemoteConfigManager) performSync() {
 // Returns:
 //   - map[string]interface{}: Loaded configuration
 //   - error: Combined errors from all failed attempts
-func (r *RemoteConfigManager) loadWithFallback() (map[string]interface{}, error) {
+func (r *RemoteConfigManager) loadWithFallback(ctx context.Context) (map[string]interface{}, error) {
 	var lastErr error
 
 	// Attempt 1: Primary remote URL
-	if config, err := r.loadRemoteWithRetries(r.config.PrimaryURL); err == nil {
+	if config, err := r.loadRemoteWithRetries(ctx, r.config.PrimaryURL); err == nil {
 		return config, nil
 	} else {
 		lastErr = err
@@ -259,8 +318,8 @@ func (r *RemoteConfigManager) loadWithFallback() (map[string]interface{}, error)
 
 	// Attempt 2: Fallback remote URL (if configured)
 	if r.config.FallbackURL != "" {
-		if config, err := r.loadRemoteWithRetries(r.config.FallbackURL); err == nil {
-			r.watcher.auditLogger.Log(AuditWarn, "remote_config", "fallback_url_used", r.config.FallbackURL, nil, nil, nil)
+		if config, err := r.loadRemoteWithRetries(ctx, r.config.FallbackURL); err == nil {
+			r.auditRemote(AuditWarn, "remote_config_fallback_url_used", r.config.FallbackURL, nil)
 			return config, nil
 		} else {
 			lastErr = err
@@ -270,7 +329,7 @@ func (r *RemoteConfigManager) loadWithFallback() (map[string]interface{}, error)
 	// Attempt 3: Local fallback file (if configured)
 	if r.config.FallbackPath != "" {
 		if config, err := r.loadLocalFallback(); err == nil {
-			r.watcher.auditLogger.Log(AuditCritical, "remote_config", "fallback_file_used", r.config.FallbackPath, nil, nil, nil)
+			r.auditRemote(AuditCritical, "remote_config_fallback_file_used", r.config.FallbackPath, nil)
 			return config, nil
 		} else {
 			lastErr = err
@@ -281,8 +340,8 @@ func (r *RemoteConfigManager) loadWithFallback() (map[string]interface{}, error)
 }
 
 // loadRemoteWithRetries attempts to load from a remote URL with exponential backoff.
-func (r *RemoteConfigManager) loadRemoteWithRetries(url string) (map[string]interface{}, error) {
-	ctx, cancel := context.WithTimeout(r.ctx, r.config.Timeout)
+func (r *RemoteConfigManager) loadRemoteWithRetries(parent context.Context, url string) (map[string]interface{}, error) {
+	ctx, cancel := context.WithTimeout(parent, r.config.Timeout)
 	defer cancel()
 
 	var lastErr error
@@ -306,7 +365,16 @@ func (r *RemoteConfigManager) loadRemoteWithRetries(url string) (map[string]inte
 			}
 		}
 
-		config, err := LoadRemoteConfigWithContext(ctx, url)
+		// Retries belong to THIS loop, which implements the documented
+		// RetryDelay * 2^N schedule. Calling the loader with its own defaults
+		// nested a second retry policy inside each attempt: 3 outer attempts
+		// became 12 requests to the remote, with constant one-second delays
+		// that appear nowhere in the documented schedule.
+		config, err := LoadRemoteConfigWithContext(ctx, url, &RemoteConfigOptions{
+			Timeout:       r.config.Timeout,
+			RetryAttempts: 0,
+			RetryDelay:    r.config.RetryDelay,
+		})
 		if err == nil {
 			return config, nil
 		}
@@ -323,22 +391,53 @@ func (r *RemoteConfigManager) loadRemoteWithRetries(url string) (map[string]inte
 }
 
 // loadLocalFallback loads configuration from the local fallback file.
+//
+// The format is detected from the extension and parsed with the same universal
+// parser as every other configuration file, so JSON, YAML, TOML, HCL, INI and
+// Properties all work here exactly as the FallbackPath documentation says.
+//
+// This used to return a hardcoded {"fallback": true, "source": …, "message": …}
+// without ever opening the file, and to report success doing it. That is the
+// worst possible moment to be wrong: the fallback file is read only when every
+// remote source is already down, so an application asking for its emergency
+// database URL received three meaningless keys and no indication that anything
+// had failed. A fallback that cannot be read is reported as an error, which
+// lets the caller keep serving the last configuration it already had.
 func (r *RemoteConfigManager) loadLocalFallback() (map[string]interface{}, error) {
-	// For now, use a simple JSON file loading approach
-	// TODO: Integrate with universal config parsing when available
+	path := r.config.FallbackPath
 
-	// Check if file exists and is readable
-	if _, err := filepath.Abs(r.config.FallbackPath); err != nil {
-		return nil, errors.Wrap(err, ErrCodeInvalidConfig, "invalid fallback path")
+	if err := ValidateSecurePath(path); err != nil {
+		return nil, errors.Wrap(err, ErrCodeInvalidConfig, "unsafe fallback path").
+			WithContext("fallback_path", path)
 	}
 
-	// For simplicity in this implementation, we'll return a basic config
-	// In production, this should integrate with the universal config loader
-	return map[string]interface{}{
-		"fallback": true,
-		"source":   r.config.FallbackPath,
-		"message":  "Local fallback configuration loaded",
-	}, nil
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return nil, errors.Wrap(err, ErrCodeInvalidConfig, "invalid fallback path").
+			WithContext("fallback_path", path)
+	}
+
+	format := DetectFormat(absPath)
+	if format == FormatUnknown {
+		return nil, errors.New(ErrCodeInvalidConfig, "unsupported fallback configuration format").
+			WithContext("fallback_path", absPath)
+	}
+
+	// #nosec G304 -- absPath is validated by ValidateSecurePath above
+	data, err := os.ReadFile(absPath)
+	if err != nil {
+		return nil, errors.Wrap(err, ErrCodeFileNotFound, "failed to read fallback configuration").
+			WithContext("fallback_path", absPath)
+	}
+
+	config, err := ParseConfig(data, format)
+	if err != nil {
+		return nil, errors.Wrap(err, ErrCodeInvalidConfig,
+			"failed to parse "+format.String()+" fallback configuration").
+			WithContext("fallback_path", absPath)
+	}
+
+	return config, nil
 }
 
 // validateRemoteURL validates that a URL is parseable and has a supported scheme.

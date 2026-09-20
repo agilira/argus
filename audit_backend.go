@@ -19,12 +19,15 @@ package argus
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"time"
 
+	goerrors "github.com/agilira/go-errors"
 	_ "github.com/mattn/go-sqlite3" // SQLite driver registration
 )
 
@@ -90,6 +93,17 @@ type auditBackend interface {
 // This ensures maximum compatibility while providing unified audit trails
 // when possible.
 func createAuditBackend(config AuditConfig) (auditBackend, error) {
+	// The audit destination goes through the same path validation as a watched
+	// file. Only the environment variable was validated before, so a path
+	// rejected as ARGUS_AUDIT_OUTPUT_FILE was accepted when the same string
+	// arrived through AuditConfig — the defence applied to one caller and not
+	// the other. It also makes the os.OpenFile calls below provably safe.
+	if config.OutputFile != "" {
+		if err := ValidateSecurePath(config.OutputFile); err != nil {
+			return nil, fmt.Errorf("unsafe audit output file: %w", err)
+		}
+	}
+
 	// Check if user explicitly requested JSONL format via .jsonl extension
 	if config.OutputFile != "" && filepath.Ext(config.OutputFile) == ".jsonl" {
 		return newJSONLBackend(config)
@@ -116,8 +130,49 @@ func createAuditBackend(config AuditConfig) (auditBackend, error) {
 // into a single queryable database, regardless of the original OutputFile
 // configuration. This enables cross-component correlation and simplified
 // audit management.
+//
+// LOCATION: the database lives in a per-user state directory, never in the
+// shared temporary directory. An audit trail records which files a process
+// watches and every path it rejected; os.TempDir() is world-writable, so the
+// first user to create the argus/ subdirectory there owned it for everyone,
+// and a pre-created symlink would have redirected another user's trail
+// (CWE-377). The resolution order is:
+//
+//  1. $ARGUS_AUDIT_DIR, for deployments that place it explicitly
+//  2. $XDG_STATE_HOME/argus, the freedesktop location for state that should
+//     persist between restarts
+//  3. os.UserConfigDir()/argus — ~/.local/state equivalents on macOS and
+//     %AppData% on Windows, both per-user
+//  4. os.TempDir()/argus-<uid>, a last resort that is at least not shared
 func getUnifiedAuditPath() string {
-	return filepath.Join(os.TempDir(), "argus", "system-audit.db")
+	return filepath.Join(unifiedAuditDir(), "system-audit.db")
+}
+
+// unifiedAuditDir resolves the directory holding the unified audit database.
+func unifiedAuditDir() string {
+	if dir := os.Getenv("ARGUS_AUDIT_DIR"); dir != "" {
+		return dir
+	}
+
+	if stateHome := os.Getenv("XDG_STATE_HOME"); stateHome != "" {
+		return filepath.Join(stateHome, "argus")
+	}
+
+	// ~/.local/state is the freedesktop convention, which macOS and Windows do
+	// not follow; those fall through to os.UserConfigDir below.
+	if runtime.GOOS != "windows" && runtime.GOOS != "darwin" {
+		if home, err := os.UserHomeDir(); err == nil && home != "" {
+			return filepath.Join(home, ".local", "state", "argus")
+		}
+	}
+
+	if configDir, err := os.UserConfigDir(); err == nil && configDir != "" {
+		return filepath.Join(configDir, "argus")
+	}
+
+	// Last resort: still in the temporary directory, but scoped to this user so
+	// it cannot be pre-created or read by another account.
+	return filepath.Join(os.TempDir(), fmt.Sprintf("argus-%d", os.Getuid()))
 }
 
 // sqliteAuditBackend implements auditBackend using SQLite for unified audit storage.
@@ -132,6 +187,133 @@ type sqliteAuditBackend struct {
 	insertStmt *sql.Stmt
 	mu         sync.RWMutex
 	closed     bool
+}
+
+// chainTailQuery reads the checksum the next record must chain onto.
+//
+// It runs inside the insert transaction rather than from a cached field: the
+// unified database is shared between processes, so a tail cached at open time
+// goes stale the moment another process appends and the two would fork the
+// chain. SQLite serialises writers, so the read and the inserts that follow it
+// see a consistent tail.
+const chainTailQuery = `SELECT checksum FROM audit_events ORDER BY id DESC LIMIT 1`
+
+// createChainHeadSQL anchors where the trail currently ends.
+//
+// WHY: a hash chain proves that the records you can see were not altered and
+// that none was removed FROM THE MIDDLE — but removing records from the END
+// leaves a shorter chain that is internally perfect. Recording the head
+// separately means a truncated trail no longer matches what the database says
+// its own end is.
+//
+// LIMIT, stated plainly: the head lives in the same file. An attacker with
+// write access to the database can delete records and rewrite the head row to
+// match. This catches truncation by accident, by partial restore, by a tool
+// that pruned the table, and by an attacker who did not know to look here — it
+// is not a guarantee against a fully privileged local attacker. That requires
+// anchoring the head somewhere Argus does not control: a remote log, a signed
+// checkpoint, or append-only storage.
+const createChainHeadSQL = `
+	CREATE TABLE IF NOT EXISTS chain_head (
+		id INTEGER PRIMARY KEY CHECK (id = 1),
+		checksum TEXT NOT NULL,
+		record_count INTEGER NOT NULL,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);`
+
+// chainHeadQuery reads the recorded end of the trail.
+const chainHeadQuery = `SELECT checksum, record_count FROM chain_head WHERE id = 1`
+
+// chainHeadUpsert records the new end of the trail.
+const chainHeadUpsert = `
+	INSERT INTO chain_head (id, checksum, record_count, updated_at)
+	VALUES (1, ?, ?, CURRENT_TIMESTAMP)
+	ON CONFLICT(id) DO UPDATE SET
+		checksum = excluded.checksum,
+		record_count = excluded.record_count,
+		updated_at = CURRENT_TIMESTAMP`
+
+// chainHead reads the anchor. found is false on a trail written before the
+// anchor existed, which is verified without it.
+func chainHead(tx *sql.Tx) (checksum string, count int64, found bool, err error) {
+	err = tx.QueryRow(chainHeadQuery).Scan(&checksum, &count)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return "", 0, false, nil
+	case err != nil:
+		return "", 0, false, fmt.Errorf("failed to read audit chain head: %w", err)
+	}
+	return checksum, count, true, nil
+}
+
+// chainScanQuery walks the whole trail in insertion order for verification.
+const chainScanQuery = `
+SELECT id, timestamp, level, event, component,
+       file_path, old_value, new_value,
+       process_id, process_name, context, prev_checksum, checksum
+  FROM audit_events
+ ORDER BY id ASC`
+
+// scanChainRow reads one row of chainScanQuery into an AuditEvent.
+//
+// It deliberately reuses the same column order and the same JSON handling as
+// the query path, so a record verifies identically however it was read.
+func scanChainRow(rows *sql.Rows, id *int64) (AuditEvent, error) {
+	var (
+		tsStr        string
+		levelStr     string
+		event        string
+		component    string
+		filePath     sql.NullString
+		oldValueJSON sql.NullString
+		newValueJSON sql.NullString
+		processID    int
+		processName  string
+		contextJSON  sql.NullString
+		prevChecksum sql.NullString
+		checksum     sql.NullString
+	)
+
+	if err := rows.Scan(
+		id, &tsStr, &levelStr, &event, &component,
+		&filePath, &oldValueJSON, &newValueJSON,
+		&processID, &processName, &contextJSON, &prevChecksum, &checksum,
+	); err != nil {
+		return AuditEvent{}, fmt.Errorf("failed to scan audit record: %w", err)
+	}
+
+	ts, err := time.Parse(time.RFC3339Nano, tsStr)
+	if err != nil {
+		return AuditEvent{}, fmt.Errorf("invalid timestamp %q: %w", tsStr, err)
+	}
+
+	ev := AuditEvent{
+		Timestamp:    ts,
+		Level:        parseStoredAuditLevel(levelStr),
+		Event:        event,
+		Component:    component,
+		FilePath:     filePath.String,
+		ProcessID:    processID,
+		ProcessName:  processName,
+		PrevChecksum: prevChecksum.String,
+		Checksum:     checksum.String,
+	}
+
+	if err := unmarshalNullJSON(oldValueJSON, &ev.OldValue); err != nil {
+		return AuditEvent{}, fmt.Errorf("failed to deserialise old_value: %w", err)
+	}
+	if err := unmarshalNullJSON(newValueJSON, &ev.NewValue); err != nil {
+		return AuditEvent{}, fmt.Errorf("failed to deserialise new_value: %w", err)
+	}
+	if contextJSON.Valid && contextJSON.String != "" {
+		var ctx map[string]interface{}
+		if err := json.Unmarshal([]byte(contextJSON.String), &ctx); err != nil {
+			return AuditEvent{}, fmt.Errorf("failed to deserialise context: %w", err)
+		}
+		ev.Context = ctx
+	}
+
+	return ev, nil
 }
 
 // newSQLiteBackend creates a new SQLite audit backend with unified storage.
@@ -191,7 +373,70 @@ func setupDatabasePath(config AuditConfig) (string, error) {
 		return "", fmt.Errorf("failed to create audit database directory: %w", err)
 	}
 
+	// Create the database file ourselves so it never exists with the driver's
+	// default 0644. The JSONL backend has always used 0600; an audit trail in
+	// SQLite is no less sensitive.
+	if err := ensureSecureDatabaseFile(dbPath); err != nil {
+		return "", err
+	}
+
 	return dbPath, nil
+}
+
+// ensureSecureDatabaseFile guarantees the audit database is owner-only.
+//
+// The file is created empty with 0600 before SQLite opens it, closing the
+// window in which it would exist world-readable. An existing file is tightened
+// in place; a file we do not own cannot be tightened, and that is reported
+// rather than silently accepted, because it means somebody else controls the
+// audit trail.
+func ensureSecureDatabaseFile(dbPath string) error {
+	// #nosec G304 -- dbPath is either the unified per-user path built by this
+	// package or an OutputFile validated by ValidateSecurePath in createAuditBackend.
+	file, err := os.OpenFile(dbPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err == nil {
+		return file.Close()
+	}
+	if !os.IsExist(err) {
+		return fmt.Errorf("failed to create audit database file: %w", err)
+	}
+
+	return secureAuditFileMode(dbPath)
+}
+
+// secureAuditFileMode restricts one audit file to owner read/write.
+// A file that does not exist is not an error: the WAL sidecars appear only
+// once SQLite has written to them.
+func secureAuditFileMode(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("failed to inspect audit file %s: %w", path, err)
+	}
+
+	if info.Mode().Perm()&0o077 == 0 {
+		return nil // already owner-only
+	}
+
+	if err := os.Chmod(path, 0o600); err != nil {
+		return fmt.Errorf("audit file %s is accessible to other users and cannot be restricted: %w", path, err)
+	}
+
+	return nil
+}
+
+// secureAuditSidecars restricts the WAL and shared-memory files SQLite creates
+// next to the database. They hold committed audit records that have not been
+// checkpointed yet, so they need the same protection as the database itself.
+func secureAuditSidecars(dbPath string) error {
+	for _, suffix := range []string{"-wal", "-shm"} {
+		if err := secureAuditFileMode(dbPath + suffix); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // openSQLiteDatabase opens and tests SQLite database connection
@@ -223,10 +468,20 @@ func setupDatabasePath(config AuditConfig) (string, error) {
 //   - Reduces disk I/O for repeated queries (e.g., audit searches)
 //   - Modest memory footprint suitable for containers
 //
+// 5. _txlock=immediate:
+//   - Every transaction takes the write lock up front
+//   - The write path reads the chain tail and then inserts. Under the default
+//     deferred locking that transaction starts as a reader and must UPGRADE to
+//     a writer, which SQLite refuses outright when another writer holds the
+//     lock — _busy_timeout does not apply to an upgrade, because waiting there
+//     would deadlock. Concurrent writers saw "database is locked" immediately.
+//   - Taking the lock up front makes _busy_timeout do its job: writers queue
+//     for up to 5 seconds instead of failing.
+//
 // ═══════════════════════════════════════════════════════════════════════════════
 func openSQLiteDatabase(dbPath string) (*sql.DB, error) {
 	// Open SQLite database with optimized settings
-	db, err := sql.Open("sqlite3", fmt.Sprintf("%s?_journal_mode=WAL&_busy_timeout=5000&_synchronous=NORMAL&_cache_size=1000", dbPath))
+	db, err := sql.Open("sqlite3", fmt.Sprintf("%s?_journal_mode=WAL&_busy_timeout=5000&_synchronous=NORMAL&_cache_size=1000&_txlock=immediate", dbPath))
 	if err != nil {
 		return nil, fmt.Errorf("failed to open audit database: %w", err)
 	}
@@ -242,6 +497,123 @@ func openSQLiteDatabase(dbPath string) (*sql.DB, error) {
 	return db, nil
 }
 
+// verifyChainIntegrity walks the trail in insertion order and checks both
+// halves of the guarantee: each record hashes to its stored checksum, and each
+// record's prev_checksum is the checksum of the record before it.
+//
+// The scan is streamed rather than collected: an audit trail is append-only and
+// grows without bound, and holding a whole one in memory to verify it would
+// turn a health check into an outage.
+func (s *sqliteAuditBackend) verifyChainIntegrity(recompute func(AuditEvent) string) error {
+	s.mu.RLock()
+	closed := s.closed
+	s.mu.RUnlock()
+	if closed {
+		return fmt.Errorf("cannot verify a closed SQLite audit backend")
+	}
+
+	rows, err := s.db.Query(chainScanQuery)
+	if err != nil {
+		return fmt.Errorf("failed to scan audit chain: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var (
+		expectedPrev string
+		index        int
+	)
+
+	for rows.Next() {
+		var id int64
+		event, err := scanChainRow(rows, &id)
+		if err != nil {
+			return err
+		}
+
+		if event.PrevChecksum != expectedPrev {
+			return chainBreak("audit chain integrity check failed: record does not follow its predecessor", index, id)
+		}
+
+		if event.Checksum != recompute(event) {
+			return chainBreak("audit chain integrity check failed: checksum mismatch", index, id)
+		}
+
+		expectedPrev = event.Checksum
+		index++
+	}
+
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("failed to read audit chain: %w", err)
+	}
+
+	return s.verifyChainHead(expectedPrev, int64(index))
+}
+
+// verifyChainHead compares the end of the trail we just walked with the anchor
+// the database records for it, which is what makes a truncated tail visible.
+func (s *sqliteAuditBackend) verifyChainHead(tail string, count int64) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to read audit chain head: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	headChecksum, headCount, found, err := chainHead(tx)
+	if err != nil {
+		return err
+	}
+	if !found {
+		// Trail written before the anchor existed: the per-record and
+		// adjacency checks above are all that can be said about it.
+		return nil
+	}
+
+	if headCount != count {
+		return goerrors.New(ErrCodeAuditChainBroken,
+			"audit chain integrity check failed: the trail holds fewer records than its recorded end claims").
+			WithContext("records_found", count).
+			WithContext("records_expected", headCount)
+	}
+
+	if headChecksum != tail {
+		return goerrors.New(ErrCodeAuditChainBroken,
+			"audit chain integrity check failed: the trail does not end where its recorded end says").
+			WithContext("records_found", count)
+	}
+
+	return nil
+}
+
+// chainBreak builds the typed error reporting where a trail stops being trustworthy.
+func chainBreak(message string, index int, id int64) error {
+	return goerrors.New(ErrCodeAuditChainBroken, message).
+		WithContext("index", index).
+		WithContext("id", id)
+}
+
+// chainCount returns how many records the trail currently holds.
+func chainCount(tx *sql.Tx) (int64, error) {
+	var count int64
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM audit_events`).Scan(&count); err != nil {
+		return 0, fmt.Errorf("failed to count audit records: %w", err)
+	}
+	return count, nil
+}
+
+// chainTail returns the checksum of the most recent record, or the empty
+// string when the trail is empty and the next record starts a new chain.
+func chainTail(tx *sql.Tx) (string, error) {
+	var tail sql.NullString
+	err := tx.QueryRow(chainTailQuery).Scan(&tail)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return "", nil
+	case err != nil:
+		return "", fmt.Errorf("failed to read audit chain tail: %w", err)
+	}
+	return tail.String, nil
+}
+
 // initializeBackendComponents initializes schema, statements, and performs maintenance
 func initializeBackendComponents(backend *sqliteAuditBackend) error {
 	// Initialize database schema
@@ -250,6 +622,15 @@ func initializeBackendComponents(backend *sqliteAuditBackend) error {
 			return fmt.Errorf("failed to initialize schema (close error: %v): %w", closeErr, err)
 		}
 		return fmt.Errorf("failed to initialize audit database schema: %w", err)
+	}
+
+	// The schema transaction has now created the WAL sidecars; restrict them
+	// before any audit record reaches them.
+	if err := secureAuditSidecars(backend.dbPath); err != nil {
+		if closeErr := backend.Close(); closeErr != nil {
+			return fmt.Errorf("failed to secure audit sidecar files (close error: %v): %w", closeErr, err)
+		}
+		return err
 	}
 
 	// Prepare insert statement for efficient batch operations
@@ -279,7 +660,7 @@ func initializeBackendComponents(backend *sqliteAuditBackend) error {
 //
 // Migration is atomic and safe for concurrent access.
 func (s *sqliteAuditBackend) ensureSchemaVersion() error {
-	const currentSchemaVersion = 2
+	const currentSchemaVersion = 3
 
 	// Create schema_info table if it doesn't exist
 	createSchemaInfoSQL := `
@@ -324,6 +705,63 @@ func (s *sqliteAuditBackend) ensureSchemaVersion() error {
 	return nil
 }
 
+// migrateToV3 adds the hash-chain column.
+//
+// A database created by migrateToV1 already has the column, because the table
+// definition there carries it; only a database created before the chain
+// existed needs the ALTER. The check keeps the migration idempotent either way.
+//
+// Records written before this migration have no prev_checksum and their
+// checksum was computed under the old per-record formula, so VerifyAuditChain
+// reports the trail as broken at the point the chain begins. That is the
+// honest outcome: nothing links those records to each other.
+func (s *sqliteAuditBackend) migrateToV3(tx *sql.Tx) error {
+	hasColumn, err := columnExists(tx, "audit_events", "prev_checksum")
+	if err != nil {
+		return err
+	}
+	if !hasColumn {
+		if _, err := tx.Exec(`ALTER TABLE audit_events ADD COLUMN prev_checksum TEXT`); err != nil {
+			return fmt.Errorf("failed to add prev_checksum column: %w", err)
+		}
+	}
+
+	if _, err := tx.Exec(createChainHeadSQL); err != nil {
+		return fmt.Errorf("failed to create chain_head table: %w", err)
+	}
+
+	return nil
+}
+
+// columnExists reports whether a table already has a column.
+func columnExists(tx *sql.Tx, table, column string) (bool, error) {
+	// #nosec G202 -- table is a package constant, never operator input.
+	rows, err := tx.Query(`PRAGMA table_info(` + table + `)`)
+	if err != nil {
+		return false, fmt.Errorf("failed to inspect table %s: %w", table, err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	for rows.Next() {
+		var (
+			cid        int
+			name       string
+			columnType string
+			notNull    int
+			dflt       sql.NullString
+			pk         int
+		)
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &dflt, &pk); err != nil {
+			return false, fmt.Errorf("failed to read table info for %s: %w", table, err)
+		}
+		if name == column {
+			return true, rows.Err()
+		}
+	}
+
+	return false, rows.Err()
+}
+
 // migrateSchema performs incremental schema migrations from oldVersion to newVersion.
 //
 // Migrations are designed to be:
@@ -359,6 +797,11 @@ func (s *sqliteAuditBackend) migrateSchema(oldVersion, newVersion int) error {
 			// Migration from v1 to v2 (add performance indexes)
 			if err := s.migrateToV2(tx); err != nil {
 				return fmt.Errorf("migration to v2 failed: %w", err)
+			}
+		case 2:
+			// Migration from v2 to v3 (hash-chain column)
+			if err := s.migrateToV3(tx); err != nil {
+				return fmt.Errorf("migration to v3 failed: %w", err)
 			}
 		default:
 			return fmt.Errorf("unknown migration path from version %d", version)
@@ -397,6 +840,10 @@ func (s *sqliteAuditBackend) migrateToV1(tx *sql.Tx) error {
 		
 		-- Additional context
 		context TEXT, -- JSON blob for flexible metadata
+
+		-- Hash chain: checksum links this record to prev_checksum, which is the
+		-- checksum of the record before it. See audit.go chainChecksum.
+		prev_checksum TEXT,
 		checksum TEXT,
 		
 		-- Indexing and performance
@@ -518,8 +965,8 @@ func (s *sqliteAuditBackend) prepareStatements() error {
 	INSERT INTO audit_events (
 		timestamp, level, event, component,
 		original_output_file, process_id, process_name,
-		file_path, old_value, new_value, context, checksum
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		file_path, old_value, new_value, context, prev_checksum, checksum
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	stmt, err := s.db.Prepare(insertSQL)
 	if err != nil {
@@ -715,12 +1162,41 @@ func (s *sqliteAuditBackend) Write(events []AuditEvent) error {
 		}
 	}()
 
+	// Read the tail INSIDE the transaction, then chain each record onto the
+	// one before it. Doing this here — rather than when the event was buffered
+	// — is what makes the chain correct: only at insert time is a record's
+	// position in the trail known, and SQLite serialises writers so two
+	// processes appending to the unified database cannot fork it.
+	var prev string
+	prev, err = chainTail(tx)
+	if err != nil {
+		return err
+	}
+
+	var appended int64
+	appended, err = chainCount(tx)
+	if err != nil {
+		return err
+	}
+	appended += int64(len(events))
+
 	// Insert all events in the batch
 	for _, event := range events {
+		event.PrevChecksum = prev
+		event.Checksum = chainChecksum(prev, recordDigest(event))
+
 		err = s.insertEvent(txStmt, event)
 		if err != nil {
 			return fmt.Errorf("failed to insert audit event: %w", err)
 		}
+
+		prev = event.Checksum
+	}
+
+	// Move the anchor in the same transaction, so it can never disagree with
+	// the records it describes.
+	if _, err = tx.Exec(chainHeadUpsert, prev, appended); err != nil {
+		return fmt.Errorf("failed to update audit chain head: %w", err)
 	}
 
 	// Commit transaction
@@ -781,6 +1257,7 @@ func (s *sqliteAuditBackend) insertEvent(stmt *sql.Stmt, event AuditEvent) error
 		oldValueJSON,
 		newValueJSON,
 		contextJSON,
+		event.PrevChecksum,
 		event.Checksum,
 	)
 

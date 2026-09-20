@@ -207,14 +207,16 @@ func TestGracefulFallbackBehavior(t *testing.T) {
 			t.Fatalf("Failed to create invalid config file: %v", err)
 		}
 
-		// Should fall back gracefully
+		// A malformed file is reported: it is present, it was named as the
+		// configuration, and none of it could be applied. Usable defaults come
+		// back alongside the error so the caller can still decide to continue.
 		config, err := argus.LoadConfigMultiSource(configFile)
-		if err != nil {
-			t.Fatalf("LoadConfigMultiSource should handle invalid files gracefully: %v", err)
+		if err == nil {
+			t.Fatal("LoadConfigMultiSource accepted a malformed configuration file")
 		}
 
 		if config == nil {
-			t.Fatal("LoadConfigMultiSource should return valid config even for invalid files")
+			t.Fatal("LoadConfigMultiSource should return usable defaults alongside the error")
 		}
 	})
 
@@ -227,14 +229,14 @@ func TestGracefulFallbackBehavior(t *testing.T) {
 			t.Fatalf("Failed to create unsupported format file: %v", err)
 		}
 
-		// Should fall back gracefully
+		// An extension Argus cannot parse is an operator error.
 		config, err := argus.LoadConfigMultiSource(configFile)
-		if err != nil {
-			t.Fatalf("LoadConfigMultiSource should handle unsupported formats gracefully: %v", err)
+		if err == nil {
+			t.Fatal("LoadConfigMultiSource accepted a configuration file in an unsupported format")
 		}
 
 		if config == nil {
-			t.Fatal("LoadConfigMultiSource should return valid config even for unsupported formats")
+			t.Fatal("LoadConfigMultiSource should return usable defaults alongside the error")
 		}
 	})
 }
@@ -383,17 +385,20 @@ func TestEnvironmentVariablePrecedence(t *testing.T) {
 			{
 				name:    "no_env_overrides",
 				envVars: map[string]string{},
-				// Should use defaults since file parsing isn't fully implemented
-				expectedPoll:  5 * time.Second, // Default
-				expectedFiles: 100,             // Default
+				// With no environment override the configuration file decides.
+				// These expectations used to read "5s / 100 — defaults, since
+				// file parsing isn't fully implemented", which is what let the
+				// stub survive.
+				expectedPoll:  30 * time.Second, // From the file
+				expectedFiles: 50,               // From the file
 			},
 			{
 				name: "partial_env_overrides",
 				envVars: map[string]string{
 					"ARGUS_POLL_INTERVAL": "7s",
 				},
-				expectedPoll:  7 * time.Second,
-				expectedFiles: 100, // Default (no override)
+				expectedPoll:  7 * time.Second, // Environment wins
+				expectedFiles: 50,              // Still from the file
 			},
 			{
 				name: "full_env_overrides",

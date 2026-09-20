@@ -100,11 +100,15 @@ func (al *AuditLogger) GetStats() (*AuditDatabaseStats, error) {
 // (descending timestamp). An empty result is always a non-nil empty slice,
 // never nil.
 //
-// SHA-chain integrity: every returned event's checksum is recomputed via
-// generateChecksum and compared to the stored value. On the first mismatch,
-// Query returns all events retrieved from the database AND an
+// Per-record integrity: every returned event's checksum is recomputed from its
+// fields and its recorded predecessor, and compared to the stored value. On the
+// first mismatch, Query returns all events retrieved from the database AND an
 // ErrAuditChainBroken error annotated with the index of the first corrupted
 // event. Callers receive both "here is all the data" and "trust ends here".
+//
+// This proves that the records it returns were not ALTERED. It cannot prove
+// that no record is MISSING: a filter, or a limit, legitimately returns a
+// subset, so adjacency means nothing here. Use VerifyAuditChain for that.
 //
 // Query never modifies state; concurrent calls are safe.
 func (al *AuditLogger) Query(filter AuditEventFilter) ([]AuditEvent, error) {
@@ -132,6 +136,9 @@ func (al *AuditLogger) Query(filter AuditEventFilter) ([]AuditEvent, error) {
 // verifyChain recomputes each event's checksum and returns ErrAuditChainBroken
 // at the first mismatch. All events retrieved from the DB are always returned so
 // the caller can perform forensic inspection beyond the break point.
+//
+// Each record is checked on its own terms, against the predecessor it claims.
+// Whether that claim is true of the trail as a whole is VerifyAuditChain's job.
 func (al *AuditLogger) verifyChain(events []AuditEvent) ([]AuditEvent, error) {
 	for i, ev := range events {
 		if ev.Checksum != al.generateChecksum(ev) {
@@ -141,6 +148,52 @@ func (al *AuditLogger) verifyChain(events []AuditEvent) ([]AuditEvent, error) {
 		}
 	}
 	return events, nil
+}
+
+// VerifyAuditChain walks the entire audit trail in insertion order and proves
+// it is continuous: every record's fields hash to its stored checksum, and
+// every record's PrevChecksum is the checksum of the record before it.
+//
+// This is the check that catches what per-record checksums cannot — a DELETEd
+// record, a truncated tail, or rows moved to put an event outside the window
+// an investigator is looking at. Each surviving record still verifies on its
+// own in all three cases; only the links between them break.
+//
+// The error carries the position of the first break via WithContext("index", n)
+// and the id of the record where it was found via WithContext("id", n).
+//
+// A trail that predates the chain (schema v2 and earlier) has no PrevChecksum
+// on its older records and is reported as broken at the boundary, because
+// nothing links those records to each other.
+//
+// Only a SQLite-backed logger can answer this: the JSONL backend keeps no
+// ordering to verify.
+func (al *AuditLogger) VerifyAuditChain() error {
+	if al == nil {
+		return errors.New(ErrCodeInvalidConfig, "VerifyAuditChain called on nil AuditLogger")
+	}
+	if al.backend == nil {
+		return errors.New(ErrCodeInvalidConfig, "VerifyAuditChain called on AuditLogger with nil backend")
+	}
+
+	cb, ok := al.backend.(chainVerifiableBackend)
+	if !ok {
+		return errors.New(ErrCodeAuditBackendUnsupported,
+			"VerifyAuditChain is not supported by the active audit backend; configure a SQLite-backed AuditLogger")
+	}
+
+	// Flush first: records still sitting in the buffer are not yet part of the
+	// trail, and reporting a break because of them would be a false alarm.
+	if err := al.Flush(); err != nil {
+		return err
+	}
+
+	return cb.verifyChainIntegrity(al.generateChecksum)
+}
+
+// chainVerifiableBackend is satisfied only by backends that keep an ordering.
+type chainVerifiableBackend interface {
+	verifyChainIntegrity(recompute func(AuditEvent) string) error
 }
 
 // normalizedFilter holds filter values after zero-value substitution.
@@ -196,7 +249,7 @@ func escapeLikePrefix(prefix string) string {
 const querySQL = `
 SELECT id, timestamp, level, event, component,
        file_path, old_value, new_value,
-       process_id, process_name, context, checksum
+       process_id, process_name, context, prev_checksum, checksum
   FROM audit_events
  WHERE CASE level
            WHEN 'INFO'     THEN 0
@@ -282,13 +335,14 @@ func scanAuditRow(rows *sql.Rows) (AuditEvent, error) {
 		processID    int
 		processName  string
 		contextJSON  sql.NullString
+		prevChecksum sql.NullString
 		checksum     sql.NullString
 	)
 
 	if err := rows.Scan(
 		&id, &tsStr, &levelStr, &event, &component,
 		&filePath, &oldValueJSON, &newValueJSON,
-		&processID, &processName, &contextJSON, &checksum,
+		&processID, &processName, &contextJSON, &prevChecksum, &checksum,
 	); err != nil {
 		return AuditEvent{}, err
 	}
@@ -299,14 +353,15 @@ func scanAuditRow(rows *sql.Rows) (AuditEvent, error) {
 	}
 
 	ev := AuditEvent{
-		Timestamp:   ts,
-		Level:       parseStoredAuditLevel(levelStr),
-		Event:       event,
-		Component:   component,
-		FilePath:    filePath.String,
-		ProcessID:   processID,
-		ProcessName: processName,
-		Checksum:    checksum.String,
+		Timestamp:    ts,
+		Level:        parseStoredAuditLevel(levelStr),
+		Event:        event,
+		Component:    component,
+		FilePath:     filePath.String,
+		ProcessID:    processID,
+		ProcessName:  processName,
+		PrevChecksum: prevChecksum.String,
+		Checksum:     checksum.String,
 	}
 
 	if err := unmarshalNullJSON(oldValueJSON, &ev.OldValue); err != nil {

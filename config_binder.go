@@ -297,15 +297,35 @@ func (cb *ConfigBinder) applyBinding(b binding) error {
 
 // getValue retrieves a value from config with support for nested keys (e.g., "database.host")
 func (cb *ConfigBinder) getValue(key string) (interface{}, bool) {
+	return lookupConfigValue(cb.config, key)
+}
+
+// lookupConfigValue resolves a configuration key against a parsed config map.
+//
+// A key containing dots has two legitimate readings and both occur in practice:
+//
+//   - a flat key that happens to contain dots. The Properties and INI parsers
+//     emit exactly these ("database.host"), and so does ConfigWriter when it
+//     flattens a nested config for those formats.
+//   - a path through nested maps, which is what JSON, YAML and TOML produce.
+//
+// The direct lookup is tried first because it is unambiguous: if the map holds
+// that exact key, that is the value the file author wrote. Only when there is
+// no such key do we walk the path. Treating every dotted key as a path — the
+// previous behaviour — made every key of a .properties or .ini file unreachable
+// and silently returned the caller's default instead.
+func lookupConfigValue(config map[string]interface{}, key string) (interface{}, bool) {
+	if val, exists := config[key]; exists {
+		return val, true
+	}
+
 	if !strings.Contains(key, ".") {
-		// Simple key - direct lookup
-		val, exists := cb.config[key]
-		return val, exists
+		return nil, false
 	}
 
 	// Nested key - traverse the map
 	parts := strings.Split(key, ".")
-	current := cb.config
+	current := config
 
 	for i, part := range parts {
 		val, exists := current[part]
@@ -329,9 +349,13 @@ func (cb *ConfigBinder) getValue(key string) (interface{}, bool) {
 	return nil, false
 }
 
-// Type conversion methods with minimal allocations
+// Type conversion helpers with minimal allocations.
+//
+// These are package-level functions rather than methods so that every consumer
+// of a parsed config map — the binder, and ConfigManager's config-file layer —
+// converts values the same way. A second copy would drift.
 
-func (cb *ConfigBinder) toString(value interface{}) string {
+func convertToString(value interface{}) string {
 	switch v := value.(type) {
 	case string:
 		return v
@@ -342,7 +366,7 @@ func (cb *ConfigBinder) toString(value interface{}) string {
 	}
 }
 
-func (cb *ConfigBinder) toInt(value interface{}) (int, error) {
+func convertToInt(value interface{}) (int, error) {
 	switch v := value.(type) {
 	case int:
 		return v, nil
@@ -357,7 +381,7 @@ func (cb *ConfigBinder) toInt(value interface{}) (int, error) {
 	}
 }
 
-func (cb *ConfigBinder) toInt64(value interface{}) (int64, error) {
+func convertToInt64(value interface{}) (int64, error) {
 	switch v := value.(type) {
 	case int64:
 		return v, nil
@@ -372,7 +396,7 @@ func (cb *ConfigBinder) toInt64(value interface{}) (int64, error) {
 	}
 }
 
-func (cb *ConfigBinder) toBool(value interface{}) (bool, error) {
+func convertToBool(value interface{}) (bool, error) {
 	switch v := value.(type) {
 	case bool:
 		return v, nil
@@ -389,7 +413,7 @@ func (cb *ConfigBinder) toBool(value interface{}) (bool, error) {
 	}
 }
 
-func (cb *ConfigBinder) toFloat64(value interface{}) (float64, error) {
+func convertToFloat64(value interface{}) (float64, error) {
 	switch v := value.(type) {
 	case float64:
 		return v, nil
@@ -406,7 +430,7 @@ func (cb *ConfigBinder) toFloat64(value interface{}) (float64, error) {
 	}
 }
 
-func (cb *ConfigBinder) toDuration(value interface{}) (time.Duration, error) {
+func convertToDuration(value interface{}) (time.Duration, error) {
 	switch v := value.(type) {
 	case time.Duration:
 		return v, nil
@@ -419,6 +443,20 @@ func (cb *ConfigBinder) toDuration(value interface{}) (time.Duration, error) {
 	default:
 		return 0, errors.New(ErrCodeInvalidConfig, fmt.Sprintf("cannot convert %T to time.Duration", value))
 	}
+}
+
+func (cb *ConfigBinder) toString(value interface{}) string { return convertToString(value) }
+
+func (cb *ConfigBinder) toInt(value interface{}) (int, error) { return convertToInt(value) }
+
+func (cb *ConfigBinder) toInt64(value interface{}) (int64, error) { return convertToInt64(value) }
+
+func (cb *ConfigBinder) toBool(value interface{}) (bool, error) { return convertToBool(value) }
+
+func (cb *ConfigBinder) toFloat64(value interface{}) (float64, error) { return convertToFloat64(value) }
+
+func (cb *ConfigBinder) toDuration(value interface{}) (time.Duration, error) {
+	return convertToDuration(value)
 }
 
 // BindFromConfig creates a new ConfigBinder from a parsed configuration map

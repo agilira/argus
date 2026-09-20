@@ -14,16 +14,42 @@ import (
 )
 
 // copyMap creates a deep copy of a map for audit trail purposes.
-// Used to preserve configuration state for before/after comparisons in audit logs.
+//
+// Used to preserve configuration state for before/after comparisons in audit
+// logs, which is exactly why the copy has to be deep: a one-level copy shares
+// every nested map and slice with the live configuration, so the "before"
+// snapshot changes whenever the "after" one does and the audit record compares
+// a value against itself.
 func copyMap(original map[string]interface{}) map[string]interface{} {
 	if original == nil {
 		return nil
 	}
-	result := make(map[string]interface{})
+	result := make(map[string]interface{}, len(original))
 	for k, v := range original {
-		result[k] = v
+		result[k] = copyValue(v)
 	}
 	return result
+}
+
+// copyValue deep-copies the container types a parsed configuration can hold.
+// Scalars are immutable in Go and are returned as they are.
+func copyValue(value interface{}) interface{} {
+	switch typed := value.(type) {
+	case map[string]interface{}:
+		return copyMap(typed)
+	case []interface{}:
+		copied := make([]interface{}, len(typed))
+		for i, item := range typed {
+			copied[i] = copyValue(item)
+		}
+		return copied
+	case []string:
+		copied := make([]string, len(typed))
+		copy(copied, typed)
+		return copied
+	default:
+		return value
+	}
 }
 
 // UniversalConfigWatcher creates a watcher for ANY configuration format
@@ -70,13 +96,17 @@ func UniversalConfigWatcherWithConfig(configPath string, callback func(config ma
 	// Create watch callback
 	watchCallback := createUniversalWatchCallback(format, callback, watcher, &currentConfig)
 
-	// Setup file watching
+	// Setup file watching. Every failure from here on must close the watcher:
+	// New has already opened the audit logger (a SQLite handle and a flush
+	// goroutine) and the caller is about to receive nil, so nothing else can.
 	if err := watcher.Watch(configPath, watchCallback); err != nil {
+		_ = watcher.Close()
 		return nil, errors.Wrap(err, ErrCodeInvalidConfig, "failed to watch config file")
 	}
 
 	// Initialize and start watcher
 	if err := initializeUniversalWatcher(watcher, configPath, format, callback, &currentConfig); err != nil {
+		_ = watcher.Close()
 		return nil, err
 	}
 
@@ -203,6 +233,8 @@ func SimpleFileWatcher(filePath string, callback func(path string)) (*Watcher, e
 	}
 
 	if err := watcher.Watch(filePath, watchCallback); err != nil {
+		// New already opened the audit logger; release it before giving up.
+		_ = watcher.Close()
 		return nil, errors.Wrap(err, ErrCodeInvalidConfig, "failed to watch file")
 	}
 

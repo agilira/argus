@@ -51,6 +51,7 @@ import (
 // Error codes for Argus operations
 const (
 	ErrCodeInvalidConfig          = "ARGUS_INVALID_CONFIG"
+	ErrCodeHelpRequested          = "ARGUS_HELP_REQUESTED"
 	ErrCodeFileNotFound           = "ARGUS_FILE_NOT_FOUND"
 	ErrCodeWatcherStopped         = "ARGUS_WATCHER_STOPPED"
 	ErrCodeWatcherBusy            = "ARGUS_WATCHER_BUSY"
@@ -341,6 +342,7 @@ func (fs *fileStat) isExpired(ttl time.Duration) bool {
 // watchedFile represents a file under observation with its callback and cached state.
 // Optimized for minimal memory footprint and fast access during polling.
 type watchedFile struct {
+	id       uint64         // Identity carried by ring-buffer events (never 0)
 	path     string         // Absolute file path being watched
 	callback UpdateCallback // User-provided callback for file changes
 	lastStat fileStat       // Cached file statistics for change detection
@@ -375,8 +377,16 @@ type watchedFile struct {
 // on cache reads, achieving true zero-contention read access.
 // ═══════════════════════════════════════════════════════════════════════════════
 type Watcher struct {
-	config  Config
-	files   map[string]*watchedFile
+	config Config
+	files  map[string]*watchedFile
+
+	// filesByID resolves an incoming ring-buffer event back to its watched
+	// file. The event's inline path is truncated past maxInlinePathLen, so it
+	// cannot be used as the lookup key: doing so silently dropped every event
+	// for a path longer than the buffer.
+	filesByID   map[uint64]*watchedFile
+	nextWatchID atomic.Uint64
+
 	filesMu sync.RWMutex
 
 	// LOCK-FREE CACHE: Uses atomic.Pointer for zero-contention reads
@@ -396,6 +406,16 @@ type Watcher struct {
 
 	// AUDIT SYSTEM: Comprehensive security and compliance logging
 	auditLogger *AuditLogger
+
+	// REMOTE CONFIGURATION: built when Config.Remote.Enabled is set, started
+	// by Start and stopped by Close. remoteErr holds a construction failure
+	// until Start can report it, because New has no error to return.
+	remoteManager *RemoteConfigManager
+	remoteErr     error
+
+	// lifecycleMu serialises Start, Stop and Close so the shutdown channels are
+	// closed exactly once, whatever order the calls arrive in.
+	lifecycleMu sync.Mutex
 
 	running   atomic.Bool
 	stopped   atomic.Bool // Tracks if explicitly stopped vs just not started
@@ -428,6 +448,7 @@ func New(config Config) *Watcher {
 	watcher := &Watcher{
 		config:      *cfg,
 		files:       make(map[string]*watchedFile),
+		filesByID:   make(map[uint64]*watchedFile),
 		auditLogger: auditLogger,
 		stopCh:      make(chan struct{}),
 		stoppedCh:   make(chan struct{}),
@@ -446,7 +467,41 @@ func New(config Config) *Watcher {
 		watcher.processFileEvent,
 	)
 
+	// Build the remote configuration manager when the caller asked for one.
+	// Config.Remote used to be validated and defaulted and then never read: a
+	// watcher configured with Remote.Enabled did nothing at all, while the
+	// field's documentation described a working fallback chain.
+	//
+	// New returns no error, so a configuration that cannot be used is held
+	// until Start, which does.
+	if watcher.config.Remote.Enabled {
+		manager, err := NewRemoteConfigManager(&watcher.config.Remote, watcher)
+		if err != nil {
+			watcher.remoteErr = errors.Wrap(err, ErrCodeRemoteConfigError,
+				"remote configuration is enabled but unusable")
+		} else {
+			watcher.remoteManager = manager
+		}
+	}
+
 	return watcher
+}
+
+// RemoteConfig returns the most recently loaded remote configuration and the
+// time it was loaded.
+//
+// It reports ErrCodeConfigNotFound when remote configuration is disabled, and
+// the same when it is enabled but nothing has loaded yet.
+func (w *Watcher) RemoteConfig() (map[string]interface{}, time.Time, error) {
+	if w.remoteManager == nil {
+		if w.remoteErr != nil {
+			return nil, time.Time{}, w.remoteErr
+		}
+		return nil, time.Time{}, errors.New(ErrCodeConfigNotFound,
+			"remote configuration is not enabled for this watcher")
+	}
+
+	return w.remoteManager.GetCurrentConfig()
 }
 
 // processFileEvent processes events from the BoreasLite ring buffer
@@ -455,23 +510,47 @@ func (w *Watcher) processFileEvent(fileEvent *FileChangeEvent) {
 	// CRITICAL: Panic recovery to prevent callback panics from crashing the watcher
 	defer func() {
 		if r := recover(); r != nil {
-			w.auditLogger.LogFileWatch("callback_panic", string(fileEvent.Path[:]))
+			w.auditLogger.LogFileWatch("callback_panic", string(fileEvent.Path[:fileEvent.PathLen]))
 		}
 	}()
 
 	// Convert BoreasLite event back to standard ChangeEvent
 	event := ConvertFileEventToChangeEvent(*fileEvent)
 
-	// Find the corresponding watched file and call its callback
+	// Resolve the event by the identity that travelled with it, not by its
+	// inline path: that path is truncated past maxInlinePathLen, so a lookup
+	// by path silently found nothing for every deeply nested file.
+	//
+	// Look the callback up under the read lock, then release it BEFORE running
+	// user code. Holding filesMu across an arbitrary callback deadlocks the
+	// watcher the moment that callback calls Watch or Unwatch — the natural
+	// shape of a one-shot watch — because those take the write lock.
 	w.filesMu.RLock()
-	if wf, exists := w.files[event.Path]; exists {
-		// Call the user's callback function
-		wf.callback(event)
-
-		// Log basic file change to audit system
-		w.auditLogger.LogFileWatch("file_changed", event.Path)
+	wf, exists := w.filesByID[fileEvent.WatchID]
+	if !exists {
+		// WatchID 0 (an event written through the public WriteFileChange) or a
+		// file unwatched between poll and delivery: fall back to the path.
+		wf, exists = w.files[event.Path]
+	}
+	var callback UpdateCallback
+	var fullPath string
+	if exists {
+		callback = wf.callback
+		fullPath = wf.path
 	}
 	w.filesMu.RUnlock()
+
+	if callback == nil {
+		return
+	}
+
+	// The watcher holds the untruncated path; hand that to the callback.
+	event.Path = fullPath
+
+	callback(event)
+
+	// Log basic file change to audit system
+	w.auditLogger.LogFileWatch("file_changed", event.Path)
 }
 
 // Watch adds a file to the watch list
@@ -497,7 +576,21 @@ func (w *Watcher) Watch(path string, callback UpdateCallback) error {
 	return w.addWatchedFile(absPath, callback)
 }
 
-// validateAndSecurePath validates path security and returns absolute path
+// validateAndSecurePath validates path security and returns absolute path.
+//
+// Symlinks are resolved exactly once and the TARGET is what gets validated —
+// including the system-directory guard. The previous shape replaced absPath
+// with the resolved target and only then called validateSymlinks, which
+// resolved the already-resolved path, found it unchanged, and skipped the
+// guard entirely: a symlink into /etc was accepted every time.
+//
+// Watching a file that does not exist yet is legitimate (the watcher reports
+// its creation), so an unresolvable path is only rejected when it is itself a
+// symlink — a dangling symlink is not something to start watching.
+//
+// Note the guard is deliberately about symlinks, not about /etc as such: an
+// application may name /etc/myapp/config.json directly. What it must not do is
+// be redirected there by a link planted inside a directory it watches.
 func (w *Watcher) validateAndSecurePath(path string) (string, error) {
 	// SECURITY FIX: Validate path before processing to prevent path traversal attacks
 	if err := ValidateSecurePath(path); err != nil {
@@ -530,12 +623,17 @@ func (w *Watcher) validateAndSecurePath(path string) (string, error) {
 			WithContext("original_path", path)
 	}
 
-	// SECURITY: Check for symlink traversal attacks
-	// If the path is a symlink, verify that its target is also safe
-	if info, err := os.Lstat(absPath); err == nil && info.Mode()&os.ModeSymlink != 0 {
-		target, err := filepath.EvalSymlinks(absPath)
-		if err != nil {
-			// If we can't resolve the symlink target, reject it for security
+	return w.resolveAndValidateSymlink(absPath, path)
+}
+
+// resolveAndValidateSymlink resolves absPath and validates the destination
+// when a symlink is involved, returning the path that should actually be
+// watched.
+func (w *Watcher) resolveAndValidateSymlink(absPath, originalPath string) (string, error) {
+	resolved, err := filepath.EvalSymlinks(absPath)
+	if err != nil {
+		if info, lstatErr := os.Lstat(absPath); lstatErr == nil && info.Mode()&os.ModeSymlink != 0 {
+			// A symlink we cannot follow: reject rather than watch blindly.
 			w.auditLogger.LogSecurityEvent("symlink_traversal_attempt", "Symlink target resolution failed",
 				map[string]interface{}{
 					"symlink_path": absPath,
@@ -544,77 +642,74 @@ func (w *Watcher) validateAndSecurePath(path string) (string, error) {
 			return "", errors.Wrap(err, ErrCodeInvalidConfig, "cannot resolve symlink target").
 				WithContext("symlink_path", absPath)
 		}
-
-		// Validate the symlink target
-		if err := ValidateSecurePath(target); err != nil {
-			w.auditLogger.LogSecurityEvent("symlink_traversal_attempt", "Symlink points to dangerous target",
-				map[string]interface{}{
-					"symlink_path": absPath,
-					"target_path":  target,
-					"reason":       err.Error(),
-				})
-			return "", errors.Wrap(err, ErrCodeInvalidConfig, "symlink target is unsafe").
-				WithContext("symlink_path", absPath).
-				WithContext("target_path", target)
-		}
-
-		// Update absPath to the resolved target for consistency
-		absPath = target
+		// The file simply does not exist yet; watching it is allowed.
+		return absPath, nil
 	}
 
-	// Validate symlinks
-	if err := w.validateSymlinks(absPath, path); err != nil {
+	if resolved == absPath {
+		return absPath, nil // no symlink anywhere in the path
+	}
+
+	if err := w.validateSymlinkTarget(absPath, resolved, originalPath); err != nil {
 		return "", err
 	}
 
-	return absPath, nil
+	return resolved, nil
 }
 
-// validateSymlinks checks symlink security
+// validateSymlinks reports whether absPath may be watched as far as symlink
+// resolution is concerned. It is the error-only view of
+// resolveAndValidateSymlink.
 func (w *Watcher) validateSymlinks(absPath, originalPath string) error {
-	// SECURITY: Symlink resolution check
-	// Resolve any symlinks and validate the final target path
-	realPath, err := filepath.EvalSymlinks(absPath)
-	if err == nil && realPath != absPath {
-		// Path contains symlinks - validate the resolved target
-		if err := ValidateSecurePath(realPath); err != nil {
-			w.auditLogger.LogSecurityEvent("symlink_traversal_attempt", "Symlink points to unsafe location",
-				map[string]interface{}{
-					"symlink_path":  absPath,
-					"resolved_path": realPath,
-					"original_path": originalPath,
-					"reason":        err.Error(),
-				})
-			return errors.Wrap(err, ErrCodeInvalidConfig, "symlink target is unsafe").
-				WithContext("symlink_path", absPath).
-				WithContext("resolved_path", realPath).
-				WithContext("original_path", originalPath)
-		}
+	_, err := w.resolveAndValidateSymlink(absPath, originalPath)
+	return err
+}
 
-		// Additional check: ensure symlink doesn't escape to system directories
-		if w.isSystemDirectory(realPath) {
-			w.auditLogger.LogSecurityEvent("symlink_system_access", "Symlink attempts to access system directory",
-				map[string]interface{}{
-					"symlink_path":  absPath,
-					"resolved_path": realPath,
-					"original_path": originalPath,
-				})
-			return errors.New(ErrCodeInvalidConfig, "symlink target accesses restricted system directory").
-				WithContext("symlink_path", absPath).
-				WithContext("resolved_path", realPath)
-		}
+// validateSymlinkTarget checks the destination a symlink resolves to.
+func (w *Watcher) validateSymlinkTarget(absPath, resolved, originalPath string) error {
+	if err := ValidateSecurePath(resolved); err != nil {
+		w.auditLogger.LogSecurityEvent("symlink_traversal_attempt", "Symlink points to unsafe location",
+			map[string]interface{}{
+				"symlink_path":  absPath,
+				"resolved_path": resolved,
+				"original_path": originalPath,
+				"reason":        err.Error(),
+			})
+		return errors.Wrap(err, ErrCodeInvalidConfig, "symlink target is unsafe").
+			WithContext("symlink_path", absPath).
+			WithContext("resolved_path", resolved).
+			WithContext("original_path", originalPath)
 	}
+
+	if w.isSystemDirectory(resolved) {
+		w.auditLogger.LogSecurityEvent("symlink_system_access", "Symlink attempts to access system directory",
+			map[string]interface{}{
+				"symlink_path":  absPath,
+				"resolved_path": resolved,
+				"original_path": originalPath,
+			})
+		return errors.New(ErrCodeInvalidConfig, "symlink target accesses restricted system directory").
+			WithContext("symlink_path", absPath).
+			WithContext("resolved_path", resolved)
+	}
+
 	return nil
 }
 
-// isSystemDirectory checks if path points to system directory
+// isSystemDirectory checks if path points to a system directory.
+//
+// The directory itself counts, not just what is inside it: matching only the
+// "/etc/" prefix let a symlink to "/etc" through, which is the more useful
+// target for an attacker than any single file under it.
 func (w *Watcher) isSystemDirectory(path string) bool {
+	for _, dir := range []string{"/etc", "/proc", "/sys", "/dev"} {
+		if path == dir || strings.HasPrefix(path, dir+"/") {
+			return true
+		}
+	}
+
 	lowerPath := strings.ToLower(path)
-	return strings.HasPrefix(path, "/etc/") ||
-		strings.HasPrefix(path, "/proc/") ||
-		strings.HasPrefix(path, "/sys/") ||
-		strings.HasPrefix(path, "/dev/") ||
-		strings.Contains(lowerPath, "windows\\system32") ||
+	return strings.Contains(lowerPath, "windows\\system32") ||
 		strings.Contains(lowerPath, "program files")
 }
 
@@ -643,11 +738,20 @@ func (w *Watcher) addWatchedFile(absPath string, callback UpdateCallback) error 
 			WithContext("path", absPath)
 	}
 
-	w.files[absPath] = &watchedFile{
+	// Re-watching a path replaces the previous registration; drop its old
+	// identity so no stale entry survives in the index.
+	if previous, exists := w.files[absPath]; exists {
+		delete(w.filesByID, previous.id)
+	}
+
+	wf := &watchedFile{
+		id:       w.nextWatchID.Add(1), // never 0: 0 means "unknown" in an event
 		path:     absPath,
 		callback: callback,
 		lastStat: initialStat,
 	}
+	w.files[absPath] = wf
+	w.filesByID[wf.id] = wf
 
 	// Adapt BoreasLite strategy based on file count (if Auto mode)
 	if w.eventRing != nil {
@@ -668,6 +772,9 @@ func (w *Watcher) Unwatch(path string) error {
 	w.filesMu.Lock()
 	defer w.filesMu.Unlock()
 
+	if wf, exists := w.files[absPath]; exists {
+		delete(w.filesByID, wf.id)
+	}
 	delete(w.files, absPath)
 
 	// Adapt BoreasLite strategy based on updated file count (if Auto mode)
@@ -681,10 +788,37 @@ func (w *Watcher) Unwatch(path string) error {
 	return nil
 }
 
-// Start begins watching files for changes
+// Start begins watching files for changes.
+//
+// A watcher is single-use: stopCh and stoppedCh are closed by Stop and cannot
+// be reopened, so Start refuses a watcher that has already been stopped rather
+// than accepting the call and panicking inside the polling goroutine. Create a
+// new watcher with New to resume watching.
 func (w *Watcher) Start() error {
+	w.lifecycleMu.Lock()
+	defer w.lifecycleMu.Unlock()
+
+	if w.stopped.Load() {
+		return errors.New(ErrCodeWatcherStopped, "cannot start a watcher that has been stopped")
+	}
+
+	// A remote configuration that could not be built is reported here, where
+	// there is an error to return, rather than silently ignored.
+	if w.remoteErr != nil {
+		return w.remoteErr
+	}
+
 	if !w.running.CompareAndSwap(false, true) {
 		return errors.New(ErrCodeWatcherBusy, "watcher is already running")
+	}
+
+	// Start remote synchronisation before the local watch: the initial load
+	// populates the cache the application reads. Its error is returned once
+	// the loops are up, so a temporarily unreachable remote does not stop file
+	// watching — the fallback chain exists precisely for that case.
+	var remoteErr error
+	if w.remoteManager != nil {
+		remoteErr = w.remoteManager.Start()
 	}
 
 	// Start BoreasLite event processor in background
@@ -692,19 +826,60 @@ func (w *Watcher) Start() error {
 
 	// Start main polling loop
 	go w.watchLoop()
+
+	if remoteErr != nil {
+		return errors.Wrap(remoteErr, ErrCodeRemoteConfigError,
+			"file watching started; the initial remote configuration load failed and will be retried")
+	}
+
 	return nil
 }
 
-// Stop stops the watcher and waits for cleanup
+// Stop stops a running watcher and releases every resource it holds.
+//
+// Stop reports ErrCodeWatcherStopped when the watcher is not running. Use
+// Close when you want to release a watcher whatever its state — in particular,
+// New opens an audit logger before Start is ever called, and Close is what
+// releases it.
 func (w *Watcher) Stop() error {
-	if !w.running.CompareAndSwap(true, false) {
+	return w.shutdown(true)
+}
+
+// shutdown performs the one-shot release of the watcher's resources.
+//
+// requireRunning reproduces Stop's published contract; Close passes false and
+// is therefore idempotent and valid on a watcher that was never started. The
+// lifecycle mutex makes Start, Stop and Close mutually exclusive, so the
+// channels below are closed exactly once.
+func (w *Watcher) shutdown(requireRunning bool) error {
+	w.lifecycleMu.Lock()
+	defer w.lifecycleMu.Unlock()
+
+	if w.stopped.Load() {
+		if requireRunning {
+			return errors.New(ErrCodeWatcherStopped, "watcher is not running")
+		}
+		return nil // already released; releasing again is a no-op
+	}
+
+	wasRunning := w.running.CompareAndSwap(true, false)
+	if requireRunning && !wasRunning {
 		return errors.New(ErrCodeWatcherStopped, "watcher is not running")
 	}
 
 	w.stopped.Store(true) // Mark as explicitly stopped
 	w.cancel()
-	close(w.stopCh)
-	<-w.stoppedCh
+
+	// Stop remote synchronisation first: it blocks until its loop has exited,
+	// so nothing is still writing into the cache once this returns.
+	if w.remoteManager != nil {
+		w.remoteManager.Stop()
+	}
+
+	if wasRunning {
+		close(w.stopCh)
+		<-w.stoppedCh
+	}
 
 	// Stop BoreasLite event processor
 	w.eventRing.Stop()
@@ -722,10 +897,16 @@ func (w *Watcher) IsRunning() bool {
 	return w.running.Load()
 }
 
-// Close is an alias for Stop() for better resource management patterns
-// Implements the common Close() interface for easy integration with defer statements
+// Close releases every resource held by the watcher, stopping the polling loop
+// first if it is running.
+//
+// Unlike Stop, Close is idempotent and succeeds on a watcher that was never
+// started: New opens an audit logger (SQLite handle plus flush goroutine)
+// before any call to Start, and Close is the only thing that releases it.
+// This makes `defer watcher.Close()` correct on every path, including the
+// error paths of a constructor that gives up between New and Start.
 func (w *Watcher) Close() error {
-	return w.Stop()
+	return w.shutdown(false)
 }
 
 // GracefulShutdown performs a graceful shutdown with timeout control.
@@ -921,7 +1102,7 @@ func (w *Watcher) checkFile(wf *watchedFile) {
 			// File was deleted
 			if wf.lastStat.exists {
 				// Send delete event via BoreasLite ring buffer
-				w.eventRing.WriteFileChange(wf.path, time.Time{}, 0, false, true, false)
+				w.eventRing.WriteFileChangeWithID(wf.id, wf.path, time.Time{}, 0, false, true, false)
 				wf.lastStat.exists = false
 			}
 		} else if w.config.ErrorHandler != nil {
@@ -934,10 +1115,10 @@ func (w *Watcher) checkFile(wf *watchedFile) {
 	// File exists now
 	if !wf.lastStat.exists {
 		// File was created - send via BoreasLite
-		w.eventRing.WriteFileChange(wf.path, currentStat.modTime, currentStat.size, true, false, false)
+		w.eventRing.WriteFileChangeWithID(wf.id, wf.path, currentStat.modTime, currentStat.size, true, false, false)
 	} else if currentStat.modTime != wf.lastStat.modTime || currentStat.size != wf.lastStat.size {
 		// File was modified - send via BoreasLite
-		w.eventRing.WriteFileChange(wf.path, currentStat.modTime, currentStat.size, false, false, true)
+		w.eventRing.WriteFileChangeWithID(wf.id, wf.path, currentStat.modTime, currentStat.size, false, false, true)
 	}
 
 	wf.lastStat = currentStat
@@ -1262,7 +1443,12 @@ func ValidateSecurePath(path string) error {
 		}
 	}
 
-	baseName := strings.ToUpper(filepath.Base(path))
+	// Normalise separators before extracting the base name. filepath.Base only
+	// splits on "/" outside Windows, so "00\\Prn" kept its whole string as the
+	// base name and the device check below never matched — the protection this
+	// function promises "across different file systems and OS configurations"
+	// worked only on the OS that needs it least.
+	baseName := strings.ToUpper(filepath.Base(strings.ReplaceAll(path, "\\", "/")))
 	// Remove ALL extensions for device name check (handle multiple extensions like PRN.0., COM1.txt.bak)
 	// Keep removing extensions until no more dots are found
 	for {

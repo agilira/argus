@@ -59,14 +59,10 @@ func BenchmarkParseConfigBuiltinOnlyOptimized(b *testing.B) {
 	}
 
 	// Ensure no custom parsers are registered
-	parserMutex.Lock()
-	originalParsers := customParsers
-	customParsers = nil
-	parserMutex.Unlock()
+	originalParsers := snapshotParsers()
+	restoreParsers(nil)
 	defer func() {
-		parserMutex.Lock()
-		customParsers = originalParsers
-		parserMutex.Unlock()
+		restoreParsers(originalParsers)
 	}()
 
 	for _, tc := range testCases {
@@ -87,15 +83,10 @@ func BenchmarkParseConfigWithCustomParser(b *testing.B) {
 	jsonContent := []byte(`{"service": "test", "port": 8080, "enabled": true}`)
 
 	// Save original state
-	parserMutex.Lock()
-	originalParsers := make([]ConfigParser, len(customParsers))
-	copy(originalParsers, customParsers)
-	customParsers = nil
-	parserMutex.Unlock()
+	originalParsers := snapshotParsers()
+	restoreParsers(nil) // Clear for clean test
 	defer func() {
-		parserMutex.Lock()
-		customParsers = originalParsers
-		parserMutex.Unlock()
+		restoreParsers(originalParsers)
 	}()
 
 	// Register a custom YAML parser (won't be used for JSON)
@@ -118,15 +109,10 @@ port: 8080
 enabled: true`)
 
 	// Save original state
-	parserMutex.Lock()
-	originalParsers := make([]ConfigParser, len(customParsers))
-	copy(originalParsers, customParsers)
-	customParsers = nil
-	parserMutex.Unlock()
+	originalParsers := snapshotParsers()
+	restoreParsers(nil) // Clear for clean test
 	defer func() {
-		parserMutex.Lock()
-		customParsers = originalParsers
-		parserMutex.Unlock()
+		restoreParsers(originalParsers)
 	}()
 
 	// Register a custom YAML parser
@@ -145,22 +131,15 @@ enabled: true`)
 // Benchmark parser registration (thread safety overhead)
 func BenchmarkParserRegistration(b *testing.B) {
 	// Save original state
-	parserMutex.Lock()
-	originalParsers := make([]ConfigParser, len(customParsers))
-	copy(originalParsers, customParsers)
-	parserMutex.Unlock()
+	originalParsers := snapshotParsers()
 	defer func() {
-		parserMutex.Lock()
-		customParsers = originalParsers
-		parserMutex.Unlock()
+		restoreParsers(originalParsers)
 	}()
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		// Clear and re-register to test registration performance
-		parserMutex.Lock()
-		customParsers = nil
-		parserMutex.Unlock()
+		restoreParsers(nil)
 
 		RegisterParser(&testParserForBenchmark{})
 	}

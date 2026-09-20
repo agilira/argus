@@ -441,10 +441,12 @@ func TestEnvConfigLoadRemoteConfigEdgeCases(t *testing.T) {
 		}
 	}()
 
+	// A malformed duration is reported, exactly as every other ARGUS_* duration
+	// is. Swallowing it left the operator with a setting that never took effect
+	// and no way to find out.
 	envConfig = &EnvConfig{}
-	err = loadRemoteConfig(envConfig)
-	if err != nil {
-		t.Errorf("loadRemoteConfig should handle invalid duration gracefully: %v", err)
+	if err := loadRemoteConfig(envConfig); err == nil {
+		t.Error("loadRemoteConfig accepted ARGUS_REMOTE_INTERVAL=invalid-duration")
 	}
 
 	// Test with invalid timeout format
@@ -458,9 +460,8 @@ func TestEnvConfigLoadRemoteConfigEdgeCases(t *testing.T) {
 	}()
 
 	envConfig = &EnvConfig{}
-	err = loadRemoteConfig(envConfig)
-	if err != nil {
-		t.Errorf("loadRemoteConfig should handle invalid timeout gracefully: %v", err)
+	if err := loadRemoteConfig(envConfig); err == nil {
+		t.Error("loadRemoteConfig accepted ARGUS_REMOTE_TIMEOUT=not-a-duration")
 	}
 
 	// Test with valid values
@@ -619,15 +620,11 @@ func TestLoadEnvVarsErrorHandling(t *testing.T) {
 		}
 	}
 
-	// Test with invalid poll interval (should cause loadCoreConfig to fail)
-	if err := os.Setenv("ARGUS_POLL_INTERVAL", "not-a-duration"); err != nil {
-		t.Logf("Failed to set ARGUS_POLL_INTERVAL: %v", err)
-	}
-	defer func() {
-		if err := os.Unsetenv("ARGUS_POLL_INTERVAL"); err != nil {
-			t.Logf("Failed to unset ARGUS_POLL_INTERVAL: %v", err)
-		}
-	}()
+	// Test with invalid poll interval (should cause loadCoreConfig to fail).
+	// t.Setenv restores every variable this test sets; the previous mix of
+	// os.Setenv with a defer for one of the three leaked ARGUS_CACHE_TTL and
+	// ARGUS_MAX_WATCHED_FILES into every test that ran afterwards.
+	t.Setenv("ARGUS_POLL_INTERVAL", "not-a-duration")
 
 	envConfig := &EnvConfig{}
 	err := loadEnvVars(envConfig)
@@ -636,15 +633,9 @@ func TestLoadEnvVarsErrorHandling(t *testing.T) {
 	}
 
 	// Test with valid configuration
-	if err := os.Setenv("ARGUS_POLL_INTERVAL", "10s"); err != nil {
-		t.Logf("Failed to set ARGUS_POLL_INTERVAL: %v", err)
-	}
-	if err := os.Setenv("ARGUS_CACHE_TTL", "5s"); err != nil {
-		t.Logf("Failed to set ARGUS_CACHE_TTL: %v", err)
-	}
-	if err := os.Setenv("ARGUS_MAX_WATCHED_FILES", "50"); err != nil {
-		t.Logf("Failed to set ARGUS_MAX_WATCHED_FILES: %v", err)
-	}
+	t.Setenv("ARGUS_POLL_INTERVAL", "10s")
+	t.Setenv("ARGUS_CACHE_TTL", "5s")
+	t.Setenv("ARGUS_MAX_WATCHED_FILES", "50")
 
 	envConfig = &EnvConfig{}
 	err = loadEnvVars(envConfig)
@@ -772,6 +763,25 @@ audit:
 		if config == nil {
 			t.Fatal("LoadConfigMultiSource should return non-nil config")
 		}
+
+		// The values in the file must actually reach the Config. Asserting only
+		// non-nil is what let the file layer stay a stub that parsed the file
+		// and threw the result away.
+		if config.PollInterval != 15*time.Second {
+			t.Errorf("PollInterval = %v, want 15s from the file", config.PollInterval)
+		}
+		if config.CacheTTL != 7*time.Second {
+			t.Errorf("CacheTTL = %v, want 7s from the file", config.CacheTTL)
+		}
+		if config.MaxWatchedFiles != 75 {
+			t.Errorf("MaxWatchedFiles = %d, want 75 from the file", config.MaxWatchedFiles)
+		}
+		if !config.Audit.Enabled {
+			t.Error("Audit.Enabled = false, want true from the file")
+		}
+		if config.Audit.MinLevel != AuditWarn {
+			t.Errorf("Audit.MinLevel = %v, want AuditWarn from the file", config.Audit.MinLevel)
+		}
 	})
 
 	// Test 3: Invalid configuration file (malformed JSON)
@@ -786,14 +796,16 @@ audit:
 			t.Fatalf("Failed to create test config file: %v", err)
 		}
 
-		// Should gracefully fallback to defaults when file is invalid
+		// A file that is present but malformed is reported. Falling through to
+		// defaults in silence starts the application on settings nobody chose;
+		// a missing file is the only case that is legitimately optional.
 		config, err := LoadConfigMultiSource(configFile)
-		if err != nil {
-			t.Fatalf("LoadConfigMultiSource should gracefully handle invalid files: %v", err)
+		if err == nil {
+			t.Fatal("LoadConfigMultiSource accepted a malformed configuration file")
 		}
 
 		if config == nil {
-			t.Fatal("LoadConfigMultiSource should return defaults when file is invalid")
+			t.Fatal("LoadConfigMultiSource should still return usable defaults alongside the error")
 		}
 	})
 
@@ -818,14 +830,15 @@ audit:
 			t.Fatalf("Failed to create test config file: %v", err)
 		}
 
-		// Should fallback to defaults when format is unsupported
+		// An extension Argus cannot parse is an operator error: the caller named
+		// this file as their configuration and none of it would be applied.
 		config, err := LoadConfigMultiSource(configFile)
-		if err != nil {
-			t.Fatalf("LoadConfigMultiSource should handle unsupported formats gracefully: %v", err)
+		if err == nil {
+			t.Fatal("LoadConfigMultiSource accepted a configuration file in an unsupported format")
 		}
 
 		if config == nil {
-			t.Fatal("LoadConfigMultiSource should return defaults when format is unsupported")
+			t.Fatal("LoadConfigMultiSource should still return usable defaults alongside the error")
 		}
 	})
 

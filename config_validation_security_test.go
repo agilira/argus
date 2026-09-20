@@ -183,10 +183,13 @@ func TestValidationSecurity_MissingCoverage(t *testing.T) {
 		systemTarget := "/etc" // Common system directory on Unix-like systems
 		if _, statErr := os.Stat(systemTarget); statErr == nil {
 			if symlinkErr := os.Symlink(systemTarget, systemSymlink); symlinkErr == nil {
+				// The system-directory guard must fire. Logging instead of
+				// failing here is what let the guard sit dead: the previous
+				// code resolved the symlink, adopted the target as the path,
+				// and then compared the target with itself.
 				err = watcher.validateSymlinks(systemSymlink, "system_symlink")
-				// This should trigger the system directory check
 				if err == nil {
-					t.Logf("System directory check may not be triggered or system path not considered restricted")
+					t.Errorf("validateSymlinks accepted a symlink to %s", systemTarget)
 				}
 			}
 		}

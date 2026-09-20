@@ -16,7 +16,7 @@ import (
 )
 
 func TestBoreasLite_PathLengths(t *testing.T) {
-	// Test various path lengths to verify our 110-byte buffer works correctly
+	// Test various path lengths, including one past the inline buffer
 
 	// Test 1: Short path (like integration test that works)
 	tempDir1, err := os.MkdirTemp("", "test")
@@ -48,16 +48,11 @@ func TestBoreasLite_PathLengths(t *testing.T) {
 	mediumFile := filepath.Join(tempDir2, "file_with_somewhat_longer_name_for_testing.json")
 	t.Logf("Test 2 - Medium path: %s (len=%d)", mediumFile, len(mediumFile))
 
-	// Skip if path is too long for our buffer (especially on Windows)
-	if len(mediumFile) >= 110 {
-		t.Logf("Medium path length (%d) exceeds buffer capacity (110 bytes) - skipping", len(mediumFile))
-		t.Skip("Skipping medium path test due to platform path length limitations")
-		return
-	}
-
+	// No skip: events are resolved by WatchID, so delivery no longer depends on
+	// the path fitting the inline buffer. Skipping here is what hid the bug.
 	testPath(t, mediumFile, "medium path test")
 
-	// Test 3: Long path (close to 109 chars limit)
+	// Test 3: Long path (close to the inline buffer limit)
 	tempDir3, err := os.MkdirTemp("", "very_long_directory_name_for_buffer_testing")
 	if err != nil {
 		t.Fatal(err)
@@ -68,7 +63,7 @@ func TestBoreasLite_PathLengths(t *testing.T) {
 		}
 	}()
 
-	// Create a filename that gets us close to 109 characters
+	// Create a filename that gets us close to the inline buffer limit
 	baseLength := len(tempDir3) + 1     // +1 for path separator
 	remainingLength := 105 - baseLength // Leave some margin
 
@@ -82,13 +77,34 @@ func TestBoreasLite_PathLengths(t *testing.T) {
 	longFile := filepath.Join(tempDir3, longFileName)
 	t.Logf("Test 3 - Long path: %s (len=%d)", longFile, len(longFile))
 
-	if len(longFile) >= 110 {
-		t.Logf("Path length (%d) exceeds buffer capacity (110 bytes) - this is an expected limitation on macOS", len(longFile))
-		t.Skip("Skipping long path test due to platform path length limitations")
-		return
+	testPath(t, longFile, "long path test")
+
+	// Test 4: A path that deliberately exceeds the inline buffer. This is the
+	// case the suite used to skip; it must deliver events like any other.
+	tempDir4, err := os.MkdirTemp("", "path_longer_than_the_inline_event_buffer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := os.RemoveAll(tempDir4); err != nil {
+			t.Logf("Failed to remove tempDir4: %v", err)
+		}
+	}()
+
+	deep := tempDir4
+	for len(deep) < 140 {
+		deep = filepath.Join(deep, "nested_directory_segment")
+	}
+	if err := os.MkdirAll(deep, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	overflowFile := filepath.Join(deep, "config.json")
+	t.Logf("Test 4 - Overflow path: %s (len=%d)", overflowFile, len(overflowFile))
+	if len(overflowFile) <= maxInlinePathLen {
+		t.Fatalf("test setup: path is only %d bytes", len(overflowFile))
 	}
 
-	testPath(t, longFile, "long path test")
+	testPath(t, overflowFile, "overflow path test")
 }
 
 func testPath(t *testing.T, filePath, testName string) {

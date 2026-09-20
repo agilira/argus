@@ -17,8 +17,13 @@ package argus
 
 import (
 	"crypto/sha256"
+	"encoding/binary"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"hash"
 	"os"
+	"strconv"
 	"sync"
 	"time"
 
@@ -63,7 +68,18 @@ type AuditEvent struct {
 	ProcessID   int                    `json:"process_id"`
 	ProcessName string                 `json:"process_name"`
 	Context     map[string]interface{} `json:"context,omitempty"`
-	Checksum    string                 `json:"checksum"` // For tamper detection
+
+	// PrevChecksum is the Checksum of the record that precedes this one in the
+	// trail, empty for the first record of a chain. Storage backends that keep
+	// no ordering (JSONL) leave it empty on every record.
+	PrevChecksum string `json:"prev_checksum,omitempty"`
+
+	// Checksum links this record to the one before it:
+	// SHA-256 over PrevChecksum and the digest of this record's fields.
+	// Verifying a record proves its fields are intact; verifying that each
+	// record's PrevChecksum equals its predecessor's Checksum proves no record
+	// was removed or moved (see AuditLogger.VerifyAuditChain).
+	Checksum string `json:"checksum"`
 }
 
 // AuditConfig configures the audit system
@@ -114,6 +130,7 @@ type AuditLogger struct {
 	bufferMu    sync.Mutex
 	flushTicker *time.Ticker
 	stopCh      chan struct{}
+	closeOnce   sync.Once
 	processID   int
 	processName string
 }
@@ -201,8 +218,10 @@ func (al *AuditLogger) Log(level AuditLevel, event, component, filePath string, 
 		Context:     context,
 	}
 
-	// Generate tamper-detection checksum
-	auditEvent.Checksum = al.generateChecksum(auditEvent)
+	// Link the record to nothing yet: a storage backend that keeps an ordering
+	// re-links it to the real tail inside the same transaction as the insert,
+	// which is the only place the position is known and cannot race.
+	auditEvent.Checksum = chainChecksum("", recordDigest(auditEvent))
 
 	// Buffer the event
 	al.bufferMu.Lock()
@@ -223,38 +242,71 @@ func (al *AuditLogger) LogFileWatch(event, filePath string) {
 	al.Log(AuditInfo, event, "argus", filePath, nil, nil, nil)
 }
 
-// LogSecurityEvent logs security-related events
+// LogSecurityEvent logs security-related events.
+//
+// details is the human-readable description of what was rejected and why. It
+// is recorded under the "details" context key: previously the argument was
+// accepted and then dropped on the floor, so every security record in the
+// trail — "Rejected malicious file path", "Symlink points to dangerous
+// target" — reached storage without its explanation.
+//
+// The caller's context map is never modified.
 func (al *AuditLogger) LogSecurityEvent(event, details string, context map[string]interface{}) {
-	al.Log(AuditSecurity, event, "argus", "", nil, nil, context)
+	enriched := make(map[string]interface{}, len(context)+1)
+	for k, v := range context {
+		enriched[k] = v
+	}
+	if details != "" {
+		enriched["details"] = details
+	}
+	al.Log(AuditSecurity, event, "argus", "", nil, nil, enriched)
 }
 
-// Flush immediately writes all buffered events
+// Flush immediately writes all buffered events.
+// Like Log, GetStats and Query, Flush tolerates a nil logger so callers do not
+// have to guard every call site.
 func (al *AuditLogger) Flush() error {
+	if al == nil {
+		return nil
+	}
 	al.bufferMu.Lock()
 	defer al.bufferMu.Unlock()
 	return al.flushBufferUnsafe()
 }
 
-// Close gracefully shuts down the audit logger
+// Close gracefully shuts down the audit logger.
+//
+// Close is idempotent: the shutdown runs once and later calls return nil.
+// Watcher.Close and Watcher.Stop both reach this method, and a caller that
+// also closes the logger it passed in must not be punished with a panic on
+// "close of closed channel".
 func (al *AuditLogger) Close() error {
-	close(al.stopCh)
-	if al.flushTicker != nil {
-		al.flushTicker.Stop()
+	if al == nil {
+		return nil
 	}
 
-	// Final flush to ensure all events are persisted
-	if err := al.Flush(); err != nil {
-		return fmt.Errorf("failed to flush audit logger during close: %w", err)
-	}
-
-	// Close backend and release resources
-	if al.backend != nil {
-		if err := al.backend.Close(); err != nil {
-			return fmt.Errorf("failed to close audit backend: %w", err)
+	var err error
+	al.closeOnce.Do(func() {
+		close(al.stopCh)
+		if al.flushTicker != nil {
+			al.flushTicker.Stop()
 		}
-	}
 
-	return nil
+		// Final flush to ensure all events are persisted
+		if flushErr := al.Flush(); flushErr != nil {
+			err = fmt.Errorf("failed to flush audit logger during close: %w", flushErr)
+			return
+		}
+
+		// Close backend and release resources
+		if al.backend != nil {
+			if closeErr := al.backend.Close(); closeErr != nil {
+				err = fmt.Errorf("failed to close audit backend: %w", closeErr)
+			}
+		}
+	})
+
+	return err
 }
 
 // flushLoop runs the background flush process
@@ -289,19 +341,98 @@ func (al *AuditLogger) flushBufferUnsafe() error {
 	return nil
 }
 
-// generateChecksum creates a tamper-detection checksum using SHA-256
+// recordDigest hashes the content of one audit record.
+//
+// COVERAGE: every field a reader acts on is hashed. The earlier formula
+// covered only timestamp, event, component and the old/new values, which left
+// the three fields that carry the security meaning of a record unprotected:
+// FilePath (which file was touched), Level (how serious it was) and Context
+// (why it was rejected, and what path was rejected). A record could be
+// rewritten from /etc/shadow to /tmp/harmless.json, or downgraded from
+// SECURITY to INFO, and still verify (CWE-345).
+//
+// FIELD SEPARATION: each field is hashed as a length prefix followed by its
+// bytes, so no combination of values can be rearranged into the same digest.
+// A plain ":"-joined string lets "a:b" and "a" + ":b" collide.
+//
+// CANONICAL FORM: interface{} fields are hashed as their JSON encoding, which
+// is exactly what the backend stores and what the reader parses back.
+// encoding/json sorts map keys, so the form is stable, and a value that
+// survives the round trip hashes identically on both sides. Formatting them
+// with %v instead would have made the hash depend on Go's rendering of types
+// that JSON does not preserve.
+//
+// UTC NORMALISATION: the timestamp is hashed in UTC. It pairs with the
+// matching .UTC() at the SQL write site (audit_backend.go) so the hash
+// computed on read (any timezone string parsed → UTC) matches the hash
+// computed at write. Lexical SQL bounds comparison stays correct because both
+// sides are UTC RFC3339Nano.
+//
+// PrevChecksum is deliberately NOT part of the digest: the digest describes
+// the record, chainChecksum describes its place in the trail.
+func recordDigest(event AuditEvent) string {
+	h := sha256.New()
+
+	hashField(h, event.Timestamp.UTC().Format(time.RFC3339Nano))
+	hashField(h, event.Level.String())
+	hashField(h, event.Event)
+	hashField(h, event.Component)
+	hashField(h, event.FilePath)
+	hashField(h, event.ProcessName)
+	hashField(h, strconv.Itoa(event.ProcessID))
+	hashField(h, canonicalJSON(event.OldValue))
+	hashField(h, canonicalJSON(event.NewValue))
+	hashField(h, canonicalJSON(event.Context))
+
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+// chainChecksum links a record digest to the checksum of the record before it.
+//
+// This is what makes the trail a chain rather than a bag of independently
+// hashed rows. With per-record hashes alone, an attacker could DELETE the row
+// recording their access, or reorder rows to put an event outside the window
+// an investigator is looking at, and every surviving row would still verify —
+// the documentation called it a "SHA-chain" while nothing was chained.
+//
+// prev is empty for the first record of a chain.
+func chainChecksum(prev, digest string) string {
+	h := sha256.New()
+	hashField(h, prev)
+	hashField(h, digest)
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+// generateChecksum recomputes the stored checksum of an event, i.e. the link
+// its fields and its recorded position imply. A record whose fields were
+// altered, or whose PrevChecksum was rewritten, no longer matches.
 func (al *AuditLogger) generateChecksum(event AuditEvent) string {
-	// Cryptographic hash for tamper detection
-	// UTC-normalize so checksum is timezone-independent. Pairs with the
-	// matching .UTC() at the SQL write site (audit_backend.go) so the
-	// hash computed on read (any timezone string parsed → UTC) matches
-	// the hash computed at write. Lexical SQL bounds comparison stays
-	// correct because both sides are UTC RFC3339Nano.
-	data := fmt.Sprintf("%s:%s:%s:%v:%v",
-		event.Timestamp.UTC().Format(time.RFC3339Nano),
-		event.Event, event.Component, event.OldValue, event.NewValue)
-	hash := sha256.Sum256([]byte(data))
-	return fmt.Sprintf("%x", hash)
+	return chainChecksum(event.PrevChecksum, recordDigest(event))
+}
+
+// hashField feeds one field to the digest, length-prefixed so field boundaries
+// cannot be shifted.
+func hashField(h hash.Hash, value string) {
+	var lenBuf [8]byte
+	binary.BigEndian.PutUint64(lenBuf[:], uint64(len(value)))
+	_, _ = h.Write(lenBuf[:])
+	_, _ = h.Write([]byte(value))
+}
+
+// canonicalJSON renders a value the same way the backend stores it, so the
+// checksum computed at write time and the one recomputed after a read agree.
+//
+// A value that cannot be marshalled also cannot be stored; falling back to %v
+// keeps such a record hashable rather than silently hashing it as empty.
+func canonicalJSON(value interface{}) string {
+	if value == nil {
+		return ""
+	}
+	data, err := json.Marshal(value)
+	if err != nil {
+		return fmt.Sprintf("%v", value)
+	}
+	return string(data)
 }
 
 // Helper functions

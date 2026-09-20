@@ -35,11 +35,8 @@ func registerTestYAMLParser() {
 
 // Helper function for tests
 func listRegisteredParsers() []string {
-	parserMutex.RLock()
-	defer parserMutex.RUnlock()
-
 	var names []string
-	for _, parser := range customParsers {
+	for _, parser := range snapshotParsers() {
 		names = append(names, parser.Name())
 	}
 	return names
@@ -47,24 +44,17 @@ func listRegisteredParsers() []string {
 
 func TestParserPluginSystem(t *testing.T) {
 	// Save original state and ensure complete cleanup
-	parserMutex.Lock()
-	originalParsers := make([]ConfigParser, len(customParsers))
-	copy(originalParsers, customParsers)
-	customParsers = nil // Clear for clean test
-	parserMutex.Unlock()
+	originalParsers := snapshotParsers()
+	restoreParsers(nil) // Clear for clean test
 
 	// Restore original state when test completes
 	defer func() {
-		parserMutex.Lock()
-		customParsers = originalParsers
-		parserMutex.Unlock()
+		restoreParsers(originalParsers)
 	}()
 
 	t.Run("register_custom_parser", func(t *testing.T) {
 		// Ensure clean state for this subtest
-		parserMutex.Lock()
-		customParsers = nil
-		parserMutex.Unlock()
+		restoreParsers(nil)
 
 		// Register the test parser
 		registerTestYAMLParser()
@@ -82,9 +72,7 @@ func TestParserPluginSystem(t *testing.T) {
 
 	t.Run("custom_parser_takes_priority", func(t *testing.T) {
 		// Ensure clean state for this subtest
-		parserMutex.Lock()
-		customParsers = nil
-		parserMutex.Unlock()
+		restoreParsers(nil)
 
 		// Register the test parser
 		registerTestYAMLParser()
@@ -105,9 +93,7 @@ func TestParserPluginSystem(t *testing.T) {
 
 	t.Run("fallback_to_builtin_when_no_custom", func(t *testing.T) {
 		// Clear custom parsers for this subtest
-		parserMutex.Lock()
-		customParsers = nil
-		parserMutex.Unlock()
+		restoreParsers(nil)
 
 		yamlData := []byte("key: value\nport: 8080")
 
@@ -162,17 +148,12 @@ func TestParserPluginSystem(t *testing.T) {
 
 func TestParserPluginConcurrency(t *testing.T) {
 	// Save original state and ensure complete cleanup
-	parserMutex.Lock()
-	originalParsers := make([]ConfigParser, len(customParsers))
-	copy(originalParsers, customParsers)
-	customParsers = nil // Clear for clean test
-	parserMutex.Unlock()
+	originalParsers := snapshotParsers()
+	restoreParsers(nil) // Clear for clean test
 
 	// Restore original state when test completes
 	defer func() {
-		parserMutex.Lock()
-		customParsers = originalParsers
-		parserMutex.Unlock()
+		restoreParsers(originalParsers)
 	}()
 
 	// Test that parser registration is thread-safe

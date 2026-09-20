@@ -580,6 +580,15 @@ func containsRawData(errorMsg string, data []byte) bool {
 		return false
 	}
 
+	// A short input made only of letters and spaces is indistinguishable from
+	// the error template's own vocabulary: the input "invalid " appears in
+	// "invalid INI syntax at line 1" without anything having been echoed. Only
+	// inputs carrying a character an error message would not use on its own are
+	// worth checking at this length.
+	if len(dataStr) < 16 && !looksLikeDocumentText(dataStr) {
+		return false
+	}
+
 	// For short inputs (8-15 chars), only flag if the entire input appears in error
 	if len(dataStr) < 16 {
 		return strings.Contains(errorMsg, dataStr)
@@ -591,6 +600,18 @@ func containsRawData(errorMsg string, data []byte) bool {
 	}
 
 	return strings.Contains(errorMsg, dataStr)
+}
+
+// looksLikeDocumentText reports whether a short input carries a character that
+// an error template would not contain by itself, which makes a verbatim match
+// in the message evidence of an echo rather than a coincidence.
+func looksLikeDocumentText(s string) bool {
+	for _, r := range s {
+		if !unicode.IsLetter(r) && r != ' ' {
+			return true
+		}
+	}
+	return false
 }
 
 // TestFuzzBypassAnalysis manually tests the bypass found by fuzzer

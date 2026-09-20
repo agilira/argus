@@ -13,14 +13,33 @@
 package argus
 
 import (
+	stderrors "errors"
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	flashflags "github.com/agilira/flash-flags"
 	"github.com/agilira/go-errors"
 )
+
+// ErrHelpRequested is the sentinel returned by ConfigManager.Parse when the
+// arguments asked for help rather than for work.
+//
+// Callers detect it with IsHelpRequested. Comparing error strings does not
+// work: go-errors renders an *Error as "[CODE]: message", so the historical
+// `err.Error() == "help requested"` check in ParseArgsOrExit never matched and
+// --help exited 1 with an error on stderr. The sentinel carries its own error
+// code because go-errors matches errors.Is on the code alone — sharing
+// ErrCodeInvalidConfig would have made every configuration error look like a
+// help request.
+var ErrHelpRequested = errors.New(ErrCodeHelpRequested, "help requested")
+
+// IsHelpRequested reports whether err signals that help was requested.
+func IsHelpRequested(err error) bool {
+	return stderrors.Is(err, ErrHelpRequested)
+}
 
 // ConfigManager combines all configuration sources in a unified interface.
 // Integrates FlashFlags for command-line parsing with Argus file watching
@@ -32,6 +51,18 @@ import (
 //   - Multi-source configuration (flags, env vars, files, defaults)
 //   - Type-safe configuration access
 //   - Automatic environment variable mapping
+//
+// Configuration sources, highest precedence first:
+//
+//  1. Set          — an explicit override from the application
+//  2. flags        — a flag the command line or the environment actually set
+//  3. LoadConfigFile — values parsed from a configuration file
+//  4. flags        — the default declared when the flag was registered
+//  5. SetDefault   — a default for a key with no registered flag
+//
+// Layers 3 and 5 live in maps guarded by mu, because WatchConfigFile reloads
+// the file from the watcher's goroutine while the application reads values
+// from its own.
 type ConfigManager struct {
 	// FlashFlags for ultra-fast command-line parsing
 	flags *flashflags.FlagSet
@@ -44,8 +75,17 @@ type ConfigManager struct {
 	appDescription string
 	appVersion     string
 
+	// mu guards values, fileValues and defaults.
+	mu sync.RWMutex
+
 	// Configuration storage for explicit overrides
 	values map[string]interface{}
+
+	// Values parsed from the configuration file, if one was loaded
+	fileValues map[string]interface{}
+
+	// Fallbacks registered through SetDefault
+	defaults map[string]interface{}
 }
 
 // NewConfigManager creates a unified configuration manager with FlashFlags integration.
@@ -59,9 +99,10 @@ type ConfigManager struct {
 //	    StringFlag("port", "8080", "Server port")
 func NewConfigManager(appName string) *ConfigManager {
 	return &ConfigManager{
-		flags:   flashflags.New(appName),
-		appName: appName,
-		values:  make(map[string]interface{}),
+		flags:    flashflags.New(appName),
+		appName:  appName,
+		values:   make(map[string]interface{}),
+		defaults: make(map[string]interface{}),
 	}
 }
 
@@ -120,22 +161,25 @@ func (cm *ConfigManager) StringSliceFlag(name string, defaultValue []string, usa
 
 // Configuration Management Methods
 
-// Parse parses command-line arguments and binds them to configuration
+// Parse parses command-line arguments and binds them to configuration.
+//
+// Environment lookup is enabled before parsing, not after: FlashFlags reads the
+// environment from inside Parse, so a prefix installed afterwards arrives too
+// late and every APPNAME_* variable is ignored.
+//
+// --help and -h are left to FlashFlags, which only claims a spelling the
+// application has not registered itself. Intercepting those two strings here
+// made an application's own --help flag unreachable.
 func (cm *ConfigManager) Parse(args []string) error {
-	// Check for help flags first to prevent double output
-	for _, arg := range args {
-		if arg == "--help" || arg == "-h" {
-			return errors.New(ErrCodeInvalidConfig, "help requested")
-		}
-	}
+	cm.flags.SetEnvPrefix(strings.ToUpper(cm.appName))
 
-	// Parse command-line flags using FlashFlags directly
 	if err := cm.flags.Parse(args); err != nil {
+		// FlashFlags signals help with this exact message (see its Parse doc).
+		if err.Error() == "help requested" {
+			return ErrHelpRequested
+		}
 		return errors.Wrap(err, ErrCodeInvalidConfig, "failed to parse command-line flags")
 	}
-
-	// Load environment variables
-	cm.loadEnvironmentVariables()
 
 	return nil
 }
@@ -148,7 +192,7 @@ func (cm *ConfigManager) ParseArgs() error {
 // ParseArgsOrExit parses command-line arguments and exits gracefully on help/error
 func (cm *ConfigManager) ParseArgsOrExit() {
 	if err := cm.ParseArgs(); err != nil {
-		if err.Error() == "help requested" {
+		if IsHelpRequested(err) {
 			// Show clean, unified help and exit
 			cm.PrintUsage()
 			os.Exit(0)
@@ -163,89 +207,197 @@ func (cm *ConfigManager) ParseArgsOrExit() {
 
 // Configuration Access Methods - Type-Safe and Ultra-Fast
 
-// GetString retrieves a string configuration value
-func (cm *ConfigManager) GetString(key string) string {
-	// Check explicit overrides first
-	if val, exists := cm.values[key]; exists {
-		if str, ok := val.(string); ok {
-			return str
+// resolve returns the value for key from the highest-precedence source that
+// has one, together with whether the flag layer should be consulted for its
+// registered default. See the ConfigManager doc comment for the full order.
+//
+// fromFlag is true when a registered flag was actually set (command line or
+// environment); in that case the caller reads the typed value straight from
+// FlashFlags rather than converting an interface{}.
+func (cm *ConfigManager) resolve(key string) (value interface{}, fromFlag bool, found bool) {
+	cm.mu.RLock()
+	override, hasOverride := cm.values[key]
+	cm.mu.RUnlock()
+	if hasOverride {
+		return override, false, true
+	}
+
+	if cm.flags.Changed(key) {
+		return nil, true, true
+	}
+
+	cm.mu.RLock()
+	fileValues := cm.fileValues
+	cm.mu.RUnlock()
+	if fileValues != nil {
+		if fileValue, ok := lookupConfigValue(fileValues, key); ok {
+			return fileValue, false, true
 		}
 	}
 
-	// Use FlashFlags value
-	return cm.flags.GetString(key)
+	if cm.flags.Lookup(key) != nil {
+		return nil, true, true // registered flag: use its declared default
+	}
+
+	cm.mu.RLock()
+	fallback, hasFallback := cm.defaults[key]
+	cm.mu.RUnlock()
+	if hasFallback {
+		return fallback, false, true
+	}
+
+	return nil, false, false
+}
+
+// GetString retrieves a string configuration value
+func (cm *ConfigManager) GetString(key string) string {
+	value, fromFlag, found := cm.resolve(key)
+	if fromFlag || !found {
+		return cm.flags.GetString(key)
+	}
+	return convertToString(value)
 }
 
 // GetInt retrieves an integer configuration value
 func (cm *ConfigManager) GetInt(key string) int {
-	// Check explicit overrides first
-	if val, exists := cm.values[key]; exists {
-		if intVal, ok := val.(int); ok {
-			return intVal
-		}
+	value, fromFlag, found := cm.resolve(key)
+	if fromFlag || !found {
+		return cm.flags.GetInt(key)
 	}
-
-	// Use FlashFlags value
+	if converted, err := convertToInt(value); err == nil {
+		return converted
+	}
 	return cm.flags.GetInt(key)
 }
 
 // GetBool retrieves a boolean configuration value
 func (cm *ConfigManager) GetBool(key string) bool {
-	// Check explicit overrides first
-	if val, exists := cm.values[key]; exists {
-		if boolVal, ok := val.(bool); ok {
-			return boolVal
-		}
+	value, fromFlag, found := cm.resolve(key)
+	if fromFlag || !found {
+		return cm.flags.GetBool(key)
 	}
-
-	// Use FlashFlags value
+	if converted, err := convertToBool(value); err == nil {
+		return converted
+	}
 	return cm.flags.GetBool(key)
 }
 
 // GetDuration retrieves a duration configuration value
 func (cm *ConfigManager) GetDuration(key string) time.Duration {
-	// Check explicit overrides first
-	if val, exists := cm.values[key]; exists {
-		if durVal, ok := val.(time.Duration); ok {
-			return durVal
-		}
+	value, fromFlag, found := cm.resolve(key)
+	if fromFlag || !found {
+		return cm.flags.GetDuration(key)
 	}
-
-	// Use FlashFlags value
+	if converted, err := convertToDuration(value); err == nil {
+		return converted
+	}
 	return cm.flags.GetDuration(key)
+}
+
+// GetFloat64 retrieves a float64 configuration value
+func (cm *ConfigManager) GetFloat64(key string) float64 {
+	value, fromFlag, found := cm.resolve(key)
+	if fromFlag || !found {
+		return cm.flags.GetFloat64(key)
+	}
+	if converted, err := convertToFloat64(value); err == nil {
+		return converted
+	}
+	return cm.flags.GetFloat64(key)
 }
 
 // GetStringSlice retrieves a string slice configuration value
 func (cm *ConfigManager) GetStringSlice(key string) []string {
-	// Check explicit overrides first
-	if val, exists := cm.values[key]; exists {
-		if sliceVal, ok := val.([]string); ok {
-			return sliceVal
-		}
+	value, fromFlag, found := cm.resolve(key)
+	if fromFlag || !found {
+		return cm.flags.GetStringSlice(key)
 	}
 
-	// Use FlashFlags value
-	return cm.flags.GetStringSlice(key)
+	switch typed := value.(type) {
+	case []string:
+		return typed
+	case []interface{}:
+		result := make([]string, 0, len(typed))
+		for _, item := range typed {
+			result = append(result, convertToString(item))
+		}
+		return result
+	case string:
+		if typed == "" {
+			return nil
+		}
+		parts := strings.Split(typed, ",")
+		for i := range parts {
+			parts[i] = strings.TrimSpace(parts[i])
+		}
+		return parts
+	default:
+		return cm.flags.GetStringSlice(key)
+	}
 }
 
 // Set explicitly sets a configuration value (highest precedence)
 func (cm *ConfigManager) Set(key string, value interface{}) {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
 	cm.values[key] = value
 }
 
-// SetDefault sets a default configuration value (lowest precedence)
+// SetDefault registers a fallback for a key with no registered flag (lowest
+// precedence).
+//
+// A registered flag always carries its own default, which is more specific
+// than this one and therefore wins; SetDefault exists for keys that only ever
+// come from a configuration file.
 func (cm *ConfigManager) SetDefault(key string, value interface{}) {
-	// FlashFlags handles defaults internally
-	// This method exists for API compatibility
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	cm.defaults[key] = value
 }
 
 // Configuration File Support
 
-// LoadConfigFile loads configuration from a file
+// LoadConfigFile loads configuration from a file.
+//
+// The format is detected from the extension and the whole set of supported
+// formats applies (JSON, YAML, TOML, HCL, INI, Properties). Values land in the
+// configuration-file layer: below anything the command line or the environment
+// set, above the defaults declared with the flags. A key is matched flat first
+// and then as a nested path, so both "server.port" as a literal key and a
+// nested server: { port: } resolve.
+//
+// A file that does not exist, cannot be read, or does not parse is an error.
+// The previous implementation returned nil without reading anything, which
+// made WatchConfigFile report success while reloading nothing.
 func (cm *ConfigManager) LoadConfigFile(path string) error {
-	// This would integrate with the FlashFlags config file loading
-	// For now, we delegate to the underlying flag system
-	// TODO: Implement direct JSON/YAML/TOML loading
+	if err := ValidateSecurePath(path); err != nil {
+		return errors.Wrap(err, ErrCodeInvalidConfig, "unsafe configuration file path").
+			WithContext("path", path)
+	}
+
+	format := DetectFormat(path)
+	if format == FormatUnknown {
+		return errors.New(ErrCodeInvalidConfig, "unsupported configuration file format").
+			WithContext("path", path)
+	}
+
+	// #nosec G304 -- path is validated by ValidateSecurePath above
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return errors.Wrap(err, ErrCodeFileNotFound, "failed to read configuration file").
+			WithContext("path", path)
+	}
+
+	parsed, err := ParseConfig(data, format)
+	if err != nil {
+		return errors.Wrap(err, ErrCodeInvalidConfig, "failed to parse "+format.String()+" configuration file").
+			WithContext("path", path)
+	}
+
+	cm.mu.Lock()
+	cm.fileValues = parsed
+	cm.mu.Unlock()
+
 	return nil
 }
 
@@ -323,13 +475,6 @@ func (cm *ConfigManager) GetBoundFlags() map[string]string {
 // flagNameToConfigKey converts a flag name to a configuration key
 func (cm *ConfigManager) flagNameToConfigKey(flagName string) string {
 	return strings.ReplaceAll(flagName, "-", ".")
-}
-
-// loadEnvironmentVariables loads values from environment variables
-func (cm *ConfigManager) loadEnvironmentVariables() {
-	// FlashFlags handles environment variables automatically
-	// Set the environment prefix
-	cm.flags.SetEnvPrefix(strings.ToUpper(cm.appName))
 }
 
 // FlagToEnvKey converts a flag name to an environment variable key (exported version)

@@ -8,6 +8,16 @@
 # Test binary, built with `go test -c`
 *.test
 
+# Example binaries: each example module builds to its own directory name, so
+# `go build ./...` inside examples/ drops an untracked binary next to the source.
+examples/cli/cli
+examples/config_binding/config_binding_example
+examples/config_validation/config_validation
+examples/error_handling/error_handling_example
+examples/multi_source_config/multi_source_config
+examples/optimization_strategies/optimization_strategies_demo
+examples/otel_integration/argus-otel-example
+
 # Output of the go coverage tool, specifically when used with LiteIDE
 *.out
 
