@@ -67,7 +67,11 @@ func TestBoreasLiteSmallBatchStrategy(t *testing.T) {
 
 	time.Sleep(100 * time.Millisecond) // Let processing complete
 
-	if processedCount == 0 {
+	processMutex.Lock()
+	count := processedCount
+	processMutex.Unlock()
+
+	if count == 0 {
 		t.Errorf("No events were processed in small batch strategy")
 	}
 
@@ -125,7 +129,11 @@ func TestBoreasLiteLargeBatchStrategy(t *testing.T) {
 
 	time.Sleep(100 * time.Millisecond) // Let processing complete
 
-	if processedCount == 0 {
+	processMutex.Lock()
+	count := processedCount
+	processMutex.Unlock()
+
+	if count == 0 {
 		t.Errorf("No events were processed in large batch strategy")
 	}
 
@@ -177,7 +185,11 @@ func TestBoreasLiteSmallBatchProcessor(t *testing.T) {
 	// Stop the processor
 	boreas.Stop()
 
-	if processedCount == 0 {
+	processMutex.Lock()
+	count := processedCount
+	processMutex.Unlock()
+
+	if count == 0 {
 		t.Errorf("No events were processed by small batch processor")
 	}
 
@@ -232,7 +244,11 @@ func TestBoreasLiteLargeBatchProcessor(t *testing.T) {
 	// Stop the processor
 	boreas.Stop()
 
-	if processedCount == 0 {
+	processMutex.Lock()
+	count := processedCount
+	processMutex.Unlock()
+
+	if count == 0 {
 		t.Errorf("No events were processed by large batch processor")
 	}
 
@@ -281,11 +297,15 @@ func TestBoreasLiteLightStrategy(t *testing.T) {
 
 	time.Sleep(100 * time.Millisecond)
 
-	if processedCount == 0 {
+	processMutex.Lock()
+	count := processedCount
+	processMutex.Unlock()
+
+	if count == 0 {
 		t.Errorf("No events were processed in light strategy")
 	}
-	if processedCount != len(events) {
-		t.Errorf("Expected %d events processed, got %d", len(events), processedCount)
+	if count != len(events) {
+		t.Errorf("Expected %d events processed, got %d", len(events), count)
 	}
 
 	stats := boreas.Stats()

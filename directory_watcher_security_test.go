@@ -183,11 +183,12 @@ func TestDirectoryWatcher_Security_SymlinkEscape(t *testing.T) {
 			secretAccessed = true
 		}
 	}
+	accessed := fmt.Sprintf("%v", accessedPaths) // formatted under the lock
 	mu.Unlock()
 
 	if secretAccessed {
 		t.Errorf("SECURITY VULNERABILITY: Symlink escape allowed access to sensitive directory")
-		t.Logf("Accessed paths: %v", accessedPaths)
+		t.Logf("Accessed paths: %s", accessed)
 	}
 }
 

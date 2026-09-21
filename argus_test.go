@@ -380,11 +380,17 @@ func TestWatcherMultipleFiles(t *testing.T) {
 
 	time.Sleep(200 * time.Millisecond)
 
-	// Both files should have been detected
-	if changes[file1] == 0 {
+	// Both files should have been detected. The callback runs on the event
+	// processor goroutine, so the map is read under the same mutex it is
+	// written under.
+	changesMutex.Lock()
+	count1, count2 := changes[file1], changes[file2]
+	changesMutex.Unlock()
+
+	if count1 == 0 {
 		t.Errorf("No changes detected for file1")
 	}
-	if changes[file2] == 0 {
+	if count2 == 0 {
 		t.Errorf("No changes detected for file2")
 	}
 }

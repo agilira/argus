@@ -532,7 +532,7 @@ func TestBoreasLiteRunLargeBatchProcessor(t *testing.T) {
 	bl := NewBoreasLite(64, OptimizationLargeBatch, func(event *FileChangeEvent) {})
 
 	// Start processor
-	go bl.runLargeBatchProcessor()
+	go bl.RunProcessor()
 
 	// Wait a bit for processor to start
 	time.Sleep(10 * time.Millisecond)
