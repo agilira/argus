@@ -1,0 +1,62 @@
+argus v1.7.1 — the CI matrix
+============================
+
+Released: 2026-09-21
+Commit:   (see git log)
+Authors:  Antonio Giordano
+
+STATUS: PATCH — tests and one internal seam. No API change, no behaviour
+change for any configuration a real application would write.
+
+
+WHY THIS RELEASE EXISTS
+-----------------------
+
+v1.7.0 was tagged from a commit whose test suite fails on macOS and on
+Windows. The library it publishes is the same one released here; what was
+broken is `go test` on those two platforms, which anybody vendoring the tag
+and running its suite would have hit.
+
+The failures were in the tests, not in what they test, and both were the kind
+that only a matrix finds.
+
+
+FIXED
+-----
+
+1. macOS, and any loaded runner: TestRemoteConfig_RetryUsesExponentialBackoff
+   compared the two measured retry gaps with each other, so an inflated first
+   gap broke a ratio that the second one had honoured exactly — 54ms then
+   80ms, where 80ms is precisely RetryDelay * 2.
+
+   Each gap is now measured against the documented schedule instead. A slow
+   machine only makes a gap longer, so a lower bound survives a loaded runner;
+   linear backoff still fails it, which was checked by making it linear.
+
+2. Windows, clock granularity: the four tests that exercise the remote
+   interval set it to one nanosecond, and Windows' clock is coarse enough that
+   time.Since returned zero — so the remote never fell due and was read once,
+   at Start.
+
+   The reloader now takes its clock from a field, as the document store takes
+   its two read seams, and those tests move it forward an hour rather than
+   sleeping. The field is unexported and defaults to time.Now; nothing about
+   a running configuration changes.
+
+3. Windows, file names: a file called "..." cannot be created there, the name
+   being read as a path. That case is skipped with its reason. The name
+   derivation it guards is the same on every platform and FuzzDocumentName
+   covers it everywhere.
+
+
+QUALITY GATES
+-------------
+
+  gofmt -l .              PASS (clean)
+  go vet ./...            PASS
+  staticcheck ./...       PASS (0 issues)
+  errcheck ./...          PASS (0 issues)
+  gosec -conf .gosec.json PASS (0 issues)
+  go test ./...           PASS
+  go test -race ./...     PASS
+  CI matrix               PASS on ubuntu, macOS and Windows
