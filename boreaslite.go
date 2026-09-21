@@ -8,6 +8,7 @@ package argus
 
 import (
 	"runtime"
+	"sync"
 	"sync/atomic"
 	"time"
 	"unsafe"
@@ -136,9 +137,19 @@ type BoreasLite struct {
 	// Control
 	running atomic.Bool
 
+	// Consumer parking: when the consumer has nothing left to do it blocks on
+	// wake instead of spinning. Producers signal it only when parked is set,
+	// so the hot path pays one atomic load. stopCh releases a parked consumer
+	// on Stop.
+	parked   atomic.Bool
+	wake     chan struct{}
+	stopCh   chan struct{}
+	stopOnce sync.Once
+
 	// Ultra-simple stats (just counters)
 	processed atomic.Int64
 	dropped   atomic.Int64
+	idleSpins atomic.Int64 // consumer iterations that found no work
 }
 
 // NewBoreasLite creates a new ultra-fast ring buffer for file events
@@ -180,6 +191,8 @@ func NewBoreasLite(capacity int64, strategy OptimizationStrategy, processor func
 		processor:       processor,
 		strategy:        strategy,
 		batchSize:       batchSize,
+		wake:            make(chan struct{}, 1),
+		stopCh:          make(chan struct{}),
 	}
 
 	// Initialize availability markers
@@ -247,6 +260,14 @@ func (b *BoreasLite) WriteFileEvent(event *FileChangeEvent) bool {
 
 	// Mark available for reading
 	b.availableBuffer[sequence&b.mask].Store(sequence)
+
+	// Wake the consumer if it parked. The load is ordered after the
+	// availability store, so a consumer that parks concurrently either
+	// observes this event in its pre-park re-check or is signalled here.
+	// Kept inline: the common case is a running consumer and one load.
+	if b.parked.Load() {
+		b.signalConsumer()
+	}
 
 	return true
 }
@@ -512,191 +533,155 @@ func (b *BoreasLite) processAutoOptimized(current, writerPos, bufferOccupancy in
 	}
 }
 
-// RunProcessor runs the consumer loop with strategy-optimized behavior
+// parkBackstop bounds how long a parked consumer waits without being
+// signalled. The signalling protocol is not supposed to lose a wakeup; this is
+// the insurance, and it costs five wakeups a second.
+const parkBackstop = 200 * time.Millisecond
+
+// spinPolicy is how long a consumer stays hot before it parks.
 //
-// ═══════════════════════════════════════════════════════════════════════════════
-// ENGINEERING NOTE: Hybrid Spinning Strategy
-// ═══════════════════════════════════════════════════════════════════════════════
-// The spinning pattern implements a 3-phase approach inspired by LMAX Disruptor:
+// ═══════════════════════════════════════════════════════════════════════════
+// ENGINEERING NOTE: Spin, Yield, Park
+// ═══════════════════════════════════════════════════════════════════════════
+// The consumer runs three phases, in the spirit of the LMAX Disruptor:
 //
-// PHASE 1 - HOT SPINNING (0-5000 iterations):
+// PHASE 1 - HOT SPINNING (0..spinLimit):
 //
-//	Pure busy-wait for ultra-low latency. When events arrive frequently,
-//	the processor responds in <100 nanoseconds. This is critical for
-//	real-time config updates where users expect immediate effect.
+//	Pure busy-wait. An event arriving here is picked up in well under a
+//	microsecond, which is what makes the ring worth having.
 //
-// PHASE 2 - PROGRESSIVE YIELDING (5000-10000 iterations):
+// PHASE 2 - PROGRESSIVE YIELDING (spinLimit..yieldLimit):
 //
-//	Call runtime.Gosched() periodically to let other goroutines run.
-//	This prevents monopolizing the CPU while maintaining responsiveness.
-//	The modulo pattern (spins&3 == 0) spreads yields evenly.
+//	runtime.Gosched() every yieldMask+1 iterations, so a busy machine can
+//	run something else while we stay warm.
 //
-// PHASE 3 - SLEEP (10000+ iterations):
+// PHASE 3 - PARK:
 //
-//	Brief sleep (50-500µs depending on strategy) to release CPU entirely.
-//	Essential for cloud deployments where CPU is metered, and for laptop
-//	battery life. The sleep duration is tuned per strategy.
+//	Block on a channel until a producer signals, rather than sleeping and
+//	replaying the spin budget. An idle watcher costs nothing measurable:
+//	the consumer is off the run queue until an event arrives.
 //
-// Why not just use channels? Channels have ~50ns overhead per operation
-// due to internal locking. Our approach achieves <25ns latency for the
-// common case (events arriving during hot spin phase) while being
-// equally efficient for the idle case (sleep phase).
-//
-// The strategy-specific processors (Single/SmallBatch/LargeBatch) tune
-// these thresholds based on expected workload patterns.
-// ═══════════════════════════════════════════════════════════════════════════════
-func (b *BoreasLite) RunProcessor() {
-	// Strategy-specific spinning behavior
-	switch b.strategy {
+// The producer pays one atomic load to find out whether anyone is parked, so
+// the hot path is unchanged.
+// ═══════════════════════════════════════════════════════════════════════════
+type spinPolicy struct {
+	spinLimit  int // iterations of pure busy-wait
+	yieldLimit int // iterations before parking
+	yieldMask  int // yield when spins&yieldMask == 0
+}
+
+// spinPolicyFor returns the phase thresholds for a strategy. Light never
+// spins: it is the strategy for configuration files that change twice a year.
+func spinPolicyFor(strategy OptimizationStrategy) spinPolicy {
+	switch strategy {
 	case OptimizationSingleEvent:
-		b.runSingleEventProcessor()
+		return spinPolicy{spinLimit: 5000, yieldLimit: 10000, yieldMask: 3}
 	case OptimizationSmallBatch:
-		b.runSmallBatchProcessor()
+		return spinPolicy{spinLimit: 2000, yieldLimit: 6000, yieldMask: 3}
 	case OptimizationLargeBatch:
-		b.runLargeBatchProcessor()
+		return spinPolicy{spinLimit: 1000, yieldLimit: 4000, yieldMask: 15}
 	case OptimizationLight:
-		b.runLightProcessor()
+		return spinPolicy{}
 	default: // OptimizationAuto
-		b.runAutoProcessor()
+		return spinPolicy{spinLimit: 2000, yieldLimit: 8000, yieldMask: 7}
 	}
 }
 
-// runSingleEventProcessor - Ultra-aggressive spinning for 1-2 files
-func (b *BoreasLite) runSingleEventProcessor() {
-	spins := 0
-	for b.running.Load() {
-		processed := b.ProcessBatch()
-		if processed > 0 {
-			spins = 0
-			continue // Hot loop for immediate processing
-		}
+// RunProcessor runs the consumer loop until Stop. It spins while events keep
+// arriving and parks when they stop; see spinPolicy for the phases.
+func (b *BoreasLite) RunProcessor() {
+	policy := spinPolicyFor(b.strategy)
 
-		spins++
-		if spins < 5000 { // Aggressive spinning for ultra-low latency
-			continue
-		} else if spins < 10000 { // Progressive yielding phase
-			if spins&3 == 0 { // Yield every 4 iterations
-				runtime.Gosched()
-			}
-		} else {
-			// Sleep phase for battery and cloud efficiency
-			time.Sleep(100 * time.Microsecond) // Brief sleep to release CPU
-			spins = 0                          // Reset after sleep
-		}
-	}
+	timer := time.NewTimer(parkBackstop)
+	defer timer.Stop()
 
-	// Final drain
-	for b.ProcessBatch() > 0 {
-	}
-}
+	spins := 0   // phase counter, reset when work arrives
+	pending := 0 // idle iterations not yet reported in idle_spins
 
-// runSmallBatchProcessor - Balanced spinning for 3-20 files
-func (b *BoreasLite) runSmallBatchProcessor() {
-	spins := 0
-	for b.running.Load() {
-		processed := b.ProcessBatch()
-		if processed > 0 {
-			spins = 0
-			if processed >= int(b.batchSize/2) {
-				continue // Continue for burst processing
-			}
-		} else {
-			spins++
-			if spins < 2000 {
-				continue
-			} else if spins < 6000 {
-				if spins&3 == 0 { // Yield every 4 iterations
-					runtime.Gosched()
-				}
-			} else {
-				// Sleep phase for better CPU efficiency
-				time.Sleep(200 * time.Microsecond) // Slightly longer sleep than SingleEvent
-				spins = 0
-			}
-		}
-	}
-
-	// Final drain
-	for b.ProcessBatch() > 0 {
-	}
-}
-
-// runLargeBatchProcessor - Optimized for high throughput 20+ files
-func (b *BoreasLite) runLargeBatchProcessor() {
-	spins := 0
-	for b.running.Load() {
-		processed := b.ProcessBatch()
-		if processed > 0 {
-			spins = 0
-			if processed >= int(b.batchSize) {
-				continue // Hot loop for maximum throughput
-			}
-		} else {
-			spins++
-			if spins < 1000 {
-				continue
-			} else if spins < 4000 {
-				if spins&15 == 0 { // Yield every 16 iterations
-					runtime.Gosched()
-				}
-			} else {
-				// Sleep phase for throughput optimization with CPU efficiency
-				time.Sleep(500 * time.Microsecond) // Longer sleep for batch processing
-				spins = 0
-			}
-		}
-	}
-
-	// Final drain
-	for b.ProcessBatch() > 0 {
-	}
-}
-
-// runLightProcessor - Sleep-only processing for rarely-changing files.
-// Zero spin-wait, near-zero CPU when idle. Ideal for config watchers
-// where sub-millisecond latency is irrelevant. Worst-case latency: 1ms.
-func (b *BoreasLite) runLightProcessor() {
 	for b.running.Load() {
 		if b.ProcessBatch() > 0 {
-			continue // drain any queued events before sleeping
-		}
-		time.Sleep(1 * time.Millisecond)
-	}
-
-	// Final drain
-	for b.ProcessBatch() > 0 {
-	}
-}
-
-// runAutoProcessor - Dynamic behavior based on runtime conditions
-func (b *BoreasLite) runAutoProcessor() {
-	spins := 0
-	for b.running.Load() {
-		processed := b.ProcessBatch()
-		if processed > 0 {
+			if pending > 0 {
+				b.idleSpins.Add(int64(pending))
+				pending = 0
+			}
 			spins = 0
 			continue
 		}
 
 		spins++
-		if spins < 2000 {
-			continue
-		} else if spins < 8000 {
-			if spins&7 == 0 { // Yield every 8 iterations
-				runtime.Gosched()
+		pending++
+
+		if spins < policy.spinLimit {
+			continue // phase 1: hot
+		}
+		if spins < policy.yieldLimit {
+			if spins&policy.yieldMask == 0 {
+				runtime.Gosched() // phase 2: yielding
 			}
+			continue
+		}
+
+		b.idleSpins.Add(int64(pending))
+		pending = 0
+
+		if b.park(timer) {
+			spins = 0 // a producer signalled: go hot again
 		} else {
-			// HYBRID APPROACH: Sleep for CPU efficiency
-			time.Sleep(50 * time.Microsecond) // Brief sleep for battery/cloud efficiency
-			spins = 0                         // Reset counter after sleep
+			// Backstop expiry with nothing to show for it. Re-check and
+			// park again rather than replay the whole spin budget.
+			spins = policy.yieldLimit
 		}
 	}
 
-	// Final drain (with timeout to prevent infinite loops)
-	drainAttempts := 0
-	for b.ProcessBatch() > 0 && drainAttempts < 1000 {
-		drainAttempts++
+	// Final drain: producers are refused once running is false, so this
+	// terminates.
+	for b.ProcessBatch() > 0 {
 	}
+}
+
+// park blocks until a producer signals an event, Stop is called, or the
+// backstop expires. It reports whether a producer signalled.
+func (b *BoreasLite) park(timer *time.Timer) bool {
+	b.parked.Store(true)
+
+	// A producer that published before parked was set will not signal us, so
+	// look once more before committing to the block. The atomics are
+	// sequentially consistent, which is what makes this check sufficient.
+	if b.hasWork() || !b.running.Load() {
+		b.parked.Store(false)
+		return true
+	}
+
+	timer.Stop()
+	timer.Reset(parkBackstop)
+
+	select {
+	case <-b.wake:
+		b.parked.Store(false)
+		return true
+	case <-b.stopCh:
+		b.parked.Store(false)
+		return true
+	case <-timer.C:
+		b.parked.Store(false)
+		return false
+	}
+}
+
+// signalConsumer wakes a parked consumer. Producers call it after publishing,
+// guarded by the parked flag, so this is off the hot path.
+//
+//go:noinline
+func (b *BoreasLite) signalConsumer() {
+	select {
+	case b.wake <- struct{}{}:
+	default: // a wakeup is already pending; one is enough
+	}
+}
+
+// hasWork reports whether the writer is ahead of the reader.
+func (b *BoreasLite) hasWork() bool {
+	return b.writerCursor.Load() > b.readerCursor.Load()
 }
 
 // Stop stops the processor immediately without graceful shutdown.
@@ -704,6 +689,7 @@ func (b *BoreasLite) runAutoProcessor() {
 // Sets the running flag to false, causing all processor loops to exit.
 func (b *BoreasLite) Stop() {
 	b.running.Store(false)
+	b.stopOnce.Do(func() { close(b.stopCh) })
 }
 
 // Stats returns minimal statistics for monitoring ring buffer performance.
@@ -728,6 +714,7 @@ func (b *BoreasLite) Stats() map[string]int64 {
 		"items_buffered":  writerPos - readerPos,
 		"items_processed": b.processed.Load(),
 		"items_dropped":   b.dropped.Load(),
+		"idle_spins":      b.idleSpins.Load(),
 		"running":         boolToInt64(b.running.Load()),
 	}
 }

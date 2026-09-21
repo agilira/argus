@@ -73,9 +73,10 @@ export ARGUS_MAX_WATCHED_FILES=500    # Monitor up to 500 files
 - `single` or `singleevent` - Ultra-low latency for 1-2 files
 - `small` or `smallbatch` - Balanced performance for 3-20 files  
 - `large` or `largebatch` - High throughput for 20+ files
-- `light` - Sleep-only processing, zero spin-wait. Near-zero CPU when idle, up
-  to 1ms of latency per event. The right choice for configuration files that
-  change every few minutes or hours.
+- `light` - No spin-wait at all: the consumer parks as soon as it runs out of
+  events. The right choice for configuration files that change every few
+  minutes or hours. Every strategy is idle-free now; `light` simply skips the
+  hot-spin window the others keep for sub-microsecond pickup.
 
 **Examples:**
 ```bash
