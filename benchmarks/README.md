@@ -4,54 +4,54 @@ This directory contains isolated performance benchmarks for the BoreasLite ring 
 
 ## Benchmark Results
 
-All benchmarks were executed on AMD Ryzen 5 7520U.
+All benchmarks were executed on an 8-core Linux box, Go 1.25.
 
 ### Single Event Processing (Optimized Path)
 ```
-BenchmarkBoreasLite_SingleEvent-8    47011258    25.63 ns/op    39.02 Mops/sec    0 B/op    0 allocs/op
+BenchmarkBoreasLite_SingleEvent-8    48439191    24.40 ns/op    40.98 Mops/sec    0 B/op    0 allocs/op
 ```
-- **Latency**: 25.63 nanoseconds per operation
-- **Throughput**: 39.02 million operations per second
+- **Latency**: 24.40 nanoseconds to write and process one event
+- **Throughput**: 40.98 million operations per second
 - **Memory**: Zero allocations in hot path
 
 ### Write Operations
 ```
-BenchmarkBoreasLite_WriteFileEvent-8    67764067    53.20 ns/op    18.80 Mops/sec    0 B/op    0 allocs/op
+BenchmarkBoreasLite_WriteFileEvent-8    98511256    12.59 ns/op    79.40 Mops/sec    0 B/op    0 allocs/op
 ```
-- **Latency**: 53.20 nanoseconds per operation
-- **Throughput**: 18.80 million operations per second
+- **Latency**: 12.59 nanoseconds per write
+- **Throughput**: 79.40 million operations per second
 - **Memory**: Zero allocations
 
 ### Multi-Producer Single Consumer (MPSC)
 ```
-BenchmarkBoreasLite_MPSC-8    31231618    34.77 ns/op    28.76 Mops/sec    0 B/op    0 allocs/op
+BenchmarkBoreasLite_MPSC-8    72480540    16.32 ns/op    61.28 Mops/sec    0 B/op    0 allocs/op
 ```
-- **Latency**: 34.77 nanoseconds per operation under concurrent load
-- **Throughput**: 28.76 million operations per second
+- **Latency**: 16.32 nanoseconds per operation under concurrent load
+- **Throughput**: 61.28 million operations per second
 - **Scalability**: Performance maintained across multiple producers
 
 ### Comparison with Go Channels
 
 #### BoreasLite
 ```
-BenchmarkBoreasLite_vsChannels/BoreasLite-8    23317405    45.72 ns/op    21.87 Mops/sec    0 B/op    0 allocs/op
+BenchmarkBoreasLite_vsChannels/BoreasLite-8    95362186    12.72 ns/op    78.60 Mops/sec    0 B/op    0 allocs/op
 ```
 
 #### Go Channels
 ```
-BenchmarkBoreasLite_vsChannels/GoChannels-8    18621222    61.43 ns/op    16.28 Mops/sec    0 B/op    0 allocs/op
+BenchmarkBoreasLite_vsChannels/GoChannels-8    29178723    40.74 ns/op    24.55 Mops/sec    0 B/op    0 allocs/op
 ```
 
 #### Performance Delta
-- **BoreasLite**: 21.87 million ops/sec
-- **Go Channels**: 16.28 million ops/sec
-- **Improvement**: 34.3% faster than native Go channels
+- **BoreasLite**: 78.60 million ops/sec
+- **Go Channels**: 24.55 million ops/sec
+- **Improvement**: 3.2x the throughput of a buffered Go channel
 
 ### High Throughput Sustained Load
 ```
-BenchmarkBoreasLite_HighThroughput-8    27012850    53.88 ns/op    18.56 Mops/sec    0 B/op    0 allocs/op
+BenchmarkBoreasLite_HighThroughput-8    19571341    61.41 ns/op    16.28 Mops/sec    0 B/op    0 allocs/op
 ```
-- **Sustained throughput**: 18.56 million operations per second
+- **Sustained throughput**: 16.28 million operations per second
 - **Buffer size**: 8192 events
 - **Strategy**: Large batch optimization
 
@@ -64,13 +64,18 @@ BenchmarkBoreasLite_HighThroughput-8    27012850    53.88 ns/op    18.56 Mops/se
 - **Event Size**: 128 bytes (2 cache lines)
 
 ### Optimization Strategies
-1. **SingleEvent**: Ultra-low latency for 1-2 files (25ns)
-2. **SmallBatch**: Balanced performance for 3-20 files
-3. **LargeBatch**: High throughput for 20+ files with 4x unrolling
+1. **SingleEvent**: batch of 1, longest hot-spin window, for 1-2 files
+2. **SmallBatch**: batch of 4, for 3-20 files
+3. **LargeBatch**: batch of 16 with 4x unrolling, for 20+ files
+4. **Light**: batch of 1, no spinning at all, for files that change rarely
+
+Every strategy writes and processes an event in ~24 ns while events are
+flowing, and parks when they stop; the first event after an idle period pays a
+~7 us wakeup.
 
 ### Memory Characteristics
 - **Zero allocations** in all hot paths
-- **Fixed memory footprint**: 8KB + (128 bytes × buffer_size)
+- **Fixed memory footprint**: 136 bytes × buffer_size (the event slot plus its availability marker)
 - **Cache efficiency**: Power-of-2 ring buffer with atomic sequence numbers
 
 ## Running Benchmarks

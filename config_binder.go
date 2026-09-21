@@ -45,8 +45,8 @@ const (
 //
 // Our approach uses unsafe.Pointer with a compile-time type discriminator (bindKind).
 // This gives us:
-// - ZERO allocations per bind (everything stays on stack)
-// - 1.6M ops/sec vs ~200K ops/sec for reflection-based binding
+// - One allocation per binding chain (the binder), none per bound field
+// - 685ns to bind 15 fields of mixed type, ~46ns per field
 // - Full type safety via the fluent API (BindString, BindInt, etc.)
 // - Compiler inlining of the Apply() hot path
 //

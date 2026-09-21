@@ -439,14 +439,19 @@ manager := cli.NewManager().WithAudit(auditLogger)
 
 ## Performance Optimization
 
-### Zero-Allocation Hot Paths
+### Hot Paths
 
 ```go
-// These operations allocate no memory:
-value := writer.GetValue("database.host")     // 0 allocs
-writer.SetValue("app.debug", true)            // 0 allocs  
-keys := writer.ListKeys("server")             // 0 allocs
+// Measured with go test -bench BenchmarkConfigWriter -benchmem:
+value := writer.GetValue("port")              // 24.5 ns, 0 allocs
+value := writer.GetValue("database.host")     // 111 ns, 32 B, 1 alloc
+writer.SetValue("debug", true)                // 115 ns, 32 B, 1 alloc
+writer.SetValue("database.pool.max", 100)     // 149 ns, 48 B, 1 alloc
+writer.DeleteValue("old.setting")             // 190 ns, 0 allocs
 ```
+
+A top-level key is a map lookup. A dotted key walks the nesting, which is
+where the allocation comes from.
 
 ### Caching Strategy
 
@@ -456,13 +461,18 @@ keys := writer.ListKeys("server")             // 0 allocs
 
 ### Memory Usage
 
+What each CLI command costs underneath, measured on an 8-core Linux box:
+
 ```
-Operation Benchmarks:
-config get:    30ns,   0 allocs
-config set:   2.1ms,   3 allocs (I/O bound)  
-config list:  100μs,   0 allocs
-config watch:  25ms,   1 alloc (polling interval)
+open a config file (NewConfigWriter):  1,114 ns,  3,408 B,  5 allocs
+read a value (GetValue):                24.5 ns,      0 B,  0 allocs
+set a value in memory (SetValue):        115 ns,     32 B,  1 alloc
+persist it (WriteConfig):             17,000 ns,  1,048 B, 29 allocs
+watch: one stat per file per cycle       1,400 ns
 ```
+
+`WriteConfig` writes a temporary file and renames it, so its cost follows the
+filesystem. `watch` is bounded by the poll interval, not by CPU.
 
 ## Best Practices
 

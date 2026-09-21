@@ -6,7 +6,7 @@
 // Features:
 // - Immutable audit logs with tamper detection
 // - Structured logging with context
-// - Performance optimized (sub-microsecond impact)
+// - Buffered writes, flushed in the background (~5us per recorded event)
 // - Configurable audit levels and outputs
 //
 // Copyright (c) 2025 AGILira
@@ -202,7 +202,7 @@ func (al *AuditLogger) Log(level AuditLevel, event, component, filePath string, 
 		return
 	}
 
-	// Use cached timestamp for performance (121x faster than time.Now())
+	// Use cached timestamp for performance (0.37ns against 44ns for time.Now())
 	timestamp := timecache.CachedTime()
 
 	auditEvent := AuditEvent{

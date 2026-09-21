@@ -8,6 +8,7 @@ package argus
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -264,5 +265,52 @@ func TestAuditLevel_String(t *testing.T) {
 		if got := test.level.String(); got != test.expected {
 			t.Errorf("AuditLevel(%d).String() = %q, want %q", test.level, got, test.expected)
 		}
+	}
+}
+
+// BenchmarkAuditLogger_Log measures what one audit event costs the caller:
+// the buffered append, not the flush to the backend.
+func BenchmarkAuditLogger_Log(b *testing.B) {
+	logger, err := NewAuditLogger(AuditConfig{
+		Enabled:       true,
+		OutputFile:    filepath.Join(b.TempDir(), "audit.jsonl"),
+		MinLevel:      AuditInfo,
+		BufferSize:    1000,
+		FlushInterval: time.Hour, // keep the flush out of the measurement
+	})
+	if err != nil {
+		b.Fatalf("NewAuditLogger: %v", err)
+	}
+	defer func() { _ = logger.Close() }()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		logger.LogFileWatch("file_changed", "/etc/app/config.json")
+	}
+}
+
+// BenchmarkAuditLogger_LogConfigChange measures an event carrying before and
+// after configuration maps, which is the heaviest of the audit entry points.
+func BenchmarkAuditLogger_LogConfigChange(b *testing.B) {
+	logger, err := NewAuditLogger(AuditConfig{
+		Enabled:       true,
+		OutputFile:    filepath.Join(b.TempDir(), "audit.jsonl"),
+		MinLevel:      AuditInfo,
+		BufferSize:    1000,
+		FlushInterval: time.Hour,
+	})
+	if err != nil {
+		b.Fatalf("NewAuditLogger: %v", err)
+	}
+	defer func() { _ = logger.Close() }()
+
+	oldCfg := map[string]interface{}{"port": 8080, "debug": false}
+	newCfg := map[string]interface{}{"port": 9090, "debug": true}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		logger.LogConfigChange("/etc/app/config.json", oldCfg, newCfg)
 	}
 }

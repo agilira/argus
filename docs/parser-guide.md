@@ -272,33 +272,27 @@ func main() {
 
 ### Memory Management
 
-Built-in parsers utilize memory pooling for configuration maps:
-
-```go
-var configMapPool = sync.Pool{
-    New: func() interface{} {
-        return make(map[string]interface{})
-    },
-}
-```
-
-Benefits:
-- Reduced garbage collection pressure
-- Zero allocations for configuration map creation
-- Automatic memory reuse across parsing operations
+A parser allocates the map it fills and hands it to the caller, which passes it
+on to user callbacks. The map belongs to the application from that point on, so
+it is not pooled or reused; parsing allocates the map plus whatever the values
+need.
 
 ### Parsing Performance
 
-Benchmark results (operations per second):
+`BenchmarkParseConfigByFormat` parses the same six-key document in every
+format. Measured on an 8-core Linux box, Go 1.25:
 
-| Format | Built-in Parser | Custom Parser (typical) |
-|--------|----------------|-------------------------|
-| JSON | 50,000 ops/sec | 35,000 ops/sec |
-| YAML | 15,000 ops/sec | 25,000 ops/sec |
-| TOML | 20,000 ops/sec | 18,000 ops/sec |
-| HCL | 12,000 ops/sec | 8,000 ops/sec |
-| INI | 30,000 ops/sec | 22,000 ops/sec |
-| Properties | 40,000 ops/sec | 30,000 ops/sec |
+| Format | Time | Memory | Allocations |
+|--------|------|--------|-------------|
+| INI | 1,661 ns | 1,032 B | 24 |
+| TOML | 1,699 ns | 1,200 B | 19 |
+| HCL | 1,782 ns | 1,280 B | 20 |
+| Properties | 2,666 ns | 5,072 B | 27 |
+| JSON | 2,739 ns | 1,048 B | 27 |
+| YAML | 16,313 ns | 10,256 B | 112 |
+
+A custom parser costs whatever the library behind it costs; registering one
+replaces the built-in path for that format entirely.
 
 ### Lock Contention Optimization
 

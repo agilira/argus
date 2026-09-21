@@ -18,11 +18,10 @@ This example demonstrates how to build a production-ready CLI for Argus using th
 
 ## Performance
 
-Built on Orpheus framework providing:
-- **7x-47x faster** than traditional CLI frameworks
-- **512 ns/op** command parsing (vs 3,727 ns/op for alternatives)
-- **Zero allocations** in hot paths
-- Sub-microsecond command routing
+Built on the [Orpheus](https://github.com/agilira/orpheus) framework. The
+command parsing and routing figures below are Orpheus's own published
+benchmarks; the numbers for the Argus side of this example — watching the
+config file the CLI edits — are in the [main README](../../README.md).
 
 ## Installation
 
@@ -258,14 +257,18 @@ func main() {
 
 ## Performance Comparison
 
+Command parsing is Orpheus's job, not Argus's; see the
+[Orpheus benchmarks](https://github.com/agilira/orpheus) for its numbers
+against other CLI frameworks.
+
+What Argus contributes to a CLI, measured on an 8-core Linux box:
+
 ```
-Benchmark Results (command parsing with 3 flags):
-
-Argus (Orpheus)    512 ns/op      96 B/op       3 allocs/op
-Cobra CLI       18,440 ns/op   3,145 B/op      33 allocs/op
-Urfave CLI      30,097 ns/op   8,549 B/op     318 allocs/op
-
-Argus is 36x faster than Cobra, 59x faster than Urfave
+open a config file (NewConfigWriter):  1,114 ns,  3,408 B,  5 allocs
+read a value (GetValue):                24.5 ns,      0 B,  0 allocs
+set a value in memory (SetValue):        115 ns,     32 B,  1 alloc
+persist it (WriteConfig):             17,000 ns,  1,048 B, 29 allocs
+watch: one stat per file per cycle       1,400 ns
 ```
 
 ## License

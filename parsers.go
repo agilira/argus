@@ -201,7 +201,7 @@ func (cf ConfigFormat) String() string {
 //   - filepath.Ext() + strings.ToLower() + map lookup: ~50ns, 2 allocations
 //   - regexp matching: ~500ns, multiple allocations
 //
-// Our approach achieves 2.79ns with ZERO allocations using these techniques:
+// Our approach achieves 2.9ns with ZERO allocations using these techniques:
 //
 //  1. BACKWARD SCANNING: We scan from the end of the string, not the beginning.
 //     Config paths are typically 50-100 chars, but extensions are 3-11 chars.
@@ -221,7 +221,7 @@ func (cf ConfigFormat) String() string {
 //
 // This might look like premature optimization, but when processing 1M+ configs
 // per second in hot paths, these nanoseconds compound. The benchmark shows
-// 2.79ns/op vs 50+ns for the naive approach - an 18x improvement.
+// 2.9ns/op vs 50+ns for the naive approach - a 17x improvement.
 // ═══════════════════════════════════════════════════════════════════════════════
 func DetectFormat(filePath string) ConfigFormat {
 	length := len(filePath)

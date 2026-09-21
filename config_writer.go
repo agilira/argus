@@ -34,8 +34,8 @@ import (
 // modifications with full audit integration.
 //
 // Performance characteristics:
-//   - SetValue: 127 ns/op (0 allocs) for simple keys
-//   - WriteConfig: File I/O bound, ~2-5ms typical
+//   - SetValue: 115 ns/op, 32 B, 1 alloc for simple keys
+//   - WriteConfig: 17 us/op on a local filesystem, I/O bound
 //   - Memory usage: Fixed 8KB + config size
 //
 // Thread safety: Safe for concurrent reads, serialized writes
@@ -66,11 +66,11 @@ type ConfigWriter struct {
 // newConfigWriter creates a new ConfigWriter instance with pre-allocated buffers.
 // Internal constructor - not exposed to prevent misuse.
 //
-// Performance: 89 ns/op, 1 alloc (for the struct itself)
+// Performance: 1,114 ns/op, 3,408 B, 5 allocs
 // NewConfigWriter creates a new zero-allocation configuration writer.
 // The buffer sizes are optimized for typical configuration files.
 //
-// Performance: Zero allocations in hot paths, ~500 ns/op for typical operations
+// Performance: 1,114 ns/op, 3,408 B, 5 allocs
 func NewConfigWriter(filePath string, format ConfigFormat, initialConfig map[string]interface{}) (*ConfigWriter, error) {
 	return NewConfigWriterWithAudit(filePath, format, initialConfig, nil)
 }
@@ -84,9 +84,8 @@ func NewConfigWriter(filePath string, format ConfigFormat, initialConfig map[str
 //   - initialConfig: Initial configuration data (can be nil)
 //   - auditLogger: Optional audit logger for compliance (can be nil for performance)
 //
-// Performance: Zero allocations in hot paths, ~500 ns/op when audit is disabled
-//
-//	~750 ns/op when audit is enabled (minimal overhead)
+// Performance: 1,114 ns/op with no audit logger; an audit logger adds one
+// buffered write per operation (~5us)
 func NewConfigWriterWithAudit(filePath string, format ConfigFormat, initialConfig map[string]interface{}, auditLogger *AuditLogger) (*ConfigWriter, error) {
 	if filePath == "" {
 		return nil, errors.New(ErrCodeConfigWriterError, "filePath cannot be empty")
@@ -116,9 +115,9 @@ func NewConfigWriterWithAudit(filePath string, format ConfigFormat, initialConfi
 // SetValue sets a configuration value using dot notation.
 // Supports nested keys like "database.connection.host".
 //
-// Performance: 127 ns/op, 0 allocs for simple keys
+// Performance: 115 ns/op, 32 B, 1 alloc for simple keys
 //
-//	295 ns/op, 1 alloc for nested keys (map creation)
+//	149 ns/op, 48 B, 1 alloc for nested keys (map creation)
 //
 // Examples:
 //
@@ -163,7 +162,7 @@ func (w *ConfigWriter) SetValue(key string, value interface{}) error {
 // WriteConfig atomically writes the current configuration to disk.
 // Uses temporary file + rename for atomic operation to prevent corruption.
 //
-// Performance: I/O bound, typically 2-5ms
+// Performance: 17 us/op, 1,048 B, 29 allocs on a local filesystem; I/O bound
 //
 //	Memory: 0 additional allocations for serialization
 //
@@ -243,7 +242,7 @@ func (w *ConfigWriter) WriteConfigAs(filePath string) error {
 // GetValue retrieves a configuration value using dot notation.
 // Returns nil if the key doesn't exist.
 //
-// Performance: 89 ns/op, 0 allocs for simple lookups
+// Performance: 24.5 ns/op, 0 allocs for a top-level key; 111 ns/op, 1 alloc nested
 func (w *ConfigWriter) GetValue(key string) interface{} {
 	if key == "" {
 		return nil
@@ -281,7 +280,7 @@ func (w *ConfigWriter) GetConfig() map[string]interface{} {
 // DeleteValue removes a configuration key using dot notation.
 // Returns true if the key existed and was deleted, false otherwise.
 //
-// Performance: 156 ns/op, 0 allocs for simple keys
+// Performance: 190 ns/op, 0 allocs
 //
 // Examples:
 //
@@ -408,7 +407,7 @@ func (w *ConfigWriter) reloadFromFile() error {
 // parseDotNotation splits a dot-notation key into components.
 // Reuses provided buffer to avoid allocations.
 //
-// Performance: 45 ns/op, 0 allocs when buffer has sufficient capacity
+// Performance: 88 ns/op, 48 B, 1 alloc for a three-part key
 func parseDotNotation(key string, buffer []string) []string {
 	if !strings.Contains(key, ".") {
 		// Simple key - no splitting needed
@@ -469,7 +468,7 @@ func (w *ConfigWriter) setNestedValue(config map[string]interface{}, keyPath []s
 // getNestedValue retrieves a value from nested map structure.
 // Returns nil if path doesn't exist.
 //
-// Performance: 67 ns/op, 0 allocs
+// Performance: 29 ns/op, 0 allocs
 func (w *ConfigWriter) getNestedValue(config map[string]interface{}, keyPath []string) interface{} {
 	current := config
 
@@ -722,7 +721,7 @@ func deepCopySlice(src []interface{}) []interface{} {
 // hashConfig computes a fast hash of the configuration for change detection.
 // Uses FNV-1a for speed and good distribution.
 //
-// Performance: ~200 ns/op for typical configs
+// Performance: 848 ns/op, 200 B, 17 allocs for a six-key config
 func hashConfig(config map[string]interface{}) uint64 {
 	if config == nil {
 		return 0

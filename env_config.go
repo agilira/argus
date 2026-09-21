@@ -683,13 +683,13 @@ func GetEnvBoolWithDefault(key string, defaultValue bool) bool {
 //
 // Features:
 //   - Universal format support: JSON, YAML, TOML, HCL, INI, Properties
-//   - Automatic format detection from file extension (2.79ns performance)
+//   - Automatic format detection from file extension (2.9ns)
 //   - Security validation to prevent path traversal attacks
 //   - Graceful error handling for malformed files
 //
 // Performance:
-//   - File I/O bound (~1-3ms for typical config files)
-//   - Zero allocations for format detection and parsing
+//   - 13 us/op, 2,752 B, 47 allocs for a small JSON file on a local disk
+//   - Zero allocations for format detection; parsing allocates the map it returns
 //   - Uses the same optimized parsers as the rest of Argus
 //
 // Parameters:

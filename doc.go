@@ -11,7 +11,7 @@
 // # Architecture Overview
 //
 // Argus consists of six integrated subsystems:
-//  1. **BoreasLite Ring Buffer**: Ultra-fast MPSC event processing (1.6M+ ops/sec)
+//  1. **BoreasLite Ring Buffer**: MPSC event processing, 12.6ns per write (79M ops/sec)
 //  2. **Universal Format Parsers**: Support for JSON, YAML (1.2 spec via yaml.v3), TOML, HCL, INI, Properties
 //  3. **Zero-Reflection Config Binding**: Type-safe binding with unsafe.Pointer optimization
 //  4. **Comprehensive Audit System**: Security and compliance logging with SQLite backend
@@ -82,7 +82,7 @@
 //
 // Adaptive optimization strategies:
 //
-//   - **SingleEvent**: Ultra-low latency for 1-2 files (24ns per event)
+//   - **SingleEvent**: Ultra-low latency for 1-2 files (24.4ns per event)
 //
 //   - **SmallBatch**: Balanced performance for 3-20 files
 //
@@ -304,7 +304,7 @@
 //   - **Lock-free caching**: Atomic pointers for zero-contention os.Stat() caching
 //   - **Zero-allocation polling**: Reusable buffers and value types prevent GC pressure
 //   - **Intelligent batching**: Event processing adapts to load patterns
-//   - **Time optimization**: Uses go-timecache for 121x faster timestamps
+//   - **Time optimization**: go-timecache reads a cached timestamp in 0.37ns against 44ns for time.Now()
 //   - **Memory efficiency**: Sync.Pool for map reuse and careful allocation patterns
 //   - **Security-optimized validation**: Multi-layer path validation with minimal performance impact
 //   - **SQLite backend optimization**: Prepared statements and transaction batching for audit performance

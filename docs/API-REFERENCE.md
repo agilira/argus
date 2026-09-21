@@ -187,7 +187,7 @@ Creates a ConfigWriter for the specified file with atomic write operations.
 - `*ConfigWriter`: New ConfigWriter instance for atomic operations
 - `error`: Error if writer creation fails
 
-**Performance:** ~500 ns/op, zero allocations for writer creation
+**Performance:** 1,114 ns/op, 3,408 B, 5 allocs
 
 **Example:**
 ```go
@@ -201,14 +201,18 @@ writer.WriteConfig()
 
 ##### `ClearCache()`
 
-Forces clearing of the internal file stat cache.
+Empties the internal file stat cache.
+
+The cache holds the last known `os.Stat` result per watched path. Polling does
+not read it — a poll cycle always stats the filesystem — so clearing it does
+not change what the watcher detects. It affects `getStat`'s callers (a
+subsequent `Watch` of the same path) and what `GetCacheStats` reports.
 
 **Use Cases:**
 - Testing scenarios requiring fresh file stats
-- Debugging cache-related issues  
-- Manual cache invalidation after external file changes
+- Releasing the memory held for paths no longer watched
 
-**Performance:** Zero allocations, immediate effect
+**Performance:** One map allocation, immediate effect
 
 ##### `GetCacheStats() CacheStats`
 
@@ -475,7 +479,7 @@ Creates a new ConfigWriter for atomic configuration file operations.
 - `*ConfigWriter`: New ConfigWriter instance
 - `error`: Error if creation fails
 
-**Performance:** ~500 ns/op, zero allocations for writer creation
+**Performance:** 1,114 ns/op, 3,408 B, 5 allocs
 
 **Example:**
 ```go
@@ -499,7 +503,7 @@ Creates a new ConfigWriter with optional audit logging for compliance requiremen
 - `*ConfigWriter`: New ConfigWriter with audit capability
 - `error`: Error if creation fails
 
-**Performance:** ~500 ns/op when audit disabled, ~750 ns/op when enabled
+**Performance:** 1,114 ns/op with no audit logger; an audit logger adds one buffered write per operation
 
 #### Methods
 
@@ -513,7 +517,7 @@ Sets a configuration value using dot notation for nested keys.
 
 **Returns:** `error` - Error if key is invalid or operation fails
 
-**Performance:** 127 ns/op, 0 allocs for simple keys; 295 ns/op, 1 alloc for nested keys
+**Performance:** 115 ns/op, 32 B, 1 alloc for simple keys; 149 ns/op, 48 B, 1 alloc for nested keys
 
 **Examples:**
 ```go
@@ -531,7 +535,7 @@ Retrieves a configuration value using dot notation.
 
 **Returns:** `interface{}` - Value or nil if key doesn't exist
 
-**Performance:** 89 ns/op, 0 allocs for simple lookups
+**Performance:** 24.5 ns/op, 0 allocs for a top-level key; 111 ns/op, 32 B, 1 alloc for a nested one
 
 **Example:**
 ```go
@@ -550,7 +554,7 @@ Removes a configuration key using dot notation.
 
 **Returns:** `bool` - True if key existed and was deleted
 
-**Performance:** 156 ns/op, 0 allocs for simple keys
+**Performance:** 190 ns/op, 0 allocs
 
 **Examples:**
 ```go
@@ -564,7 +568,7 @@ Atomically writes the current configuration to disk using temporary file + renam
 
 **Returns:** `error` - Error if write operation fails
 
-**Performance:** I/O bound, typically 2-5ms
+**Performance:** 17 us/op, 1,048 B, 29 allocs on a local filesystem; I/O bound, so the number follows the disk
 
 **Atomicity:** Either succeeds completely or leaves original file unchanged
 
@@ -837,21 +841,25 @@ Automatically selects the best strategy based on file count:
 - 4-20 files: SmallBatch strategy  
 - 21+ files: LargeBatch strategy
 
+All strategies write and process an event in 24.7 ns while events are flowing,
+and pick up the first event after an idle period in ~7 us (median). What they
+trade is batch size against how long the consumer stays hot before it parks.
+
 ##### `OptimizationSingleEvent`
 Optimized for 1-2 files with ultra-low latency:
-- **Performance:** 24ns per operation
+- **Batch size:** 1 event, longest hot-spin window
 - **Best for:** Single config file scenarios
 - **Memory:** 64-event ring buffer
 
 ##### `OptimizationSmallBatch`
 Balanced optimization for 3-20 files:
-- **Performance:** 28ns per operation
+- **Batch size:** 4 events
 - **Best for:** Multi-config applications
 - **Memory:** 128-event ring buffer
 
 ##### `OptimizationLargeBatch`
 High throughput optimization for 20+ files:
-- **Performance:** 35ns per operation
+- **Batch size:** 16 events, 8.6 ns per event in a full batch
 - **Best for:** Configuration management systems
 - **Memory:** 256+ event ring buffer
 
@@ -1288,12 +1296,13 @@ go func() {
 
 ### Overhead Analysis
 
-Based on comprehensive benchmarking:
+Measured on an 8-core Linux box, Go 1.25:
 
-- **Polling overhead:** 12.11 nanoseconds per cycle
-- **Memory footprint:** 8KB fixed + (64 bytes × files watched)
-- **HTTP request impact:** +0.061ns per request (0.002%)
-- **System impact:** 1.44µs every 5 seconds
+- **Polling:** 1.4 us of CPU per watched file per cycle; ~530 ns of wall clock at 1000 files, where the worker pool overlaps the stats
+- **Memory footprint:** ~17 KB per watcher, most of it the ring buffer, plus ~250 B per watched file
+- **HTTP request impact:** 4.09 ns/request with a watcher running against 4.10 ns without — below measurement noise
+- **Per log entry:** 45.9 ns baseline, 46.8 ns with a watcher running
+- **Idle cost:** none measurable; the event consumer blocks when no events are arriving
 
 ### Optimization Guidelines
 

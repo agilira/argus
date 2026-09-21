@@ -11,7 +11,7 @@ Environment Variables (highest) > Configuration Files (medium) > Defaults (lowes
 
 ### 2. **Universal Format Support**
 - ✅ **JSON** (.json) - Native high-performance parsing
-- ✅ **YAML** (.yml, .yaml) - Built-in parser with 2.79ns format detection
+- ✅ **YAML** (.yml, .yaml) - Built-in parser with 2.9ns format detection
 - ✅ **TOML** (.toml) - Configuration format popular in Go ecosystem
 - ✅ **INI** (.ini, .conf, .cfg) - Traditional configuration format
 - ✅ **Properties** (.properties) - Java-style properties files
@@ -19,7 +19,7 @@ Environment Variables (highest) > Configuration Files (medium) > Defaults (lowes
 
 ### 3. **Production-Ready Features**
 - **Security validation** - Path traversal protection
-- **Ultra-fast performance** - 2.79ns format detection, zero allocations
+- **Fast format detection** - 2.9 ns per operation, zero allocations
 - **Graceful fallback** - Continues operation with missing/invalid files
 - **Real-time integration** - Works seamlessly with file watching
 
@@ -78,7 +78,7 @@ config, err := argus.LoadConfigMultiSource("config.yaml")
 
 ### 2. **Format Auto-Detection**
 ```go
-// Detects format from file extension (2.79ns performance)
+// Detects format from file extension (2.9ns performance)
 argus.DetectFormat("config.yaml") // → FormatYAML
 argus.DetectFormat("config.json") // → FormatJSON
 argus.DetectFormat("config.toml") // → FormatTOML
@@ -147,10 +147,10 @@ func main() {
 
 ## Performance Characteristics
 
-- **Format Detection**: 2.79ns per operation
-- **File Loading**: I/O bound (~1-3ms for typical configs)  
-- **Parsing**: Zero allocations in hot paths
-- **Memory Usage**: 8KB fixed + config size
+- **Format Detection**: 2.9 ns per operation, 0 allocations
+- **File Loading**: 13 us for a small JSON file on a local disk, I/O bound
+- **Parsing**: 1.7-2.7 us for a six-key document (16 us for YAML); allocates the map it returns
+- **Memory Usage**: ~17 KB per watcher plus ~250 B per watched file
 - **Precedence Resolution**: O(1) complexity
 
 ## Next Steps

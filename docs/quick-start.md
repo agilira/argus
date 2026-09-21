@@ -363,7 +363,7 @@ func reloadRateLimits() { /* ... */ }
 func reloadCircuitBreakers() { /* ... */ }
 ```
 
-**Performance:** Sub-millisecond config reload with **12.11ns polling overhead**!
+**Performance:** a poll cycle costs ~1.4 us of CPU per watched file, and the callback fires within one poll interval of the change.
 
 ---
 
@@ -535,15 +535,18 @@ ErrorHandler: func(err error, path string) {
 
 ## **Benchmarks**
 
-**Argus vs Traditional Polling:**
+Measured on an 8-core Linux box, Go 1.25:
 
-| Method | Overhead | CPU Usage | Memory |
-|--------|----------|-----------|--------|
-| Traditional | 2.1µs | High | 64KB+ |
-| **Argus** | **12.11ns** | **Minimal** | **8KB** |
-| **Improvement** | **175x faster** | **90% less** | **8x less** |
+| | Measured |
+|---|---|
+| Poll cycle | 1.4 us of CPU per watched file, ~530 ns of wall clock at 1000 files |
+| 1000 files @ 1s | well under 1% of a core |
+| Idle watcher | nothing measurable above baseline |
+| Memory | ~17 KB per watcher + ~250 B per watched file |
+| Event pickup | 24.7 ns hot, ~7 us from idle |
 
-**Real-world impact:** In a service handling 10,000 RPS, Argus adds **<0.002%** overhead vs **3.5%** for traditional polling.
+**Real-world impact:** a service handling 10,000 RPS shows no measurable
+change in per-request cost with a watcher running: 4.09 ns against 4.10 ns.
 
 ---
 

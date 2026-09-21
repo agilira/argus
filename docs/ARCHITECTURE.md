@@ -9,10 +9,10 @@ Argus is a high-performance, OS-independent dynamic configuration framework for 
 ### Design Principles
 
 1. **Polling-Based Optimization**: OS-independent file monitoring with intelligent optimization strategies.
-2. **Zero-Allocation Hot Paths**: No allocations during file stat operations; pre-allocated buffers.
-3. **Lock-Free Operations**: All file watching coordination via atomic operations and channels.
+2. **Bounded Allocation**: a poll cycle allocates what os.Stat needs and little else (~300 B per file watched).
+3. **Lock-Free Event Path**: event publication and consumption use atomic operations and channels, never a mutex.
 4. **Universal Format Support**: Auto-detection and parsing of JSON, YAML, TOML, HCL, INI, and Properties.
-5. **Audit System**: Tamper-resistant audit trails with sub-microsecond performance impact.
+5. **Audit System**: Tamper-resistant audit trails, ~5 us per recorded event.
 6. **Configurable Optimization**: Four distinct strategies for different workload patterns.
 7. **ConfigWriter System**: Atomic configuration file updates with type-safe operations
 
@@ -68,9 +68,9 @@ graph TB
         FD[Format Detection<br/>Extension + Content Analysis]
         UP[Universal Parser<br/>6 Format Support<br/>Plugin System]
 
-        FM[File Monitor<br/>Polling Engine<br/>Stat Cache<br/>12.11ns overhead]
+        FM[File Monitor<br/>Polling Engine<br/>Stat Cache<br/>1.4us CPU per file per cycle]
 
-        BL[BoreasLite MPSC<br/>Ring Buffer<br/>4 Optimization Strategies<br/>24.91ns processing]
+        BL[BoreasLite MPSC<br/>Ring Buffer<br/>4 Optimization Strategies<br/>24.7ns per event]
 
         EP[Event Processor<br/>Batch Optimization<br/>Callback Routing]
     end
@@ -212,24 +212,24 @@ graph TB
 The detailed architecture diagram above fully illustrates the data flow through all Argus components. The system is designed for:
 
 1. **Multi-Source Input**: Configurations from local files, Kubernetes ConfigMaps, HashiCorp Vault, and Redis
-2. **Optimized Processing**: Automatic format detection (2.79ns) → Universal parsing → Polling-based monitoring (12.11ns)
-3. **Event Processing**: BoreasLite ring buffer (24.91ns) with 4 adaptive optimization strategies
-4. **Integrated Security**: Audit system with tamper detection (<0.5µs impact) and SOX/GDPR/PCI-DSS compliance
+2. **Optimized Processing**: Automatic format detection (2.9ns) → Universal parsing → Polling-based monitoring (1.4us of CPU per file per cycle)
+3. **Event Processing**: BoreasLite ring buffer (24.7ns per event) with 4 adaptive optimization strategies
+4. **Integrated Security**: Audit system with tamper detection (~5us per event) and SOX/GDPR/PCI-DSS compliance
 5. **Type Safety**: Zero-reflection binding with unsafe.Pointer optimization
 6. **Performance**: Lock-free operations, zero-allocations, intelligent caching
 
 ## Concurrency Model
 
-- **Single-Threaded Polling**: One dedicated goroutine per watcher for deterministic behavior.
-- **Lock-Free Operations**: File stat operations use atomic counters and immutable data structures.
+- **Polling**: one goroutine per watcher drives the cycle; the stats themselves are spread over a small worker pool.
+- **Lock-Free Event Ring**: events reach the consumer through an MPSC ring buffer with atomic cursors, no mutex. The stat cache beside it is an ordinary map under a mutex — it is written once per watched file per cycle, which is the pattern copy-on-write is worst at.
 - **Channel-Based Communication**: Events propagated via buffered channels for backpressure handling.
 - **Graceful Shutdown**: Deterministic shutdown with proper resource cleanup and audit flushing.
 
 ## Performance Characteristics
 
 - **Adaptive Optimization**: Automatically adjusts strategy based on file count and change frequency
-- **Minimal Memory Footprint**: 8KB fixed overhead plus configurable buffers
-- **Sub-Microsecond Audit**: Less than 0.5µs audit impact using cached timestamps
+- **Memory Footprint**: ~17 KB per watcher, most of it the ring buffer, plus ~250 B per watched file
+- **Audit cost**: ~5us per recorded event (8us for a config-change event carrying both maps); events are buffered and flushed in the background
 - **Zero-Allocation Paths**: File stat operations with pre-allocated buffers
 
 ## Configuration Architecture

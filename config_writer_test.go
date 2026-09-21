@@ -782,3 +782,91 @@ func TestConfigWriterDeleteNestedValue(t *testing.T) {
 		t.Errorf("Expected 'test', got %v", name)
 	}
 }
+
+// BenchmarkConfigWriterSetValueNested benchmarks SetValue on a dotted key,
+// which has to walk and create the intermediate maps.
+func BenchmarkConfigWriterSetValueNested(b *testing.B) {
+	configPath := filepath.Join(b.TempDir(), "bench_config.json")
+
+	writer, err := NewConfigWriter(configPath, FormatJSON, nil)
+	if err != nil {
+		b.Fatalf("Failed to create ConfigWriter: %v", err)
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if err := writer.SetValue("database.pool.max", 100); err != nil {
+			b.Fatalf("SetValue failed: %v", err)
+		}
+	}
+}
+
+// BenchmarkConfigWriterGetValue benchmarks GetValue for a simple and a nested
+// key.
+func BenchmarkConfigWriterGetValue(b *testing.B) {
+	configPath := filepath.Join(b.TempDir(), "bench_config.json")
+
+	writer, err := NewConfigWriter(configPath, FormatJSON, map[string]interface{}{
+		"port": 8080,
+		"database": map[string]interface{}{
+			"host": "localhost",
+		},
+	})
+	if err != nil {
+		b.Fatalf("Failed to create ConfigWriter: %v", err)
+	}
+
+	b.Run("simple", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			_ = writer.GetValue("port")
+		}
+	})
+
+	b.Run("nested", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			_ = writer.GetValue("database.host")
+		}
+	})
+}
+
+// BenchmarkConfigWriterDeleteValue benchmarks DeleteValue, re-adding the key
+// each round so every iteration does the same work.
+func BenchmarkConfigWriterDeleteValue(b *testing.B) {
+	configPath := filepath.Join(b.TempDir(), "bench_config.json")
+
+	writer, err := NewConfigWriter(configPath, FormatJSON, nil)
+	if err != nil {
+		b.Fatalf("Failed to create ConfigWriter: %v", err)
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		b.StopTimer()
+		if err := writer.SetValue("doomed", 1); err != nil {
+			b.Fatalf("SetValue failed: %v", err)
+		}
+		b.StartTimer()
+		writer.DeleteValue("doomed")
+	}
+}
+
+// BenchmarkNewConfigWriter benchmarks creating a writer over an existing file.
+func BenchmarkNewConfigWriter(b *testing.B) {
+	configPath := filepath.Join(b.TempDir(), "bench_config.json")
+	if err := os.WriteFile(configPath, []byte(`{"port":8080}`), 0o600); err != nil {
+		b.Fatalf("WriteFile: %v", err)
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := NewConfigWriter(configPath, FormatJSON, nil); err != nil {
+			b.Fatalf("NewConfigWriter failed: %v", err)
+		}
+	}
+}

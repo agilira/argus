@@ -45,7 +45,7 @@ See Argus in action - managing configurations across multiple formats with zero-
 - **Remote Config**: Distributed configuration with automatic fallback (Remote → Local). Currently available: [HashiCorp Consul](https://github.com/agilira/argus-provider-consul), [Redis](https://github.com/agilira/argus-provider-redis), [GitOps](https://github.com/agilira/argus-provider-git) with more to come..
 - **Graceful Shutdown**: Timeout-controlled shutdown for Kubernetes and production deployments
 - **OpenTelemetry Ready**: Async tracing and metrics with zero contamination of core library
-- **Type-Safe Binding**: Zero-reflection configuration binding with fluent API (1.6M ops/sec)
+- **Type-Safe Binding**: Zero-reflection configuration binding with fluent API (~46 ns per bound field)
 - **Adaptive Optimization**: Five strategies (SingleEvent, SmallBatch, LargeBatch, Light, Auto) 
 - **Unified Audit System**: SQLite-based cross-application correlation with JSONL fallback
 - **Scalable Monitoring**: Handle 1-1000+ files simultaneously with linear performance
@@ -77,7 +77,7 @@ watcher := argus.New(*config)
 
 ### Type-Safe Configuration Binding
 ```go
-// Ultra-fast zero-reflection binding (1.6M ops/sec)
+// Zero-reflection binding: ~46 ns per bound field, one allocation per chain
 var (
     dbHost     string
     dbPort     int
@@ -180,40 +180,61 @@ argus watch config.yaml --interval=1s
 Engineered for production environments with sustained monitoring and minimal overhead:
 
 ### Benchmarks
+
+Measured on an 8-core Linux box, Go 1.25, `go test -bench . -benchmem`:
+
 ```
-Configuration Monitoring:      12.10 ns/op     (99.999% efficiency)
-Format Auto-Detection:         2.79 ns/op      (universal format support)
-JSON Parsing (small):          1,712 ns/op     (616 B/op, 16 allocs/op)
-JSON Parsing (large):          7,793 ns/op     (3,064 B/op, 86 allocs/op)
-Event Processing:              25.51 ns/op     (BoreasLite single event, CPU-efficient)
-Write Operations:              10.15 ns/op     (Ultra-fast file event writing)
-vs Go Channels:                5.6x faster     (10.31 ns vs 57.62 ns/op)
-CLI Command Parsing:             512 ns/op     (3 allocs/op, Orpheus framework)
+Format auto-detection:              2.9 ns/op    0 allocs
+Cached stat lookup:                28.4 ns/op    0 allocs
+Event write (ring buffer):         12.4 ns/op    0 allocs
+Event write + process:             24.7 ns/op    0 allocs
+  same work over Go channels:      42.8 ns/op    (3.4x)
+Config binding, 15 fields:          685 ns/op    896 B, 1 alloc
+Uncached stat (os.Stat + cache):  1,400 ns/op    240 B, 2 allocs
+JSON parsing (small):             1,790 ns/op    616 B, 16 allocs
+JSON parsing (large):             8,030 ns/op    3,064 B, 86 allocs
 ```
+
 **Test BoreasLite ring buffer performance**:
 ```bash
 cd benchmarks && go test -bench="BenchmarkBoreasLite.*" -run=^$ -benchmem
 ```
 See [isolated benchmarks](./benchmarks/) for detailed ring buffer performance analysis.
 
-**Scalability (Setup Performance):**
+**Scalability**, from `BenchmarkWatcherSetup` and `BenchmarkWatcherPollCycle`:
+
 ```
-File Count    Setup Time    Strategy Used
-   50 files    11.92 μs/file  SmallBatch
-  500 files    23.95 μs/file  LargeBatch
- 1000 files    38.90 μs/file  LargeBatch
+File Count    Watch() setup    Poll cycle
+   10 files     12.2 us/file    1,882 ns/file
+  100 files     11.9 us/file      923 ns/file
+ 1000 files     12.7 us/file      530 ns/file
 ```
+
+Setup is a one-off per file: path validation, the first `os.Stat` and
+registration. The poll figures are wall clock on 8 cores: one `os.Stat` costs
+~1.4 us of CPU, and the worker pool overlaps them, which is why the per-file
+wall clock falls as the file count rises. Sustained, 1000 files polled every
+second sit at the measurement floor — under 1% of a core.
+
 *Detection rate: 100% across all scales*
 
 **Optimization Strategies:**
 
-| Strategy | Best For | CPU When Idle | Event Latency |
+| Strategy | Best For | Batch size | Hot-spin window |
 |---|---|---|---|
-| `OptimizationSingleEvent` | 1-2 files, real-time systems | High | <100ns |
-| `OptimizationSmallBatch` | 3-20 files, balanced workloads | Medium | <1us |
-| `OptimizationLargeBatch` | 20+ files, high throughput | Medium | <500us |
-| `OptimizationLight` | Config hot-reload, daemons | Near-zero | <1ms |
-| `OptimizationAuto` | Let Argus decide | Varies | Varies |
+| `OptimizationSingleEvent` | 1-2 files, real-time systems | 1 | longest |
+| `OptimizationSmallBatch` | 3-20 files, balanced workloads | 4 | medium |
+| `OptimizationLargeBatch` | 20+ files, high throughput | 16 | short |
+| `OptimizationLight` | Config hot-reload, daemons | 1 | none |
+| `OptimizationAuto` | Let Argus decide | 1-16, by file count | medium |
+
+A watcher with nothing to do costs nothing on any of them: the event consumer
+spins only while events are arriving and blocks once they stop. What the
+strategies trade is batching against how long the consumer stays hot.
+
+Event pickup, measured: **24.7 ns** while events are still flowing, **~7 us**
+(median; ~30 us worst case) for the first event after an idle period, which
+pays the wakeup.
 
 Use `OptimizationLight` for config files that change rarely (daemon processes, CLI tools):
 
@@ -226,7 +247,7 @@ watcher := argus.New(argus.Config{
 
 ## Architecture
 
-Argus provides intelligent configuration management through polling-based optimization with lock-free stat cache (12.10ns monitoring overhead), ultra-fast format detection (2.79ns per operation).
+Argus watches configuration by polling: one `os.Stat` per watched file per interval, spread over a small worker pool. Measured on an 8-core Linux box, a cycle over 1000 files takes ~530us of wall clock (~1.4ms of CPU across the pool), so polling 1000 files every second stays under 1% of a core; a handful of config files costs nothing measurable. Format detection is 2.9ns per operation.
 
 **[Complete Architecture Guide →](./docs/ARCHITECTURE.md)**
 
@@ -261,7 +282,7 @@ if err := writer.WriteConfig(); err != nil {
 }
 
 // Query operations
-host := writer.GetValue("database.host")      // 30ns, 0 allocs
+host := writer.GetValue("database.host")      // 111ns, 1 alloc (24ns for a top-level key)
 keys := writer.ListKeys("database")           // Lists all database.* keys
 exists := writer.DeleteValue("old.setting")   // Removes key if exists
 ```
