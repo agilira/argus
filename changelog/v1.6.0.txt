@@ -1,0 +1,107 @@
+argus v1.6.0 — performance
+==========================
+
+Released: 2026-09-21
+Commit:   (see git log)
+Authors:  Antonio Giordano
+
+STATUS: MINOR — no API change. Two behaviour changes, both in the watcher's
+internals, listed below.
+
+
+CHANGES
+-------
+
+1. The BoreasLite consumer parks instead of spinning.
+
+   The loop spins, yields, then blocks on a channel until a producer signals.
+   Producers pay one atomic load per write. Stop releases a parked consumer at
+   once.
+
+   Idle CPU, one watched file, PollInterval 1h, zero events, against a 4.9%
+   measurement floor:
+
+     SingleEvent   47.2%  ->  5.0%
+     SmallBatch    50.7%  ->  5.3%
+     LargeBatch    18.5%  ->  5.8%
+     Light          7.1%  ->  5.4%
+     Auto           n/a   ->  5.5%
+
+   Stats() gained "idle_spins": consumer iterations that found no work.
+
+2. Polling stats the filesystem; the stat cache is a map under a mutex.
+
+   checkFile calls os.Stat on every cycle. CacheTTL is clamped to PollInterval,
+   so a cached entry was expired by the next cycle in every case but one: the
+   two being equal, where the change was reported a cycle late.
+
+   The cache itself was copy-on-write per entry, which copied the whole map
+   once per watched file per cycle.
+
+   Poll cycle, cache cold, per file polled:
+
+     1 file      2,569 ns  ->  1,917 ns
+     5 files     3,943 ns  ->  2,649 ns
+     50 files    4,287 ns  ->  1,568 ns
+     1000 files 112,320 ns  ->    984 ns
+
+   1000 files, per cycle: 295 MB -> 580 KB, 26,356 -> 2,033 allocations.
+
+   Sustained CPU, polling only, against a 5.8% floor:
+
+     1000 @ 5s    32.2%  ->  5.5%
+     1000 @ 1s   133.9%  ->  5.6%
+     1000 @ 200ms 483.4% ->  8.6%
+     5000 @ 1s   582.9%  ->  8.6%
+
+   End to end, 1000 files at 1s: min 66 ms -> 1 ms, max 859 ms -> 668 ms.
+
+   getStat, CacheTTL, ClearCache and GetCacheStats are unchanged.
+
+3. Published performance numbers re-measured.
+
+   Every figure in README, docs/, benchmarks/README and the doc comments now
+   comes from a benchmark in this repository. New benchmarks were added where a
+   figure had none: BenchmarkWatcherSetup, BenchmarkWatcherPollCycle,
+   BenchmarkParseConfigByFormat, BenchmarkConfigWriterGetValue /
+   DeleteValue / SetValueNested, BenchmarkNewConfigWriter,
+   BenchmarkAuditLogger_Log / LogConfigChange.
+
+   BenchmarkWatcherGetStatCacheMiss is now BenchmarkWatcherStatFresh: cache age
+   is measured with go-timecache, whose clock does not advance inside a
+   benchmark loop, so no CacheTTL could make that benchmark miss.
+
+
+TRADE-OFF
+---------
+
+An event arriving at an idle ring is picked up in ~12 us median instead of
+~2 us; the tails improve (SmallBatch max 911 us -> 35 us, LargeBatch max
+4.6 ms -> 88 us, Light p50 1.09 ms -> 14 us). Subsequent events in a burst are
+picked up hot, at 24 ns.
+
+Ring buffer with events flowing is unchanged: write 15.1 -> 14.6 ns, write and
+process 25.4 -> 24.3 ns.
+
+A cached getStat is 12 -> 28 ns; it runs once per Watch, which costs 11.7 us.
+
+
+FIXED
+-----
+
+Seven data races in the test suite: state written by a user callback and read
+in the test body without the mutex guarding it. boreaslite_strategies_test.go
+(5), argus_test.go, directory_watcher_security_test.go.
+
+
+QUALITY GATES
+-------------
+
+  gofmt -l .              PASS (clean)
+  go vet ./...            PASS
+  staticcheck ./...       PASS (0 issues)
+  gosec -conf .gosec.json PASS (0 issues)
+  go test ./...           PASS
+  go test -race ./...     PASS
+
+Measurements taken on an 8-core Linux box, Go 1.25.9.
