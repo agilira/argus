@@ -8,7 +8,7 @@ High-performance configuration management framework for Go applications with zer
 [![CodeQL](https://github.com/agilira/argus/actions/workflows/codeql.yml/badge.svg)](https://github.com/agilira/argus/actions/workflows/codeql.yml)
 [![Security](https://img.shields.io/badge/security-gosec-brightgreen.svg)](https://github.com/agilira/argus/actions/workflows/ci.yml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/agilira/argus?v=2)](https://goreportcard.com/report/github.com/agilira/argus)
-[![Test Coverage](https://img.shields.io/badge/coverage-87.7%25-brightgreen)](https://github.com/agilira/argus)
+[![Test Coverage](https://img.shields.io/badge/coverage-88.7%25-brightgreen)](https://github.com/agilira/argus)
 [![CLI Coverage](https://img.shields.io/badge/cli_coverage-77.5%25-green)](https://github.com/agilira/argus)
 ![Xantos Powered](https://img.shields.io/badge/Xantos-Powered-8A2BE2)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/11273/badge)](https://www.bestpractices.dev/projects/11273)
@@ -35,6 +35,9 @@ See Argus in action - managing configurations across multiple formats with zero-
 
 ### Features
 
+- **Unified Entry Point**: `argus.Setup(...)` gathers files, directories, environment, flags, remote providers and documents behind one call, with fixed precedence and atomic revisions
+- **Documents**: system prompts and skills read as text, hot-reloaded, in a namespace of their own
+- **Typed Binding**: `argus.Bind[Config](settings)` delivers a new struct per revision, never rewriting the one in use
 - **Universal Format Support**: JSON, YAML, TOML, HCL, INI, Properties with auto-detection
 - **ConfigWriter System**: Atomic configuration file updates with type-safe operations
 - **Ultra-Fast CLI**: [Orpheus](https://github.com/agilira/orpheus)-powered CLI
@@ -62,104 +65,143 @@ go get github.com/agilira/argus
 
 ## Quick Start
 
-### Multi-Source Configuration Loading
-```go
-import "github.com/agilira/argus"
+One call declares where configuration comes from and returns a handle that
+stays current.
 
-// Load with automatic precedence: ENV vars > File > Defaults
-config, err := argus.LoadConfigMultiSource("config.yaml")
+```go
+settings, err := argus.Setup("agent").
+    File("config.json").
+    Env("AGENT_").
+    Documents("prompts", "prompts/*.md").
+    Start()
 if err != nil {
     log.Fatal(err)
 }
+defer settings.Close()
 
-watcher := argus.New(*config)
+model := settings.GetString("model")
+prompt, _ := settings.Doc("prompts", "system")
 ```
 
-### Type-Safe Configuration Binding
-```go
-// Zero-reflection binding: ~46 ns per bound field, one allocation per chain
-var (
-    dbHost     string
-    dbPort     int
-    enableSSL  bool
-    timeout    time.Duration
-)
+`Start` fails when the first load does not come together: a file that is
+missing or does not parse, a required document that is absent, a remote that is
+the only source and is unreachable.
 
-err := argus.BindFromConfig(parsedConfig).
-    BindString(&dbHost, "database.host", "localhost").
-    BindInt(&dbPort, "database.port", 5432).
-    BindBool(&enableSSL, "database.ssl", true).
-    BindDuration(&timeout, "database.timeout", 30*time.Second).
-    Apply()
+The other entry points are in the [API reference](./docs/API-REFERENCE.md).
+
+### Sources and precedence
+
+Declare the sources the application has. The order between them is fixed:
+
+| | Source | Builder |
+|---|---|---|
+| 1 | explicit overrides | `Overrides(map[string]interface{}{...})` |
+| 2 | command-line flags | `Flags(fs)`, an already-parsed flash-flags set |
+| 3 | environment | `Env("APP_")`: `server.port` reads `APP_SERVER_PORT` |
+| 4 | files and directories | `File(path)`, `FileIfPresent(path)`, `Dir(path)` |
+| 5 | remote providers | `Remote("consul://...")`, read again on `RemoteInterval` (30s) |
+| 6 | defaults | `Defaults(map[string]interface{}{...})` |
+
+The local file overrides the remote. `FileIfPresent` accepts a file that is not
+there; one that is there and does not parse is an error. `Overrides` takes the
+values of an application that parses its own command line with cobra, pflag or
+the standard library.
+
+### Documents
+
+A system prompt or a skill is text, and Argus reads it as text: no parser, no
+format detection, and a namespace of its own, so `Doc("prompts", "system")` and
+`GetString("system")` are different values.
+
+```go
+settings, err := argus.Setup("agent").
+    File("config.json").
+    RequiredDocuments("prompts", "prompts/*.md").
+    Documents("skills", "skills/**/*.md").   // ** walks the tree
+    Start()
+
+for _, skill := range settings.Docs("skills") {
+    register(skill.Name, skill.String())
+}
 ```
 
-### Real-Time Configuration Updates
-```go
-// Watch any configuration format - auto-detected
-watcher, err := argus.UniversalConfigWatcher("config.yaml", 
-    func(config map[string]interface{}) {
-        fmt.Printf("Config updated: %+v\n", config)
-    })
+Limits are 1 MB per document, 16 MB in total, 1000 documents. An oversized
+optional document is skipped and reported; a required one that is missing or
+unreadable fails the load.
 
-watcher.Start()
-defer watcher.Close()
+### Reloads
+
+Everything readable at an instant belongs to one **revision**. A reload builds
+a candidate, validates it and swaps it in atomically; a candidate that does not
+hold together leaves the previous revision serving.
+
+```go
+settings, err := argus.Setup("agent").
+    File("config.json").
+    Documents("prompts", "prompts/*.md").
+    MaxStaleness(200 * time.Millisecond).
+    OnReload(func(s *argus.Settings, changed argus.Change) {
+        if changed.HasDocument("prompts", "system") {
+            agent.Reprompt(mustDoc(s, "prompts", "system"))
+        }
+    }).
+    OnError(func(err error) { log.Printf("argus: %v", err) }).
+    Start()
 ```
 
-### Remote Configuration
-```go
-// Distributed configuration with automatic fallback
-watcher := argus.New(argus.Config{
-    Remote: argus.RemoteConfig{
-        Enabled:      true,
-        PrimaryURL:   "consul://consul.internal:8500/config/myapp",
-        FallbackURL:  "consul://backup-consul.internal:8500/config/myapp",
-        FallbackPath: "/etc/myapp/fallback.json",
-        SyncInterval: 30 * time.Second,
-        Timeout:      10 * time.Second,
-    },
-})
+Files saved together produce one revision, and a revision is spent only when a
+value changes. `Change` carries names, never values.
 
-// Start() begins remote synchronisation along with file watching.
-if err := watcher.Start(); err != nil {
-    log.Printf("argus: %v", err) // file watching runs; the remote load is retried
+`MaxStaleness` is a latency budget. `Explain()` reports how it is met, and the
+rest of a running instance's state:
+
+```go
+report := settings.Explain() // marshals as JSON for a debug endpoint
+report.KeySource("port")     // argus.SourceEnv
+report.Revision              // a counter, local to this process
+report.Digest                // the content identity, the same on every machine
+report.Backend               // "polling every 200ms"
+report.Issues                // a skipped document, a remote that is down
+report.LastRefusal           // the candidate that did not become a revision
+```
+
+`Revision` counts; `Digest` identifies. Two instances resolving every key to
+the same value and holding the same documents carry the same digest, whatever
+supplied those values — which is how a run names the configuration it ran on,
+in a way that still means something on another machine. The audit trail
+records it with every revision.
+
+A refused candidate never becomes a revision, so `LastRefusal` is where it
+goes: reason, when, and how many cycles it has been failing. An application
+that declares no `OnError` can still tell that what it serves is no longer
+what is on disk.
+
+### Binding
+
+`Bind` maps a revision onto a struct type and keeps it in step.
+
+```go
+type Config struct {
+    Model   string        `argus:"model,required"`
+    Timeout time.Duration `argus:"timeout"`
+    Server  struct {
+        Port int `argus:"port"`
+    } `argus:"server"`
 }
 
-// The most recently loaded remote configuration, and when it arrived.
-config, loadedAt, err := watcher.RemoteConfig()
-
-// Graceful shutdown for Kubernetes deployments
-defer watcher.GracefulShutdown(30 * time.Second)
+bound, err := argus.Bind[Config](settings)
+cfg := bound.Value()   // *Config for the revision in force
 ```
 
-The provider for the URL scheme must be registered first — import
-`github.com/agilira/argus-provider-consul` (or redis, or git) for its side effect.
+Every revision is a new value, so the struct an application already holds never
+changes underneath it. A revision that does not satisfy a bound type is
+refused, and the last good value keeps serving. `Value()` costs 0.5 ns;
+building one costs ~900 ns, once per revision.
 
-### Directory Watching
-```go
-// Watch entire directory for config files with pattern filtering
-watcher, err := argus.WatchDirectory("/etc/myapp/config.d", argus.DirectoryWatchOptions{
-    Patterns:  []string{"*.yaml", "*.json"},
-    Recursive: true,
-    ErrorHandler: func(err error, path string) {
-        log.Printf("argus: %s: %v", path, err) // a file that will not parse
-    },
-}, func(update argus.DirectoryConfigUpdate) {
-    if update.IsDelete {
-        fmt.Printf("Config removed: %s\n", update.FilePath)
-    } else {
-        fmt.Printf("Config updated: %s\n", update.FilePath)
-    }
-})
-defer watcher.Close()
+### Audit
 
-// Merged config from all files (alphabetical order, later overrides earlier)
-watcher, err := argus.WatchDirectoryMerged("/etc/myapp/config.d", argus.DirectoryWatchOptions{
-    Patterns: []string{"*.yaml"},
-}, func(merged map[string]interface{}, files []string) {
-    // 00-base.yaml + 10-override.yaml = merged config
-    applyConfig(merged)
-})
-```
+`Audit()` records every revision to the unified trail, `AuditTo(logger)` to one
+the application owns. Changes are recorded by name and hash, never by content.
 
 ### CLI Usage
 ```bash
@@ -261,10 +303,15 @@ Built-in parsers optimized for rapid deployment with full specification complian
 
 ## Core Framework
 
+The layer underneath `Setup`, for the jobs it does not cover: writing
+configuration files, and binding a parsed map onto variables.
+
 ### ConfigWriter System
 Atomic configuration file management with type-safe operations across all supported formats:
 
 ```go
+config := map[string]interface{}{}
+
 // Create writer with automatic format detection
 writer, err := argus.NewConfigWriter("config.yaml", argus.FormatYAML, config)
 if err != nil {
@@ -289,7 +336,15 @@ exists := writer.DeleteValue("old.setting")   // Removes key if exists
 
 ### Configuration Binding
 
+Binds a parsed configuration map onto package-level variables. For a struct
+kept in step with a running `Settings`, see [Binding](#binding).
+
 ```go
+config, err := argus.LoadConfigMultiSource("config.yaml")
+if err != nil {
+    return err
+}
+
 // Ultra-fast configuration binding - zero reflection
 var (
     dbHost     string
@@ -366,7 +421,7 @@ config := argus.AuditConfig{
 - **[Orpheus CLI Integration](./docs/cli-integration.md)** - Complete CLI documentation and examples
 - **[API Reference](./docs/API-REFERENCE.md)** - Complete API documentation  
 - **[Audit System](./docs/audit-system.md)** - Comprehensive audit and compliance guide
-- **[Examples](./examples/)** - Production-ready configuration patterns
+- **[Examples](./examples/)** - Production-ready configuration patterns, starting with [settings](./examples/settings/)
 
 ## License
 

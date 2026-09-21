@@ -10,16 +10,52 @@
 //
 // # Architecture Overview
 //
-// Argus consists of six integrated subsystems:
-//  1. **BoreasLite Ring Buffer**: MPSC event processing, 12.6ns per write (79M ops/sec)
-//  2. **Universal Format Parsers**: Support for JSON, YAML (1.2 spec via yaml.v3), TOML, HCL, INI, Properties
-//  3. **Zero-Reflection Config Binding**: Type-safe binding with unsafe.Pointer optimization
-//  4. **Comprehensive Audit System**: Security and compliance logging with SQLite backend
-//  5. **Security Hardening Layer**: Multi-layer protection against path traversal and DoS attacks;
+// Argus consists of seven integrated subsystems:
+//  1. **Settings**: Setup merges files, directories, environment, flags, remote
+//     providers and documents into validated, atomically swapped revisions
+//     (see Setup, Settings and Document)
+//  2. **BoreasLite Ring Buffer**: MPSC event processing, 12.6ns per write (79M ops/sec)
+//  3. **Universal Format Parsers**: Support for JSON, YAML (1.2 spec via yaml.v3), TOML, HCL, INI, Properties
+//  4. **Zero-Reflection Config Binding**: Type-safe binding with unsafe.Pointer optimization
+//  5. **Comprehensive Audit System**: Security and compliance logging with SQLite backend
+//  6. **Security Hardening Layer**: Multi-layer protection against path traversal and DoS attacks;
 //     all external trust boundaries covered by adversarial fuzz targets (FuzzDetectFormat,
 //     FuzzParseConfig, FuzzLoadConfigFromEnv, FuzzValidateSecurePath, FuzzConfigBinder,
-//     FuzzValidateConfigFile, FuzzLoadConfigMultiSource)
-//  6. **Remote Configuration**: Distributed config management with graceful failover
+//     FuzzValidateConfigFile, FuzzLoadConfigMultiSource, FuzzQuery_Filter,
+//     FuzzEnvKeyName, FuzzDocumentName, FuzzDocumentPattern); "make fuzz"
+//     discovers and runs every one of them
+//  7. **Remote Configuration**: Distributed config management with graceful failover
+//
+// # Setup
+//
+// Setup declares where an application's configuration comes from and returns a
+// handle on one revision of it.
+//
+//	settings, err := argus.Setup("agent").
+//		File("config.json").
+//		Env("AGENT_").
+//		Documents("prompts", "prompts/*.md").
+//		Start()
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//	defer settings.Close()
+//
+//	model := settings.GetString("model")
+//	prompt, _ := settings.Doc("prompts", "system")
+//
+// Sources merge in a fixed order — overrides, flags, environment, files and
+// directories, remote, defaults — and everything readable at an instant belongs
+// to one revision. A reload builds a candidate, validates it and swaps it in
+// atomically; a candidate that does not hold together leaves the previous
+// revision serving.
+//
+// A system prompt or a skill is read as text, in a namespace of its own. Bind
+// maps a revision onto a struct type and delivers a new value for each
+// revision. Settings.Digest is the content identity of a revision, so that a
+// run can name the configuration and the prompts it ran on in a way that
+// still means something on another machine. See Settings, SetupBuilder,
+// Document and Bind.
 //
 // # Universal Configuration Watching
 //

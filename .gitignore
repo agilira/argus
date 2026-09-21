@@ -17,6 +17,7 @@ examples/error_handling/error_handling_example
 examples/multi_source_config/multi_source_config
 examples/optimization_strategies/optimization_strategies_demo
 examples/otel_integration/argus-otel-example
+examples/settings/settings
 
 # Output of the go coverage tool, specifically when used with LiteIDE
 *.out

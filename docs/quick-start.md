@@ -1,5 +1,31 @@
 # Argus Quick Start Guide
 
+## Start here: argus.Setup
+
+Most applications want one call that says where configuration comes from and
+hands back something to read it with:
+
+```go
+settings, err := argus.Setup("myapp").
+    File("config.json").
+    Env("MYAPP_").
+    Start()
+if err != nil {
+    log.Fatal(err)
+}
+defer settings.Close()
+
+port := settings.GetInt("port")
+```
+
+Sources merge in a fixed order — overrides, flags, environment, files and
+directories, remote, defaults — and a reload swaps a whole validated revision
+in at once. See [the API reference](./API-REFERENCE.md#setup-and-settings) for
+documents, `OnReload` and `Explain`.
+
+The rest of this guide covers the layer underneath: the watcher, the parsers
+and the directory watching.
+
 ## 30-Second Setup
 
 ### 1. Install Argus

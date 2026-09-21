@@ -1,10 +1,18 @@
 # Argus API Reference
 
-**Quick Navigation:** [Core Types](#core-types) | [ConfigWriter](#configwriter-system) | [ConfigBinder](#configuration-binding-system) | [Parsers](#configuration-file-parsing) | [Error Codes](#error-codes) | [Utils](#global-utility-functions)
+**Quick Navigation:** [Setup and Settings](#setup-and-settings) | [Core Types](#core-types) | [ConfigWriter](#configwriter-system) | [ConfigBinder](#configuration-binding-system) | [Parsers](#configuration-file-parsing) | [Error Codes](#error-codes) | [Utils](#global-utility-functions)
 
 ---
 
 ## Table of Contents
+
+### [Setup and Settings](#setup-and-settings)
+- [Setup](#setup) - The one advertised entry point
+- [SetupBuilder](#setupbuilder) - Declaring sources
+- [Settings](#settings) - Reading a revision
+- [Documents](#documents) - Text files, read unparsed
+- [Binding](#binding) - A struct per revision
+- [Change and Explain](#change-and-explain) - What moved, and where values came from
 
 ### [Core Types](#core-types)
 - [Watcher](#watcher) - Main file watching functionality
@@ -47,6 +55,201 @@
 - [Global Utility Functions](#global-utility-functions) - Helper functions and utilities
 
 ---
+
+## Setup and Settings
+
+`Setup` gathers every configuration source behind one call and returns a
+handle on one revision of the result. Local sources are watched on the
+staleness budget, the remote on its own interval; a remote that stops
+answering keeps serving what it last gave, reported as `stale`. The watcher, the directory watcher, the
+config manager and the remote loader are documented in the sections below.
+
+### Setup
+
+```go
+func Setup(app string) *SetupBuilder
+```
+
+Starts describing where an application's configuration comes from. The name
+identifies the application in audit records and in `Explain`. Nothing is read
+until `Start`.
+
+### SetupBuilder
+
+Every method returns the builder. An undeclared source is switched off.
+
+| Method | Effect |
+|---|---|
+| `File(path string)` | Read a configuration file. Repeatable; a later file wins. Missing or unparseable refuses the load. |
+| `FileIfPresent(path string)` | The same, except that a file which is not there is not an error. One that is there and does not parse still is. |
+| `Dir(path string)` | Read every configuration file in a directory, merged in name order. |
+| `DirPatterns(patterns ...string)` | Narrow what `Dir` considers a configuration file. Default: `*.yaml`, `*.yml`, `*.json`, `*.toml`, `*.ini`. |
+| `Env(prefix string)` | Read the environment. `server.port` under `APP_` is `APP_SERVER_PORT`; dots and dashes become underscores. An empty prefix is legal. |
+| `Flags(fs *flashflags.FlagSet)` | Put an already-parsed flag set on top. Argus never declares flags, prints help or exits. |
+| `Overrides(map[string]interface{})` | Values that outrank every other source — for an application that parsed its own command line. |
+| `Defaults(map[string]interface{})` | Values used when nothing else supplies a key. |
+| `Remote(url string, opts ...*RemoteConfigOptions)` | A remote provider, below the local files. |
+| `RemoteInterval(d time.Duration)` | How often the remote is read again. Default 30s. A local file change never triggers a network call. |
+| `Documents(group, pattern string)` | Text files read unparsed. A path, or a directory and a glob; `**` walks the tree. |
+| `RequiredDocuments(group, pattern string)` | The same, for documents the application cannot run without. |
+| `DocumentLimits(maxBytes, maxTotalBytes int64, maxDocuments int)` | Defaults: 1 MB, 16 MB, 1000. |
+| `Audit()` / `AuditTo(*AuditLogger)` | Record every revision to the unified trail, or to one the application owns. |
+| `MaxStaleness(d time.Duration)` | How long a change may go unnoticed. A budget, not a mechanism. Default 1s. |
+| `Timeout(d time.Duration)` | Bounds the first load, so a slow remote fails instead of hanging. Default 10s. |
+| `OnReload(func(*Settings, Change))` | Called after a new revision is published. |
+| `OnError(func(error))` | Called when a reload fails and the previous revision was kept. |
+| `Start() (*Settings, error)` | Loads everything once, synchronously, and starts watching. |
+
+Precedence is fixed and not configurable:
+
+```
+overrides > flags > environment > files and directories > remote > defaults
+```
+
+`Start` returns an error when the first load does not come together: a declared
+file that is missing or does not parse, a required document that is absent, a
+remote that is the only source and is unreachable.
+
+### Settings
+
+A running configuration: one revision of keys and documents, replaced whole
+when the sources change. It is read-only, and several handles coexist in one
+process without a global instance.
+
+| Method | Returns |
+|---|---|
+| `GetString`, `GetInt`, `GetBool`, `GetDuration`, `GetFloat64`, `GetStringSlice` | The value, or the zero value when no source supplies the key. `GetStringSlice` also accepts a comma-separated string, which is all an environment variable can carry. |
+| `Sub(prefix string) *Settings` | A view of one subtree — one agent, one tenant. Closing it does nothing. |
+| `Doc(group, name string) (Document, bool)` | One document. |
+| `Docs(group string) []Document` | Every document in a group, in name order. |
+| `Revision() uint64` | The revision in force. It advances only when something changed: a file whose timestamp moved but whose content did not does not spend one. |
+| `Digest() string` | The content identity of that revision: the same values and documents give the same digest on any machine. |
+| `Explain() Explanation` | Where each key came from, how every source is doing, what is watching. |
+| `argus.Bind[T](s)` | A struct kept in step with the configuration. See [Binding](#binding). |
+| `Close() error` | Stops watching, flushes the audit trail. Idempotent. When it returns no cycle is running; a callback already running is not waited for. |
+
+### Documents
+
+```go
+type Document struct {
+    Group, Name, Path string
+    Size              int64
+    ModTime           time.Time
+    Hash              string // SHA-256 of the content; what the audit records
+    Revision          uint64 // the revision this content arrived in
+}
+
+func (d Document) String() string // the content
+func (d Document) Bytes() []byte  // a copy of it
+func (d Document) ID() DocumentID
+```
+
+Documents are read, never parsed: `.md` does not reach `DetectFormat` or
+`ParseConfig`. They are addressed as `(group, name)` — the base name without
+extension, or the path under the directory for a `**` pattern — in a namespace
+of their own, so a document and a key may share a name.
+
+A directory is scanned each cycle, so a new skill is picked up. What is left
+out is reported: a symlink resolving outside the directory, a FIFO or socket, a
+file over the cap, a file rewritten as it is read (stat, read, stat again), a
+name two files share.
+
+### Binding
+
+```go
+func Bind[T any](s *Settings) (*Bound[T], error)
+
+func (b *Bound[T]) Value() *T
+func (b *Bound[T]) Revision() uint64
+```
+
+`Bind` maps a revision onto a struct type and keeps it in step. Only tagged
+fields are bound; a nested struct is read under its own tag.
+
+```go
+type Config struct {
+    Model   string        `argus:"model,required"`
+    Timeout time.Duration `argus:"timeout"`
+    Server  struct {
+        Port int `argus:"port"`
+    } `argus:"server"`     // reads server.port
+}
+
+bound, err := argus.Bind[Config](settings)
+cfg := bound.Value()
+```
+
+Field types: `string`, `int`, `int64`, `bool`, `float64`, `time.Duration`,
+`[]string`, and structs of those. Anything else is an error at `Bind`, as is a
+`required` key that no source supplies.
+
+Binding is strict where the getters are lenient: a key whose value cannot
+become the field's type is an error naming the field, the key and the value.
+`GetInt("port")` on `port: "eight thousand"` returns 0 by contract; binding it
+refuses.
+
+Every revision produces a new value. `Value()` returns the one for the revision
+in force and never rewrites a struct already handed out. From the moment a type
+is bound, a revision that does not satisfy it is refused: the error handler is
+told and the last good value keeps serving.
+
+The field plan is worked out once, from the type. Reading is an atomic load
+(0.5 ns); building a value costs about 900 ns, once per revision.
+
+### Change and Explain
+
+```go
+type Change struct {
+    Revision  uint64
+    Keys      []string     // dotted, e.g. "server.port"
+    Documents []DocumentID
+}
+
+func (c Change) HasKey(key string) bool
+func (c Change) HasDocument(group, name string) bool
+```
+
+`Change` carries names, never values.
+
+```go
+type Explanation struct {
+    App          string
+    Revision     uint64
+    Digest       string        // content identity of the revision
+    Backend      string        // what Setup chose to watch with
+    MaxStaleness time.Duration
+    Keys         map[string]Source
+    Sources      []SourceStatus // loaded, stale, failed, absent
+    Documents    DocumentSummary
+    Issues       []string
+    LastRefusal  *Refusal      // nil when the last cycle came to an end
+}
+
+func (e Explanation) KeySource(key string) Source
+
+type Refusal struct {
+    Reason   string
+    At       time.Time
+    Cycles   int    // consecutive refused cycles
+    Revision uint64 // the one still in force
+}
+```
+
+`Revision` is a counter and is local to one process. `Digest` is the content
+identity: two instances resolving every key to the same value and holding the
+same documents share it, whatever supplied those values, and it survives a
+restart. Values are compared as they render, so two spellings of one number
+are two values; a key that exists only in the environment and is named by no
+other layer cannot be enumerated and is in neither `Digest` nor `Keys`.
+
+`LastRefusal` is where a candidate that did not become a revision goes. An
+application that declares no `OnError` can still see that what it is serving
+is not what is on disk.
+
+`Explanation` marshals as JSON, for a log line or a debug endpoint. `Source`
+is one of `SourceOverride`, `SourceFlag`, `SourceEnv`, `SourceFile`,
+`SourceRemote`, `SourceDefault` or `SourceNone`, and marshals as its name.
+
 
 ## Core Types
 
