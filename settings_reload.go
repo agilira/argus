@@ -137,6 +137,13 @@ type reloader struct {
 	// lastRemote is when the remote provider was last read.
 	lastRemote time.Time
 
+	// now is the clock. It is time.Now everywhere but in tests, which drive it
+	// rather than sleeping: a remote interval measured against a real clock is
+	// a test that depends on the granularity of the platform's timer, and on
+	// Windows that granularity is coarse enough to make a short interval never
+	// elapse at all.
+	now func() time.Time
+
 	// lastError is the failure already reported. A file that stays broken is
 	// worth saying once, not at every poll.
 	lastError string
@@ -169,6 +176,9 @@ type cycleOutcome struct {
 func (r *reloader) start() error {
 	if r.backend == nil {
 		r.backend = &pollBackend{interval: defaultStaleness}
+	}
+	if r.now == nil {
+		r.now = time.Now
 	}
 
 	if outcome := r.attempt(true); outcome.err != nil {
@@ -325,7 +335,7 @@ func (r *reloader) worthBuilding() bool {
 // remoteDue reports whether the remote provider should be read again. It
 // changes without anything happening on disk, so it has a clock of its own.
 func (r *reloader) remoteDue() bool {
-	return r.sources.remote != "" && time.Since(r.lastRemote) >= r.sources.remoteInterval
+	return r.sources.remote != "" && r.now().Sub(r.lastRemote) >= r.sources.remoteInterval
 }
 
 // buildCandidate assembles one candidate revision, bounded by the load
@@ -346,7 +356,7 @@ func (r *reloader) buildCandidate(initial bool) (*snapshot, error) {
 		return nil, err
 	}
 	if fetchRemote {
-		r.lastRemote = time.Now()
+		r.lastRemote = r.now()
 	}
 
 	return candidate, nil
@@ -364,7 +374,7 @@ func (r *reloader) fail(err error) cycleOutcome {
 	}
 	r.refusal.Store(&Refusal{
 		Reason:   err.Error(),
-		At:       time.Now(),
+		At:       r.now(),
 		Cycles:   cycles,
 		Revision: r.res.revision(),
 	})

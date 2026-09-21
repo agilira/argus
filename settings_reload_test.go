@@ -14,6 +14,13 @@ import (
 	"time"
 )
 
+// skipAhead moves the settings' clock forward, so that anything on a timer —
+// the remote interval — falls due without the test waiting for it.
+func skipAhead(s *Settings, d time.Duration) {
+	offset := d
+	s.core.reloader.now = func() time.Time { return time.Now().Add(offset) }
+}
+
 // handBackend is a change backend driven by the test instead of by a clock.
 // Coalescing tested against wall-clock timing is a test that fails on a busy
 // machine and proves nothing on a quiet one.
@@ -387,7 +394,6 @@ func TestReload_RecoversWhenTheRemoteComesBack(t *testing.T) {
 	settings, err := Setup("service").
 		File(writeDoc(t, filepath.Join(t.TempDir(), "config.json"), `{"local": true}`)).
 		Remote(url, &RemoteConfigOptions{RetryAttempts: 1, RetryDelay: time.Millisecond}).
-		RemoteInterval(time.Nanosecond).
 		OnError(func(err error) { failures <- err }).
 		Start()
 	if err != nil {
@@ -395,6 +401,7 @@ func TestReload_RecoversWhenTheRemoteComesBack(t *testing.T) {
 	}
 	defer func() { _ = settings.Close() }()
 	settings.core.reloader.backend = backend
+	skipAhead(settings, time.Hour)
 	_ = backend.start(settings.core.reloader.cycle)
 
 	if got := settings.GetInt("port"); got != 0 {
@@ -427,13 +434,13 @@ func TestReload_RefreshesTheRemote(t *testing.T) {
 	settings, err := Setup("service").
 		File(writeDoc(t, filepath.Join(t.TempDir(), "config.json"), `{"local": true}`)).
 		Remote(url).
-		RemoteInterval(time.Nanosecond).
 		Start()
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 	defer func() { _ = settings.Close() }()
 	settings.core.reloader.backend = backend
+	skipAhead(settings, time.Hour)
 	_ = backend.start(settings.core.reloader.cycle)
 
 	if got := settings.GetInt("port"); got != 8080 {
@@ -552,13 +559,13 @@ func TestReload_RemoteFailingLaterKeepsItsLastValues(t *testing.T) {
 	settings, err := Setup("service").
 		File(config).
 		Remote(url, &RemoteConfigOptions{RetryAttempts: 1, RetryDelay: time.Millisecond}).
-		RemoteInterval(time.Nanosecond).
 		Start()
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 	defer func() { _ = settings.Close() }()
 	settings.core.reloader.backend = backend
+	skipAhead(settings, time.Hour)
 	_ = backend.start(settings.core.reloader.cycle)
 
 	if got := settings.GetString("remote_key"); got != "from-remote" {
@@ -594,13 +601,13 @@ func TestExplain_ReportsAStaleRemote(t *testing.T) {
 	settings, err := Setup("service").
 		File(config).
 		Remote(url, &RemoteConfigOptions{RetryAttempts: 1, RetryDelay: time.Millisecond}).
-		RemoteInterval(time.Nanosecond).
 		Start()
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 	defer func() { _ = settings.Close() }()
 	settings.core.reloader.backend = backend
+	skipAhead(settings, time.Hour)
 	_ = backend.start(settings.core.reloader.cycle)
 
 	provider.fail.Store(true)

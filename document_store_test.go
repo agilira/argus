@@ -440,6 +440,12 @@ func TestDocumentStore_GlobRootOfARootedPattern(t *testing.T) {
 // extension, as far as filepath is concerned, is "." — stripping it leaves
 // "..". Such a file is left out with a reason, and its neighbours still load.
 func TestDocumentStore_UnnameableFileIsSkipped(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		// Windows reads "..." as a path, not as a file name, so the case
+		// cannot be set up there. The derivation it guards is the same on
+		// every platform and is covered by FuzzDocumentName.
+		t.Skip("a file named \"...\" cannot be created on Windows")
+	}
 	dir := t.TempDir()
 	writeDoc(t, filepath.Join(dir, "system.md"), "be careful")
 	writeDoc(t, filepath.Join(dir, "..."), "nonsense")

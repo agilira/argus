@@ -215,10 +215,25 @@ func TestRemoteConfig_RetryUsesExponentialBackoff(t *testing.T) {
 		t.Fatalf("provider was called %d times, want exactly 3 (initial + MaxRetries)", len(attempts))
 	}
 
-	first := attempts[1].Sub(attempts[0])
-	second := attempts[2].Sub(attempts[1])
-	if second < first*3/2 {
-		t.Errorf("retry gaps were %v then %v, want the second roughly double the first", first, second)
+	// Each gap is measured against the documented schedule rather than
+	// against the other one. A busy machine only ever makes a gap longer, so
+	// a lower bound survives a loaded CI runner; comparing the two gaps does
+	// not, because an inflated first gap breaks a ratio that the second one
+	// honoured exactly. Linear backoff still fails this: its second gap would
+	// be one RetryDelay, well under two.
+	tolerance := cfg.RetryDelay / 4
+	gaps := []struct {
+		measured time.Duration
+		want     time.Duration
+	}{
+		{attempts[1].Sub(attempts[0]), cfg.RetryDelay},
+		{attempts[2].Sub(attempts[1]), 2 * cfg.RetryDelay},
+	}
+	for i, gap := range gaps {
+		if gap.measured+tolerance < gap.want {
+			t.Errorf("retry %d waited %v, want at least %v (RetryDelay * 2^%d)",
+				i+1, gap.measured, gap.want, i)
+		}
 	}
 }
 
