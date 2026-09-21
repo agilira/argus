@@ -1,0 +1,282 @@
+argus v1.7.0 — the front door
+=============================
+
+Released: (unreleased)
+Commit:   (see git log)
+Authors:  Antonio Giordano
+
+STATUS: MINOR — additive. Nothing existing changed behaviour; every one of the
+ten older entry points works exactly as it did.
+
+
+WHY
+---
+
+Argus had about ten entry points and every one of them was named after a
+mechanism: New+Watch, UniversalConfigWatcher, ...WithConfig,
+GenericConfigWatcher, SimpleFileWatcher, WatchDirectory, WatchDirectoryMerged,
+WatchRemoteConfig, NewConfigManager, LoadConfigMultiSource. An application had
+to know which machine it wanted before it could say what it needed.
+
+This release adds one entry point named after the job, and the README now
+advertises that one alone. The others stay, documented in the API reference.
+
+
+ADDED
+-----
+
+1. argus.Setup — the one advertised entry point.
+
+     settings, err := argus.Setup("agent").
+         File("config.json").
+         Env("AGENT_").
+         Documents("prompts", "prompts/*.md").
+         Start()
+     defer settings.Close()
+
+   Setup returns a builder; Start returns *argus.Settings, a handle on one
+   revision of the configuration. Sources merge in a fixed order that cannot
+   be reordered:
+
+     overrides > flags > environment > files/directories > remote > defaults
+
+   The local file sits above the remote deliberately: it is the emergency
+   override when the remote is unreachable or wrong.
+
+   File insists that the file is there; FileIfPresent does not, which is the
+   "/etc/myapp.json if somebody put one there" case that otherwise made every
+   application stat the path itself. Absent is not an error; present and
+   unparseable still is, because a file somebody wrote and got wrong is not
+   the same as a file nobody wrote.
+
+   Two holes the old doors had are closed here. The environment is a
+   first-class source: ConfigManager only reached a variable through a
+   *declared flag*, with the prefix forced to the application name, so an
+   application with no flags saw no environment at all. And no path in this
+   API calls os.Exit, so Argus can be embedded in somebody else's library.
+
+2. Documents — configuration that is text.
+
+   Everything else in Argus assumes a file parses into a map. A system prompt
+   in prompts/system.md or a skill in skills/summarize.md had no path through
+   the library.
+
+     .Documents("prompts", "prompts/*.md")
+     .RequiredDocuments("skills", "skills/**/*.md")
+
+     doc, ok := settings.Doc("prompts", "system")
+     doc.String()   // the content
+     doc.Hash       // SHA-256, what the audit trail records
+
+   Read, never parsed: .md does not reach DetectFormat or ParseConfig, so the
+   attack surface of a parser is absent because there is no parser. Documents
+   live in their own namespace, addressed as (group, name), and cannot collide
+   with keys.
+
+   Caps: 1 MB per document, 16 MB in total, 1000 documents. An oversized
+   *optional* document is skipped and reported; a *required* one that is
+   missing or unreadable refuses the whole load.
+
+3. Revisions, and a validated swap.
+
+   Everything readable at an instant belongs to one revision. A reload builds
+   a candidate, validates it, and swaps it in atomically. A candidate that
+   does not hold together is dropped whole: the current revision stays, the
+   error handler is told, the audit records the refusal, and the next cycle
+   tries again. Somebody saving a broken YAML over a running service no longer
+   takes its configuration away.
+
+   Five files saved together are one revision, not five. A cycle stats the
+   declared paths first and builds only when something moved.
+
+4. Typed binding, with a new value per revision.
+
+     type Config struct {
+         Model   string        `argus:"model,required"`
+         Timeout time.Duration `argus:"timeout"`
+         Server  struct {
+             Port int `argus:"port"`
+         } `argus:"server"`
+     }
+
+     bound, err := argus.Bind[Config](settings)
+     cfg := bound.Value()
+
+   Every revision produces a new value, and Value returns the one in force.
+   Argus never writes into a struct the application is already reading: that
+   is a data race inside user code, and no locking on this side removes it.
+
+   From the moment a type is bound, a revision that does not satisfy it is
+   refused — a required key that goes missing keeps the last good value
+   serving rather than zeroing a field.
+
+   The field plan is worked out once, from the type. Reading is an atomic load
+   at 0.5 ns and no allocation; building a value costs about 900 ns, once per
+   revision.
+
+   ConfigBinder is unchanged and still binds package-level variables with no
+   reflection at all.
+
+5. Change and Explain.
+
+   OnReload receives what moved by name: Change.Keys (dotted, e.g.
+   "server.port") and Change.Documents. Never the values — a prompt cannot
+   travel into a log line through a callback argument.
+
+   Explain() returns a struct, not a string, so it marshals as JSON for a
+   debug endpoint: the revision in force, which source supplied each key, the
+   state of every source (loaded, failed, absent), how many documents and how
+   many bytes, and what Setup chose to watch the filesystem with.
+
+6. The remote has its own clock.
+
+   RemoteInterval, 30 seconds by default, says how often the provider is read
+   again. A local file save rebuilds the revision without calling the network,
+   and a provider that stops answering keeps serving what it last gave —
+   losing a key over a network blip would be worse than serving it a little
+   stale. Explain reports that source as "stale" rather than "failed", which
+   are different things to whoever is reading it.
+
+7. Revision digest: the content identity of a configuration.
+
+     settings.Digest()        // "3f9c..."
+     settings.Explain().Digest
+
+   Revision is a counter, and a counter is local to one process: two instances
+   running the same configuration have unrelated numbers, and a restart puts
+   the count back to one. The digest is a hash of what the revision holds —
+   every key a layer names, resolved through the whole precedence, and every
+   document by hash — so that "this run used configuration 3f9c" means the
+   same thing on another machine and after a restart.
+
+   It ignores which source supplied a value: the same port from a file and
+   from an environment variable is the same configuration. Values are compared
+   as they render, so two spellings of one number are two values, and a key
+   that exists only in the environment, named by no other layer, cannot be
+   enumerated and is not part of it.
+
+   Every audit record of a revision carries it.
+
+8. Explain reports a refused candidate.
+
+   A candidate that does not hold together never becomes a revision, so until
+   now its error existed only if the application had an OnError handler. An
+   instance could be serving configuration that no longer matched the disk and
+   have no way to say so.
+
+     settings.Explain().LastRefusal   // reason, when, consecutive cycles,
+                                      // and the revision still in force
+
+   State rather than a side effect: no default logger appears, no database is
+   created, and silence is no longer possible for anybody who looks.
+
+9. Audit of configuration changes.
+
+   Audit() records to the unified trail, AuditTo(logger) to one the
+   application already owns. Each swap records the revision and what changed
+   by name and hash; a refusal records the reason. The system prompt never
+   reaches the audit database. A logger Argus opened is closed by Close; one
+   the application supplied is only flushed.
+
+
+NOT IN THIS RELEASE
+-------------------
+
+The writer stays where it is: editing configuration is the CLI's job.
+
+The builder has no .Poll() or .Notify(): Setup chooses the backend and Explain
+reports it. That is what lets fsnotify arrive as pure addition.
+
+
+ALSO
+----
+
+Binding is strict where the getters are lenient. GetInt on a value that is not
+a number returns zero, by a contract older than this release; a bound field
+refuses, naming the field, the key and the value. A port written as "eihgt
+thousand" is a mistake somebody made, not a zero.
+
+A revision that fails to build is reported once, not at every poll. A file
+that stays broken has nothing new to say until it changes.
+
+Entries a configuration directory cannot use — a symlink resolving outside it,
+a pipe, something unreadable — are reported through Explain, as skipped
+documents already were.
+
+Source marshals as its name. Explain is meant to be logged or served on a
+debug endpoint, and "source": 4 tells the operator reading it nothing;
+"source": "file" does. It reads back too, and an unknown name is an error
+rather than a silent SourceNone.
+
+A revision is spent only when something changed. The cycle used to publish
+whenever the fingerprint moved, so touching a file — or kubelet remounting a
+ConfigMap, which moves every timestamp under ..data — advanced the revision of
+an application whose configuration was exactly what it had been.
+
+
+SECURITY
+--------
+
+The document store takes paths and file contents from outside the process, so
+it is tested as a hostile surface:
+
+  - a symlink resolving outside the documents directory is skipped, while one
+    resolving inside is followed — a Kubernetes ConfigMap mount is a directory
+    of symlinks into ..data, and refusing symlinks outright would make Argus
+    useless there
+  - a symlink loop is skipped rather than followed
+  - a FIFO, device or socket is skipped: os.ReadFile on a named pipe blocks
+    until somebody writes, which would hang the reload for ever. The store
+    stats before it opens
+  - a file rewritten while it is being read is discarded and retried next
+    cycle (stat, read, stat), so half a saved prompt never reaches the
+    application
+  - a required document that is unreadable by permissions refuses the load
+  - two files that would map to the same name refuse the load rather than let
+    directory order decide
+
+The same two guards — stat before open, and containment after resolving
+symlinks — are applied to configuration directories and to the explicit
+configuration file, which is where they were missing: a FIFO dropped into a
+configuration directory hung the reload for ever, and a symlink out of one was
+merged into the configuration.
+
+Three fuzz targets are new: envKeyName (a key must never read a variable
+outside its prefix), document name derivation, and glob patterns. They found
+three real defects before release — a dotfile resolving to an empty name, a
+file named "..." resolving to "..", and a recursive pattern rooted at / that
+walked the working directory instead.
+
+
+MEASURED
+--------
+
+A quiet cycle — the stat pass that runs at every poll and finds nothing
+changed, including the directory scan:
+
+    10 documents      36.8 us     (3.7 us per file)
+   100 documents     246 us       (2.5 us per file)
+  1000 documents       2.55 ms    (2.5 us per file)
+
+At the default one-second budget, a thousand documents cost about 0.25% of a
+core to watch. At 200 ms, about 1.3%.
+
+Reads from the handle:
+
+  GetString, flat key        29.8 ns    0 allocs
+  GetString, nested key     196.5 ns    1 alloc   (the dotted path is split)
+  Doc                         8.7 ns    0 allocs
+
+Measured on an 8-core Linux box, Go 1.25.9, with benchmarks now in the repo
+(settings_bench_test.go).
+
+
+QUALITY GATES
+-------------
+
+  gofmt -l .              PASS (clean)
+  go vet ./...            PASS
+  staticcheck ./...       PASS (0 issues)
+  gosec -conf .gosec.json PASS (0 issues)
+  go test ./...           PASS
+  go test -race ./...     PASS
