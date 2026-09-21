@@ -128,6 +128,7 @@ examples/cli/argus-cli
 
 # Local dev notes (not for public repo)
 TODO_LOCAL.md
+DIRECTION.md
 
 # The CLI binary `make build` drops in the repository root. Anchored with a
 # leading slash: the bare pattern `argus` also matched the cmd/cli/argus

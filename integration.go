@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"sync"
 	"time"
 
 	flashflags "github.com/agilira/flash-flags"
@@ -60,9 +59,10 @@ func IsHelpRequested(err error) bool {
 //  4. flags        — the default declared when the flag was registered
 //  5. SetDefault   — a default for a key with no registered flag
 //
-// Layers 3 and 5 live in maps guarded by mu, because WatchConfigFile reloads
-// the file from the watcher's goroutine while the application reads values
-// from its own.
+// The layers themselves live in a resolver, which guards them, because
+// WatchConfigFile reloads the file from the watcher's goroutine while the
+// application reads values from its own. The same resolver serves Settings,
+// so the two doors cannot drift apart in what they mean by precedence.
 type ConfigManager struct {
 	// FlashFlags for ultra-fast command-line parsing
 	flags *flashflags.FlagSet
@@ -75,17 +75,9 @@ type ConfigManager struct {
 	appDescription string
 	appVersion     string
 
-	// mu guards values, fileValues and defaults.
-	mu sync.RWMutex
-
-	// Configuration storage for explicit overrides
-	values map[string]interface{}
-
-	// Values parsed from the configuration file, if one was loaded
-	fileValues map[string]interface{}
-
-	// Fallbacks registered through SetDefault
-	defaults map[string]interface{}
+	// res holds the overrides, the file values and the defaults, and answers
+	// with the value from the highest layer that has the key.
+	res *resolver
 }
 
 // NewConfigManager creates a unified configuration manager with FlashFlags integration.
@@ -98,11 +90,14 @@ type ConfigManager struct {
 //	    SetVersion("1.0.0").
 //	    StringFlag("port", "8080", "Server port")
 func NewConfigManager(appName string) *ConfigManager {
+	flags := flashflags.New(appName)
+	res := newResolver()
+	res.useFlags(flags)
+
 	return &ConfigManager{
-		flags:    flashflags.New(appName),
-		appName:  appName,
-		values:   make(map[string]interface{}),
-		defaults: make(map[string]interface{}),
+		flags:   flags,
+		appName: appName,
+		res:     res,
 	}
 }
 
@@ -215,38 +210,8 @@ func (cm *ConfigManager) ParseArgsOrExit() {
 // environment); in that case the caller reads the typed value straight from
 // FlashFlags rather than converting an interface{}.
 func (cm *ConfigManager) resolve(key string) (value interface{}, fromFlag bool, found bool) {
-	cm.mu.RLock()
-	override, hasOverride := cm.values[key]
-	cm.mu.RUnlock()
-	if hasOverride {
-		return override, false, true
-	}
-
-	if cm.flags.Changed(key) {
-		return nil, true, true
-	}
-
-	cm.mu.RLock()
-	fileValues := cm.fileValues
-	cm.mu.RUnlock()
-	if fileValues != nil {
-		if fileValue, ok := lookupConfigValue(fileValues, key); ok {
-			return fileValue, false, true
-		}
-	}
-
-	if cm.flags.Lookup(key) != nil {
-		return nil, true, true // registered flag: use its declared default
-	}
-
-	cm.mu.RLock()
-	fallback, hasFallback := cm.defaults[key]
-	cm.mu.RUnlock()
-	if hasFallback {
-		return fallback, false, true
-	}
-
-	return nil, false, false
+	got := cm.res.resolve(key)
+	return got.value, got.fromFlag, got.found
 }
 
 // GetString retrieves a string configuration value
@@ -338,9 +303,7 @@ func (cm *ConfigManager) GetStringSlice(key string) []string {
 
 // Set explicitly sets a configuration value (highest precedence)
 func (cm *ConfigManager) Set(key string, value interface{}) {
-	cm.mu.Lock()
-	defer cm.mu.Unlock()
-	cm.values[key] = value
+	cm.res.setOverride(key, value)
 }
 
 // SetDefault registers a fallback for a key with no registered flag (lowest
@@ -350,9 +313,7 @@ func (cm *ConfigManager) Set(key string, value interface{}) {
 // than this one and therefore wins; SetDefault exists for keys that only ever
 // come from a configuration file.
 func (cm *ConfigManager) SetDefault(key string, value interface{}) {
-	cm.mu.Lock()
-	defer cm.mu.Unlock()
-	cm.defaults[key] = value
+	cm.res.setDefault(key, value)
 }
 
 // Configuration File Support
@@ -394,11 +355,7 @@ func (cm *ConfigManager) LoadConfigFile(path string) error {
 			WithContext("path", path)
 	}
 
-	cm.mu.Lock()
-	cm.fileValues = parsed
-	cm.mu.Unlock()
-
-	return nil
+	return cm.res.setFile(parsed)
 }
 
 // Real-Time Configuration Watching

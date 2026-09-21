@@ -73,6 +73,7 @@ const (
 	ErrCodeConfigWriterError      = "ARGUS_CONFIG_WRITER_ERROR"
 	ErrCodeSerializationError     = "ARGUS_SERIALIZATION_ERROR"
 	ErrCodeIOError                = "ARGUS_IO_ERROR"
+	ErrCodeInvalidDocument        = "ARGUS_INVALID_DOCUMENT"
 )
 
 // ChangeEvent represents a file change notification
