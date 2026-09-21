@@ -71,7 +71,7 @@ gosec: ## Run gosec security scanner
 		echo "$(RED)gosec not found. Run 'make tools' to install.$(NC)"; \
 		exit 1; \
 	fi
-	@$(TOOLS_DIR)/gosec ./... || (echo "$(YELLOW)  gosec completed with warnings (may be import-related)$(NC)" && exit 0)
+	@$(TOOLS_DIR)/gosec -quiet ./...
 
 vulncheck: ## Run govulncheck vulnerability scanner
 	@echo "$(YELLOW)Running govulncheck...$(NC)"
@@ -134,21 +134,29 @@ bench: ## Run benchmarks
 	@echo "$(YELLOW)Running benchmarks...$(NC)"
 	go test -bench=. -benchmem ./...
 
-fuzz: ## Run fuzz tests for security critical functions
-	@echo "$(YELLOW)Running fuzz tests...$(NC)"
-	@echo "$(BLUE)Fuzzing ValidateSecurePath for 30 seconds...$(NC)"
-	go test -fuzz=FuzzValidateSecurePath -fuzztime=30s
-	@echo "$(BLUE)Fuzzing ParseConfig for 30 seconds...$(NC)"
-	go test -fuzz=FuzzParseConfig -fuzztime=30s
-	@echo "$(GREEN)Fuzz testing completed!$(NC)"
+# The list of fuzz targets is discovered, not written down. It used to name
+# two of them, and stayed at two while the package grew to ten: a list that
+# has to be kept in step with the code never is.
+FUZZ_TARGETS := $(shell grep -rhoE '^func (Fuzz[A-Za-z0-9_]+)' *_test.go | sed 's/^func //' | sort -u)
 
-fuzz-long: ## Run extended fuzz tests (5 minutes each)
+fuzz: ## Run every fuzz target (30s each)
+	@echo "$(YELLOW)Running fuzz tests...$(NC)"
+	@for target in $(FUZZ_TARGETS); do \
+		echo "$(BLUE)Fuzzing $$target for 30 seconds...$(NC)"; \
+		go test -run='^$$' -fuzz="^$$target$$" -fuzztime=30s . || exit 1; \
+	done
+	@echo "$(GREEN)Fuzz testing completed: $(words $(FUZZ_TARGETS)) targets$(NC)"
+
+fuzz-long: ## Run every fuzz target (5 minutes each)
 	@echo "$(YELLOW)Running extended fuzz tests...$(NC)"
-	@echo "$(BLUE)Fuzzing ValidateSecurePath for 5 minutes...$(NC)"
-	go test -fuzz=FuzzValidateSecurePath -fuzztime=5m
-	@echo "$(BLUE)Fuzzing ParseConfig for 5 minutes...$(NC)"
-	go test -fuzz=FuzzParseConfig -fuzztime=5m
-	@echo "$(GREEN)Extended fuzz testing completed!$(NC)"
+	@for target in $(FUZZ_TARGETS); do \
+		echo "$(BLUE)Fuzzing $$target for 5 minutes...$(NC)"; \
+		go test -run='^$$' -fuzz="^$$target$$" -fuzztime=5m . || exit 1; \
+	done
+	@echo "$(GREEN)Extended fuzz testing completed: $(words $(FUZZ_TARGETS)) targets$(NC)"
+
+fuzz-list: ## List the fuzz targets that make fuzz will run
+	@for target in $(FUZZ_TARGETS); do echo "$$target"; done
 
 fuzz-validate: ## Run fuzz test for ValidateSecurePath only
 	@echo "$(YELLOW)Fuzzing ValidateSecurePath...$(NC)"

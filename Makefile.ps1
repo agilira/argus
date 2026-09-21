@@ -127,9 +127,10 @@ function Invoke-GoSec {
         Write-ColorOutput "gosec not found. Run '.\Makefile.ps1 tools' to install." $Red
         exit 1
     }
-    & "$ToolsDir\gosec.exe" "./..."
+    & "$ToolsDir\gosec.exe" -quiet "./..."
     if ($LASTEXITCODE -ne 0) {
-        Write-ColorOutput "⚠️  gosec completed with warnings (may be import-related)" $Yellow
+        Write-ColorOutput "gosec found issues." $Red
+        exit $LASTEXITCODE
     }
 }
 
@@ -246,30 +247,35 @@ function Invoke-Bench {
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
+# The fuzz targets are discovered, not written down, exactly as in the
+# Makefile. This file used to name two of them and stayed at two while the
+# package grew to eleven.
+function Get-FuzzTargets {
+    Select-String -Path (Get-ChildItem -Filter '*_test.go') -Pattern '^func (Fuzz[A-Za-z0-9_]+)' |
+        ForEach-Object { $_.Matches[0].Groups[1].Value } |
+        Sort-Object -Unique
+}
+
+function Invoke-FuzzTargets {
+    param([string]$FuzzTime, [string]$Label)
+
+    $targets = Get-FuzzTargets
+    foreach ($target in $targets) {
+        Write-ColorOutput "Fuzzing $target for $Label..." $Blue
+        go test -run='^$' "-fuzz=^$target`$" "-fuzztime=$FuzzTime" .
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    }
+    Write-ColorOutput "Fuzz testing completed: $($targets.Count) targets" $Green
+}
+
 function Invoke-Fuzz {
     Write-ColorOutput "Running fuzz tests..." $Yellow
-    Write-ColorOutput "Fuzzing ValidateSecurePath for 30 seconds..." $Blue
-    go test -fuzz=FuzzValidateSecurePath -fuzztime=30s
-    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-    
-    Write-ColorOutput "Fuzzing ParseConfig for 30 seconds..." $Blue
-    go test -fuzz=FuzzParseConfig -fuzztime=30s
-    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-    
-    Write-ColorOutput "Fuzz testing completed!" $Green
+    Invoke-FuzzTargets -FuzzTime '30s' -Label '30 seconds'
 }
 
 function Invoke-FuzzLong {
     Write-ColorOutput "Running extended fuzz tests..." $Yellow
-    Write-ColorOutput "Fuzzing ValidateSecurePath for 5 minutes..." $Blue
-    go test -fuzz=FuzzValidateSecurePath -fuzztime=5m
-    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-    
-    Write-ColorOutput "Fuzzing ParseConfig for 5 minutes..." $Blue
-    go test -fuzz=FuzzParseConfig -fuzztime=5m
-    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-    
-    Write-ColorOutput "Extended fuzz testing completed!" $Green
+    Invoke-FuzzTargets -FuzzTime '5m' -Label '5 minutes'
 }
 
 function Invoke-FuzzValidate {
