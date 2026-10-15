@@ -1,0 +1,98 @@
+argus v1.7.3 — a tag whose own pipeline runs
+============================================
+
+Released: 2026-10-15
+Commit:   (see git log)
+Authors:  Antonio Giordano
+
+STATUS: PATCH — build and CI only. Not one line of the library changed
+between v1.7.2 and this tag; `git diff v1.7.2..v1.7.3 -- '*.go'` is empty
+except for the nested modules' go.mod files. It exists because v1.7.2's own
+pipeline did not run to the end.
+
+
+WHY THIS RELEASE EXISTS
+-----------------------
+
+v1.7.2 was tagged from a tree whose Release workflow fails. The library it
+published is correct and `go get github.com/agilira/argus@v1.7.2` was never
+affected — but the workflow stopped at "Build artifacts", so that release
+carries no CLI binaries, no checksums, no build provenance attestation and
+no SBOM. Only the notes, published by hand.
+
+Three separate faults had to be cleared to get a tag whose pipeline runs
+green from end to end. None of them is in argus.
+
+
+FIXED
+-----
+
+1. The eleven nested modules — every example, cmd/cli, and the two benchmark
+   trees — are their own Go modules and carry argus' dependencies as indirect
+   requirements. v1.7.2's dependency bump updated the root and left all
+   eleven behind. Both the Submodules job and the release build run with
+   -mod=readonly, so each failed with "updates to go.mod needed". cmd/cli is
+   what stopped the release: no binaries were ever built.
+
+   All eleven are tidied, then built and tested individually.
+
+2. gosec was installed as @latest, which resolves to v2.29.0 (August 2026).
+   That release builds against golang.org/x/tools v0.49.0, whose importer
+   reads export data up to version 4, while the runners' Go — 'stable', now
+   1.27.2 — emits version 5:
+
+     internal error in importing "context" (cannot decode "context",
+     export data version 5 is greater than maximum supported version 4)
+
+   gosec type-checked nothing, then exited 1 while reporting "Issues: 0", so
+   the Test Suite job failed before the race tests ran — on main and on every
+   open pull request, with nothing wrong in the code. It passed locally only
+   because the local toolchain is 1.25.9 and still writes version 4.
+
+   Pinned to the first gosec commit carrying x/tools v0.52.0. Both the
+   failure and the fix were reproduced locally under GOTOOLCHAIN=go1.27.2.
+   Pinned rather than @master so the gate stays reproducible; the comment in
+   the workflow says to return to @latest once a release ships that
+   dependency.
+
+3. Every action across the five workflows moved to its current major, after
+   the runners warned that actions/checkout@v4 and actions/setup-go@v5 were
+   being forced off Node 20:
+
+     actions/checkout                 v4, v5 -> v7
+     actions/setup-go                     v5 -> v7
+     actions/cache                        v4 -> v6
+     codecov/codecov-action               v4 -> v7
+     actions/attest-build-provenance      v1 -> v4
+     actions/attest-sbom                  v1 -> v4
+     softprops/action-gh-release          v2 -> v3
+     github/codeql-action init+analyze    v3 -> v4
+
+   One input changed: codecov's `file` is now `files`. Every other input in
+   use was checked against the new action.yml rather than assumed.
+
+   ubuntu-latest is deliberately left alone. Its migration to Ubuntu 26 on
+   19 October is a notice, not a deprecation, and riding it is how the move
+   gets tested.
+
+
+DEPENDENCIES
+------------
+
+Unchanged from v1.7.2, in the root module. The nested modules' go.mod files
+catch up to it.
+
+
+QUALITY GATES
+-------------
+
+  gofmt -l .              PASS (clean)
+  go vet ./...            PASS
+  staticcheck ./...       PASS (0 issues)
+  errcheck ./...          PASS (0 issues)
+  gosec -conf .gosec.json PASS (0 issues, also under Go 1.27)
+  go test ./...           PASS
+  go test -race ./...     PASS
+  nested modules          PASS (built and tested, all eleven)
+  CI matrix               PASS on ubuntu, macOS and Windows
+  CodeQL                  PASS
