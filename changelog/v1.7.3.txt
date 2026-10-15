@@ -55,6 +55,12 @@ FIXED
    the workflow says to return to @latest once a release ships that
    dependency.
 
+   The Makefile installed gosec the same way, and `make security` runs it
+   with -quiet, which swallows the type-check errors and exits 0. The release
+   workflow's security step was therefore passing while scanning an empty
+   program — the worse of the two failures, because it was silent. Pinned
+   there too.
+
 3. Every action across the five workflows moved to its current major, after
    the runners warned that actions/checkout@v4 and actions/setup-go@v5 were
    being forced off Node 20:

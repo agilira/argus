@@ -105,7 +105,13 @@ tools: ## Install development tools
 	@echo "$(YELLOW)Installing development tools...$(NC)"
 	go install honnef.co/go/tools/cmd/staticcheck@latest
 	go install github.com/kisielk/errcheck@latest
-	go install github.com/securego/gosec/v2/cmd/gosec@latest
+	# Pinned, not @latest: gosec v2.29.0 builds against golang.org/x/tools
+	# v0.49.0, whose importer stops at export data version 4, while Go 1.26+
+	# emits version 5. It then type-checks nothing and, under -quiet, says so
+	# without failing — a security gate that scans an empty program. This
+	# commit is the first with x/tools v0.52.0. Back to @latest once a release
+	# carries it.
+	go install github.com/securego/gosec/v2/cmd/gosec@v2.29.1-0.20261015133444-707f2271f665
 	go install golang.org/x/vuln/cmd/govulncheck@latest
 	@echo "$(GREEN)Tools installed successfully!$(NC)"
 
