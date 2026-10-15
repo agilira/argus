@@ -15,14 +15,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
       with:
         fetch-depth: 0
 
     # 'stable' rather than a pinned minor: this job pinned 1.24 while go.mod
     # moved to 1.25.9, which would have failed every step below.
     - name: Set up Go
-      uses: actions/setup-go@v5
+      uses: actions/setup-go@v7
       with:
         go-version: 'stable'
 
@@ -80,7 +80,7 @@ jobs:
         sha256sum * > checksums.txt
 
     - name: Generate build provenance attestation
-      uses: actions/attest-build-provenance@v1
+      uses: actions/attest-build-provenance@v4
       with:
         subject-path: 'dist/*'
 
@@ -91,13 +91,13 @@ jobs:
         /usr/local/bin/syft . -o spdx-json=sbom.json
         
     - name: Generate SBOM attestation  
-      uses: actions/attest-sbom@v1
+      uses: actions/attest-sbom@v4
       with:
         subject-path: 'dist/*'
         sbom-path: 'sbom.json'
 
     - name: Create Release
-      uses: softprops/action-gh-release@v2
+      uses: softprops/action-gh-release@v3
       with:
         files: |
           dist/*

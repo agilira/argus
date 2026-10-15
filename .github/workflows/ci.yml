@@ -15,10 +15,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
 
     - name: Setup Go
-      uses: actions/setup-go@v5
+      uses: actions/setup-go@v7
       with:
         go-version: 'stable'
         cache: true
@@ -69,9 +69,9 @@ jobs:
         go tool cover -func=coverage.out
 
     - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v4
+      uses: codecov/codecov-action@v7
       with:
-        file: ./coverage.out
+        files: ./coverage.out
         flags: unittests
         name: codecov-umbrella
         fail_ci_if_error: false
@@ -92,10 +92,10 @@ jobs:
             test-timeout: 10m  # Windows runners are slower; fuzz seed corpus needs more time
     steps:
     - name: Checkout
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
 
     - name: Setup Go
-      uses: actions/setup-go@v5
+      uses: actions/setup-go@v7
       with:
         go-version: ${{ matrix.go-version }}
         cache: true
@@ -117,10 +117,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
 
     - name: Setup Go
-      uses: actions/setup-go@v5
+      uses: actions/setup-go@v7
       with:
         go-version: 'stable'
         cache: true
