@@ -135,3 +135,5 @@ DIRECTION.md
 # leading slash: the bare pattern `argus` also matched the cmd/cli/argus
 # SOURCE directory, so the CLI entry point could not be committed at all.
 /argus
+# Claude Code personal overrides (permission grants, never shared)
+.claude/settings.local.json
