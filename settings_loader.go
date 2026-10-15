@@ -256,11 +256,22 @@ func (c *configSources) configFilesIn(dir string) (files []string, skipped []str
 		patterns = defaultConfigPatterns
 	}
 
+	// A glob the standard library cannot parse is refused rather than silently
+	// matching nothing: filepath.Match's error was discarded below, so "[a-"
+	// read an empty directory and said so to no one.
+	for _, pattern := range patterns {
+		if _, err := filepath.Match(pattern, "probe"); err != nil {
+			return nil, nil, errors.Wrap(err, ErrCodeInvalidConfig,
+				"invalid directory pattern: "+pattern)
+		}
+	}
+
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
 		}
 		for _, pattern := range patterns {
+			// Safe to drop: every pattern parsed above.
 			if ok, _ := filepath.Match(pattern, entry.Name()); ok {
 				path, reason := usableConfigFile(dir, entry.Name())
 				if reason == "" {

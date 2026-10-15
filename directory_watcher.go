@@ -228,6 +228,17 @@ func watchDirectoryInternal(
 		options.Patterns = []string{"*.yaml", "*.yml", "*.json", "*.toml", "*.ini"}
 	}
 
+	// A pattern the standard library cannot parse must be refused here.
+	// matchesPatterns discards filepath.Match's error, so "[a-" used to match
+	// nothing at all: the watcher ran, reported no file, and looked exactly
+	// like an empty directory. Validating once is also why that discard is
+	// safe — by the time matchesPatterns runs, every pattern has parsed.
+	for _, pattern := range options.Patterns {
+		if _, err := filepath.Match(pattern, "probe"); err != nil {
+			return nil, fmt.Errorf("argus: invalid watch pattern %q: %w", pattern, err)
+		}
+	}
+
 	// Default poll interval
 	if options.PollInterval == 0 {
 		options.PollInterval = 1 * time.Second
@@ -295,6 +306,9 @@ func (dw *DirectoryWatcher) isWithinWatchedTree(path string) bool {
 // matchesPatterns checks if filename matches any of the configured patterns
 func (dw *DirectoryWatcher) matchesPatterns(filename string) bool {
 	for _, pattern := range dw.options.Patterns {
+		// The error is safe to drop: watchDirectoryInternal parsed every
+		// pattern before the watcher existed, so the only error Match can
+		// return here has already been reported to the caller.
 		if m, _ := filepath.Match(pattern, filename); m {
 			return true
 		}
@@ -336,7 +350,15 @@ func (dw *DirectoryWatcher) scan() error {
 
 	walkFn := func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			return nil // Skip inaccessible files
+			// An entry inside the tree that cannot be read is skipped: one bad
+			// file must not cost the caller every other one. The watched
+			// directory ITSELF is different — losing it means the watcher is
+			// now polling nothing — so that error is returned and reaches the
+			// ErrorHandler through the poll loop.
+			if path == dw.dirPath {
+				return err
+			}
+			return nil
 		}
 
 		if info.IsDir() {
@@ -453,7 +475,9 @@ func (dw *DirectoryWatcher) pollLoop() {
 		case <-dw.closedCh:
 			return
 		case <-dw.scanTicker.C:
-			_ = dw.scan()
+			if err := dw.scan(); err != nil {
+				dw.reportError(err, dw.dirPath)
+			}
 		}
 	}
 }
@@ -472,7 +496,9 @@ func (dw *DirectoryWatcher) mergeLoop(callback func(map[string]interface{}, []st
 		case <-dw.closedCh:
 			return
 		case <-dw.scanTicker.C:
-			_ = dw.scan()
+			if err := dw.scan(); err != nil {
+				dw.reportError(err, dw.dirPath)
+			}
 			newHash := dw.computeHash()
 			if newHash != lastHash {
 				lastHash = newHash

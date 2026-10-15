@@ -338,6 +338,15 @@ func splitRecursive(pattern string) (root, suffix string, recursive bool) {
 
 // walkRecursive lists the files under root whose base name matches suffix.
 func walkRecursive(root, suffix string) ([]string, error) {
+	// The non-recursive branch of scan() goes through filepath.Glob, which
+	// reports ErrBadPattern. This one compares with filepath.Match and used to
+	// discard that error, so the same typo refused the load in one shape and
+	// returned no document in the other.
+	if _, err := filepath.Match(suffix, "probe"); err != nil {
+		return nil, errors.Wrap(err, ErrCodeInvalidDocument,
+			"invalid document pattern: "+suffix)
+	}
+
 	var matches []string
 
 	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
@@ -351,6 +360,7 @@ func walkRecursive(root, suffix string) ([]string, error) {
 		if entry.IsDir() {
 			return nil
 		}
+		// Safe to drop: suffix parsed above.
 		if ok, _ := filepath.Match(suffix, entry.Name()); ok {
 			matches = append(matches, path)
 		}
