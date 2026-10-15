@@ -33,7 +33,14 @@ jobs:
         go test -short ./...
 
     - name: Install Security Tools
-      run: go install github.com/securego/gosec/v2/cmd/gosec@latest
+      run: |
+        # gosec is pinned, not @latest. Its last release, v2.29.0, builds
+        # against golang.org/x/tools v0.49.0, whose importer reads export data
+        # up to version 4; the runner's Go toolchain emits version 5, so gosec
+        # failed to type-check the package and exited 1 with "Issues: 0". This
+        # commit is the first with x/tools v0.52.0. Move back to @latest once a
+        # gosec release carries it.
+        go install github.com/securego/gosec/v2/cmd/gosec@v2.29.1-0.20261015133444-707f2271f665
 
     - name: Security Scan
       run: |
