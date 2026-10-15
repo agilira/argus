@@ -487,7 +487,9 @@ func TestReload_ReportsARepeatedFailureOnce(t *testing.T) {
 	if len(failures) != 1 {
 		t.Errorf("%d errors for one broken file, want 1", len(failures))
 	}
-	<-failures
+	if err := <-failures; err == nil {
+		t.Fatal("the reported failure carried no error")
+	}
 
 	// A different failure is a different thing to say.
 	if err := os.Remove(config); err != nil {

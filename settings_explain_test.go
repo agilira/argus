@@ -170,7 +170,10 @@ func TestAudit_RecordsARefusal(t *testing.T) {
 	writeDoc(t, config, `{"model": "claude-opus-5`)
 
 	select {
-	case <-failures:
+	case err := <-failures:
+		if err == nil {
+			t.Fatal("the reported failure carried no error")
+		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("a broken configuration file was never reported")
 	}

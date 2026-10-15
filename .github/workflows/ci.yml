@@ -26,6 +26,11 @@ jobs:
     - name: Install Dependencies
       run: |
         go install honnef.co/go/tools/cmd/staticcheck@latest
+        # errcheck is pinned for the same reason gosec is: v1.30.0 added a
+        # check (a channel receive that drops an error) that turned the gate
+        # red with no code change. A pin makes the gate a property of the
+        # repository rather than of the day it ran.
+        go install github.com/kisielk/errcheck@v1.30.0
         # gosec is pinned, not @latest. Its last release, v2.29.0, builds
         # against golang.org/x/tools v0.49.0, whose importer reads export data
         # up to version 4; the runner's Go toolchain emits version 5, so gosec
@@ -51,6 +56,13 @@ jobs:
 
     - name: Staticcheck
       run: staticcheck ./...
+
+    # errcheck was in `make check` but never in CI, so the only thing running
+    # it was whoever remembered to. Note the default: assignments to the blank
+    # identifier are NOT reported, which is how the v1.7.2 audit bug reached a
+    # release past a green gate.
+    - name: Errcheck
+      run: errcheck ./...
 
     - name: Vulnerability Check
       run: govulncheck ./...
