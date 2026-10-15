@@ -452,8 +452,11 @@ func New(config Config) *Watcher {
 		var err error
 		auditLogger, err = NewAuditLogger(cfg.Audit)
 		if err != nil {
-			// Fallback to disabled audit if setup fails
-			auditLogger, _ = NewAuditLogger(AuditConfig{Enabled: false})
+			// Fall back to the inert logger. The previous fallback called
+			// NewAuditLogger(AuditConfig{Enabled: false}), which opens the
+			// SQLite system database anyway — the very step that just failed —
+			// and discarded its error, so a second failure left a nil logger.
+			auditLogger = newDisabledAuditLogger()
 		}
 	}
 

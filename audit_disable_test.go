@@ -122,5 +122,18 @@ func TestNew_AuditBackendFailure_FallsBackToDisabled(t *testing.T) {
 	if w.auditLogger.config.Enabled {
 		t.Fatal("on backend-creation failure New must fall back to a disabled audit logger")
 	}
+
+	// REGRESSION: the fallback used to be NewAuditLogger(AuditConfig{Enabled:
+	// false}), which reports Enabled=false but still runs createAuditBackend
+	// and opens the unified SQLite system database — the very resource whose
+	// setup just failed — and whose error was discarded, so a second failure
+	// installed a nil logger. The fallback must be the inert logger: no
+	// backend, no flush goroutine, never nil.
+	if w.auditLogger.backend != nil {
+		t.Fatal("fallback audit logger must have a nil backend; the system audit DB was opened anyway")
+	}
+	if w.auditLogger.flushTicker != nil {
+		t.Fatal("fallback audit logger must not start a flush goroutine")
+	}
 	t.Cleanup(func() { _ = w.auditLogger.Close() })
 }
