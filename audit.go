@@ -202,7 +202,7 @@ func (al *AuditLogger) Log(level AuditLevel, event, component, filePath string, 
 		return
 	}
 
-	// Use cached timestamp for performance (0.37ns against 44ns for time.Now())
+	// Use cached timestamp for performance (2.6ns against 44ns for time.Now())
 	timestamp := timecache.CachedTime()
 
 	auditEvent := AuditEvent{

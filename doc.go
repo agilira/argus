@@ -340,7 +340,7 @@
 //   - **Lock-free caching**: Atomic pointers for zero-contention os.Stat() caching
 //   - **Zero-allocation polling**: Reusable buffers and value types prevent GC pressure
 //   - **Intelligent batching**: Event processing adapts to load patterns
-//   - **Time optimization**: go-timecache reads a cached timestamp in 0.37ns against 44ns for time.Now()
+//   - **Time optimization**: go-timecache reads a cached timestamp in 2.6ns against 44ns for time.Now()
 //   - **Memory efficiency**: Sync.Pool for map reuse and careful allocation patterns
 //   - **Security-optimized validation**: Multi-layer path validation with minimal performance impact
 //   - **SQLite backend optimization**: Prepared statements and transaction batching for audit performance
