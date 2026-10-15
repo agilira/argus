@@ -1,0 +1,113 @@
+argus v1.7.5 — four silences, found by reading the discards
+===========================================================
+
+Released: 2026-10-15
+Commit:   (see git log)
+Authors:  Antonio Giordano
+
+STATUS: PATCH — behaviour changes in three places, all of them turning a
+silence into an error. No API change: the signatures are the same and the
+new errors arrive where an error was already possible. Code that passes a
+well-formed pattern and keeps its directory sees nothing different.
+
+
+WHY THIS RELEASE EXISTS
+-----------------------
+
+v1.7.2 fixed an ignored error in New's audit fallback. The interesting part
+was not the bug but why the quality gates had missed it: errcheck ignores
+assignments to the blank identifier by default, and the line was
+
+  auditLogger, _ = NewAuditLogger(AuditConfig{Enabled: false})
+
+`errcheck -blank` lists 272 of those. 246 are in tests, where a deferred
+`_ = w.Close()` is the right thing to write. Of the 26 in the library, 21
+are correct and deliberate: the cleanup pair in writeFileAtomically runs on
+a path that is already failing, rows.Close and tx.Rollback in defer are the
+standard shape, hash.Hash.Write cannot fail by contract, and the
+watcher.Close calls in utilities.go close a watcher whose real error is
+already on its way to the caller.
+
+Five were not. All five share the shape of the v1.7.2 bug: a value that
+says something went wrong, dropped where the caller had asked to be told.
+
+
+FIXED
+-----
+
+1. A malformed glob pattern matched nothing instead of being refused.
+
+   filepath.Match("[a-", name) returns (false, ErrBadPattern). Three places
+   compared with it and discarded the error, and nothing in the codebase
+   validated a pattern anywhere, so a typo produced silence shaped exactly
+   like an empty result:
+
+     - WatchDirectory ran, reported no file and looked like an empty
+       directory;
+     - Setup().DirPatterns() read no configuration file and said so to
+       no one;
+     - Documents() with a ** pattern found no document — while the same
+       typo in a non-recursive pattern WAS reported, because that branch
+       goes through filepath.Glob. One API, two behaviours.
+
+   Every pattern is now parsed once, before it can be used: in
+   watchDirectoryInternal, on entry to configFilesIn, and at the top of
+   walkRecursive. A bad one is refused with its own text in the message.
+   The three filepath.Match calls still drop the error, and now that is
+   true rather than hopeful — each is reached only after its pattern has
+   parsed, which the comments say.
+
+2. Losing the watched directory was not reported.
+
+   DirectoryWatcher takes an ErrorHandler and has a reportError helper for
+   exactly this, and the poll loops called `_ = dw.scan()`. Reading scan()
+   showed the discard was not even the problem: its walk function returned
+   nil for every error, including the one for the root itself, so scan()
+   could not fail and there was nothing to drop. A directory deleted or made
+   unreadable under a running watcher left it polling in silence forever.
+
+   The walk now distinguishes the two cases. An entry inside the tree that
+   cannot be read is still skipped, because one bad file must not cost the
+   caller every other one. The watched directory itself is returned, and
+   both poll loops hand it to reportError.
+
+
+ALSO
+----
+
+errcheck reached v1.30.0 mid-change and began reporting a channel receive
+that drops an error, which caught two tests draining a failures channel
+after asserting the error had arrived. Both now bind the value and assert it
+is non-nil, which is what they meant.
+
+That led to a gap worth more than the two lines: errcheck was in `make
+check` and had never been in CI, so the only thing running it was whoever
+remembered to. It is now a step in ci.yml, pinned to v1.30.0 for the reason
+gosec is pinned — a tool resolved as @latest can turn the pipeline red with
+no code change, as that very release had just shown.
+
+
+NOT CHANGED
+-----------
+
+`errcheck -blank` is NOT added to CI. Five useful findings against 272 is
+the wrong ratio for a gate, and silencing the 21 correct ones would mean
+annotating sound code to satisfy a linter. The value was in the single pass,
+and this release is it.
+
+
+QUALITY GATES
+-------------
+
+  gofmt -l .              PASS (clean)
+  go vet ./...            PASS
+  staticcheck ./...       PASS (0 issues)
+  errcheck ./...          PASS (0 issues)
+  gosec -conf .gosec.json PASS (0 issues)
+  go test ./...           PASS
+  go test -race ./...     PASS
+  nested modules          PASS (built and tested, all eleven)
+
+Eight regression tests cover the five fixes: four that pin the refusal, each
+confirmed to fail before the change, and four companions that keep the valid
+patterns and the working directory walk working.
