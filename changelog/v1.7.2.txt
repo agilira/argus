@@ -1,0 +1,77 @@
+argus v1.7.2 — the fallback that opened what it was avoiding
+============================================================
+
+Released: 2026-10-15
+Commit:   (see git log)
+Authors:  Antonio Giordano
+
+STATUS: PATCH — one internal fallback path and three dependency bumps. No
+API change. No behaviour change for any configuration whose audit backend
+starts correctly, which is every normal one.
+
+
+WHY THIS RELEASE EXISTS
+-----------------------
+
+An unsolicited external email pointed at argus.go:456 and said the returned
+error was discarded there. The address was a throwaway on a bulk-mail relay
+and the rest of the message described a failure mode this code does not have,
+so it reads as an automated scan rather than a reading of the source. The
+line it named, however, was worth looking at, and the finding is kept here on
+its own merit rather than on its sender's.
+
+
+FIXED
+-----
+
+1. New() falls back to a disabled audit logger when NewAuditLogger fails. That
+   fallback was NewAuditLogger(AuditConfig{Enabled: false}) — and
+   NewAuditLogger always calls createAuditBackend, which opens the unified
+   SQLite system database whatever Enabled says. So the recovery path opened
+   the very resource whose setup had just failed, one line after failing. Its
+   own error was then discarded, and on a second failure the watcher was left
+   holding a nil logger.
+
+   Nothing panicked: every AuditLogger method already tolerates a nil receiver
+   and a nil backend, so the worst case was a watcher running with no audit
+   trail and nobody told. The fallback is now newDisabledAuditLogger(), the
+   constructor that exists for exactly this — no backend, no flush goroutine,
+   never nil.
+
+   The regression test for this path already existed and passed against the
+   old code: it asserted config.Enabled == false, which the old fallback
+   reported while holding an open database. It now asserts the absent backend
+   and the absent flush ticker, and was confirmed to fail against the old
+   fallback before being kept.
+
+
+DEPENDENCIES
+------------
+
+  github.com/agilira/go-errors     1.1.2  -> 1.1.3
+  github.com/agilira/go-timecache  1.0.3  -> 1.0.4
+  github.com/mattn/go-sqlite3     1.14.50 -> 1.14.52
+
+go-timecache v1.0.4 is the one worth reading. Its default cache ran a 500µs
+ticker from init — about 2000 wake-ups a second, roughly 5% of a core — in
+every process that imported it, argus included, whether or not a timestamp
+was ever read. The updater now parks when nobody reads and restarts on the
+next read. An idle argus costs that much less.
+
+The price is paid on the read: CachedTime is 2.6ns rather than 0.37ns, no
+longer inlined, still allocation-free and still far below time.Now()'s ~44ns.
+Two comments quoting the old figure (audit.go, doc.go) were corrected.
+
+
+QUALITY GATES
+-------------
+
+  gofmt -l .              PASS (clean)
+  go vet ./...            PASS
+  staticcheck ./...       PASS (0 issues)
+  errcheck ./...          PASS (0 issues)
+  gosec -conf .gosec.json PASS (0 issues)
+  go test ./...           PASS
+  go test -race ./...     PASS
+
+All gates were re-run after the dependency bumps, not before them.
