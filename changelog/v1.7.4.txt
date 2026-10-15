@@ -1,0 +1,42 @@
+argus v1.7.4 — the SBOM attestation, actually exercised
+=======================================================
+
+Released: 2026-10-15
+Commit:   (see git log)
+Authors:  Antonio Giordano
+
+STATUS: PATCH — one workflow step. No change to the library, the CLI or the
+dependencies; `git diff v1.7.3..v1.7.4 -- '*.go' go.mod go.sum` is empty.
+
+
+WHY THIS RELEASE EXISTS
+-----------------------
+
+The v1.7.3 release run warned that actions/attest-sbom is deprecated in
+favour of actions/attest. The replacement went in right after, verified
+against the new action's own action.yml: sbom-path selects the SBOM
+predicate on its own and is mutually exclusive with the predicate-* inputs,
+so the step is a one-for-one swap.
+
+But that step runs only on a tag push. Committing it left the last stage of
+the release pipeline asserted rather than observed, and an unexercised step
+in a release workflow is the same class of problem that left v1.7.2 without
+its artifacts: nothing is red, nothing is proven. This tag runs it.
+
+actions/attest-build-provenance carries no deprecation and is unchanged.
+
+
+QUALITY GATES
+-------------
+
+  gofmt -l .              PASS (clean)
+  go vet ./...            PASS
+  staticcheck ./...       PASS (0 issues)
+  errcheck ./...          PASS (0 issues)
+  gosec -conf .gosec.json PASS (0 issues)
+  go test ./...           PASS
+  go test -race ./...     PASS
+  nested modules          PASS (built and tested, all eleven)
+  CI matrix               PASS on ubuntu, macOS and Windows
+  CodeQL                  PASS
+  Release                 PASS — binaries, checksums, provenance and SBOM
