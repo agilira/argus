@@ -137,3 +137,6 @@ DIRECTION.md
 /argus
 # Claude Code personal overrides (permission grants, never shared)
 .claude/settings.local.json
+
+# Product/architecture working notes, like DIRECTION.md
+CONTROL_PLANE.md
