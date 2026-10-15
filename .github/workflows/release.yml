@@ -90,8 +90,11 @@ jobs:
         curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
         /usr/local/bin/syft . -o spdx-json=sbom.json
         
-    - name: Generate SBOM attestation  
-      uses: actions/attest-sbom@v4
+    # actions/attest-sbom is deprecated in favour of actions/attest, which
+    # takes the same two inputs: sbom-path alone selects the SBOM predicate.
+    # actions/attest-build-provenance above is NOT deprecated and stays.
+    - name: Generate SBOM attestation
+      uses: actions/attest@v4
       with:
         subject-path: 'dist/*'
         sbom-path: 'sbom.json'
