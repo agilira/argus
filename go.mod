@@ -6,6 +6,6 @@ require (
 	github.com/agilira/flash-flags v1.3.0
 	github.com/agilira/go-errors v1.1.3
 	github.com/agilira/go-timecache v1.0.4
-	github.com/mattn/go-sqlite3 v1.14.52
+	github.com/mattn/go-sqlite3 v1.14.53
 	go.yaml.in/yaml/v3 v3.0.5
 )
