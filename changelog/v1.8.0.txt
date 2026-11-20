@@ -1,0 +1,96 @@
+argus v1.8.0 — Bind takes the whole file
+=======================================
+
+Released: 2026-11-20
+Commit:   (see git log)
+Authors:  Antonio Giordano
+
+STATUS: MINOR — new API, nothing removed. Bind gains options and field
+types; every type that bound before binds the same way, through the same
+layers, with the same precedence.
+
+
+WHY THIS RELEASE EXISTS
+-----------------------
+
+Bind stopped at single values and nested structs. A real application file
+is made of named entries and lists — servers by name, profiles by name, a
+list of owners — and those had to be read by hand, around Bind, without its
+guarantees. The first application to need it is an agent runtime whose one
+YAML file holds its profiles, MCP servers and remote agents, hot reloaded:
+it needs a reload that is checked whole, and a typo refused rather than
+ignored.
+
+
+ADDED
+-----
+
+1. Maps, lists and pointers.
+
+   A field may be a map with string keys, a slice or a pointer, of any type
+   Bind takes, structs included, nested as deep as the file goes:
+
+     Servers map[string]Server `argus:"servers"`
+     Ports   []int             `argus:"ports"`
+     Tools   *[]string         `argus:"tools"`  // nil absent, empty []
+
+   They are read whole from the file or remote layer, nested or written
+   flat as properties and INI files write it ("servers.files.command=x").
+   The environment may give a list of single values as one comma-separated
+   string; a flag may set a pointer to a single value. Inside them the tags
+   mean what they mean at the top, dotted and required included, and errors
+   name the key down to the element: "servers.files.timeout",
+   "owners[0].turns". Every value bound gets maps and slices of its own: it
+   shares no memory with the revision nor with another bound value.
+
+   Maps from any source are read: YAML keys that are not strings (200: ok),
+   a custom parser's own Go types, Defaults written as []int or
+   map[string]string.
+
+   A YAML null keeps the meaning the parser has always given it, an empty
+   map: a map or a pointer to a struct set to null is an empty one, a list
+   or a single value set to null is absent. A null where a struct goes
+   still has its required fields checked.
+
+2. Strict().
+
+   Bind[T](s, argus.Strict()) refuses a configuration holding a key T does
+   not name, at any depth, nested or flat, under a Sub as at the top. A
+   typo is an error naming the key, not a setting silently left at its
+   default. The environment cannot be listed and is not checked.
+
+3. Validate.
+
+   When *T has a Validate() error method, Bind calls it on every value it
+   builds. An error refuses the revision like a value that does not
+   convert: the last good one keeps serving and OnError is told.
+
+
+CHANGED
+-------
+
+  - A YAML file holding more than one document, or anything after the
+    first ("a: 1\n---\nb: 2", "{...} {...}"), is refused. yaml.Unmarshal
+    read the first and dropped the rest in silence: a configuration half
+    read, applied as if whole. An empty file is still an empty
+    configuration.
+
+  - A field of a type Bind cannot take is still refused at Bind, before
+    anything runs; the check now reaches into maps, lists and pointers.
+  - examples/otel_integration: the error of tp.Shutdown is discarded
+    explicitly (gosec G104).
+
+
+QUALITY GATES
+-------------
+
+  gofmt -l .              PASS (clean)
+  go vet ./...            PASS
+  go test -race ./...     PASS
+  staticcheck / errcheck / gosec / govulncheck — make check
+  gocyclo -over 9         PASS on the files changed
+
+The new code passed an independent audit that proved eleven defects with
+failing tests before the release (null handling, non-string keys, flat
+files, flags on pointers, comma lists, dotted tags, Strict under Sub); each
+has its regression test in settings_bind_compose_test.go.

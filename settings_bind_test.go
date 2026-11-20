@@ -142,7 +142,7 @@ func TestBind_RequiredFieldMissing(t *testing.T) {
 
 func TestBind_UnsupportedFieldType(t *testing.T) {
 	type unsupported struct {
-		Extras map[string]string `argus:"extras"`
+		Extras chan string `argus:"extras"`
 	}
 
 	dir := t.TempDir()

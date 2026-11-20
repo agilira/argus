@@ -198,6 +198,25 @@ changes underneath it. A revision that does not satisfy a bound type is
 refused, and the last good value keeps serving. `Value()` costs 0.5 ns;
 building one costs ~900 ns, once per revision.
 
+Maps with string keys, lists and pointers bind too, of anything that binds,
+nested as deep as the file goes. `Strict()` refuses a key the type does not
+name, so a typo is an error rather than a default; a type with a
+`Validate() error` method checks every value before it is published.
+
+```go
+type Server struct {
+    Command string            `argus:"command,required"`
+    Env     map[string]string `argus:"env"`
+}
+
+type Config struct {
+    Servers map[string]Server `argus:"servers"`
+    Tools   *[]string         `argus:"tools"` // nil when absent, empty when []
+}
+
+bound, err := argus.Bind[Config](settings, argus.Strict())
+```
+
 ### Audit
 
 `Audit()` records every revision to the unified trail, `AuditTo(logger)` to one

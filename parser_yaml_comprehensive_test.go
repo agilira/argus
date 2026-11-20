@@ -163,3 +163,18 @@ timeout: 30.5`
 		}
 	})
 }
+
+// A configuration is one document: what yaml.Unmarshal dropped after the
+// first was a configuration half read.
+func TestParseYAML_OneDocumentOnly(t *testing.T) {
+	for _, doc := range []string{"a: 1\n---\nb: 2\n", `{"a": 1} {"b": 2}`} {
+		if _, err := parseYAML([]byte(doc)); err == nil {
+			t.Errorf("accepted %q", doc)
+		}
+	}
+	for _, doc := range []string{"", "# nothing\n", "a: 1\n", "---\na: 1\n"} {
+		if _, err := parseYAML([]byte(doc)); err != nil {
+			t.Errorf("refused %q: %v", doc, err)
+		}
+	}
+}

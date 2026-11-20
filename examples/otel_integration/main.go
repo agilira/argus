@@ -69,7 +69,7 @@ func main() {
 	if tp != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		tp.Shutdown(ctx)
+		_ = tp.Shutdown(ctx)
 	}
 
 	fmt.Println("Example completed")
