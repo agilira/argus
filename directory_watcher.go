@@ -323,9 +323,9 @@ func (dw *DirectoryWatcher) shouldSkipDirectory(path string) bool {
 
 // processDeletedFiles handles files that no longer exist in the directory
 func (dw *DirectoryWatcher) processDeletedFiles(foundFiles map[string]bool) {
-	dw.mu.Lock()
-	defer dw.mu.Unlock()
+	var deletedUpdates []DirectoryConfigUpdate
 
+	dw.mu.Lock()
 	for path := range dw.files {
 		if foundFiles[path] {
 			continue
@@ -335,12 +335,19 @@ func (dw *DirectoryWatcher) processDeletedFiles(foundFiles map[string]bool) {
 
 		if dw.individualMode && dw.callback != nil {
 			relPath, _ := filepath.Rel(dw.dirPath, path)
-			dw.callback(DirectoryConfigUpdate{
+			deletedUpdates = append(deletedUpdates, DirectoryConfigUpdate{
 				FilePath:     path,
 				RelativePath: relPath,
 				IsDelete:     true,
 			})
 		}
+	}
+	dw.mu.Unlock()
+
+	// Like loadAndNotify and notifyMerged, invoke user code only after releasing
+	// the state lock. A delete callback may call Close or Files itself.
+	for _, update := range deletedUpdates {
+		dw.callback(update)
 	}
 }
 
