@@ -23,7 +23,9 @@ import (
 	"fmt"
 	"hash"
 	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -436,6 +438,13 @@ func canonicalJSON(value interface{}) string {
 }
 
 // Helper functions
+// getProcessName is the running program's name, as it was started: the
+// trail of an application says which application wrote it.
 func getProcessName() string {
-	return "argus" // Could read from /proc/self/comm
+	if len(os.Args) > 0 && os.Args[0] != "" {
+		if name := filepath.Base(os.Args[0]); name != "." && name != string(filepath.Separator) {
+			return strings.TrimSuffix(name, ".exe")
+		}
+	}
+	return "argus"
 }

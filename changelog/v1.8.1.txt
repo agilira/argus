@@ -1,0 +1,35 @@
+argus v1.8.1 — the trail names who wrote it
+===========================================
+
+Released: 2026-11-20
+Commit:   (see git log)
+Authors:  Antonio Giordano
+
+STATUS: PATCH — no API change.
+
+
+FIXED
+-----
+
+1. Every audit record said process_name "argus".
+
+   getProcessName returned a constant, so an audit trail shared by several
+   programs, or read after the fact, could not say which application wrote
+   a record: the library's name stood in for the application's. It is now
+   the running program's name as it was started (the base of os.Args[0],
+   without .exe), "argus" only when there is none.
+
+2. TestRemoteConfigManager_AuditEventAndComponent failed when run alone.
+
+   It used the fake:// remote provider without registering it, relying on
+   another test having done so first. It registers it itself, as its
+   neighbours do.
+
+
+QUALITY GATES
+-------------
+
+  gofmt -l .              PASS (clean)
+  go vet ./...            PASS
+  go test -race ./...     PASS
+  staticcheck / errcheck / gosec / govulncheck — make check

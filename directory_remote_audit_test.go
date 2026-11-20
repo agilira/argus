@@ -242,6 +242,7 @@ func TestRemoteConfig_RetryUsesExponentialBackoff(t *testing.T) {
 // the opposite of every other call site in the library. Filtering by Component
 // or EventPrefix therefore misses these records entirely.
 func TestRemoteConfigManager_AuditEventAndComponent(t *testing.T) {
+	registerFakeProvider(t) // fake:// must exist when this test runs alone
 	dbPath := filepath.Join(t.TempDir(), "audit.db")
 	al, err := NewAuditLogger(AuditConfig{
 		Enabled: true, OutputFile: dbPath, MinLevel: AuditInfo, BufferSize: 10,

@@ -9,6 +9,7 @@ package argus
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -312,5 +313,13 @@ func BenchmarkAuditLogger_LogConfigChange(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		logger.LogConfigChange("/etc/app/config.json", oldCfg, newCfg)
+	}
+}
+
+// The trail names the program that wrote it, not the library.
+func TestAuditNamesTheProcess(t *testing.T) {
+	want := strings.TrimSuffix(filepath.Base(os.Args[0]), ".exe")
+	if got := getProcessName(); got != want || got == "argus" {
+		t.Errorf("process name %q, want %q", got, want)
 	}
 }
