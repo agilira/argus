@@ -12,6 +12,6 @@ require (
 require (
 	github.com/agilira/flash-flags v1.3.0 // indirect
 	github.com/agilira/go-errors v1.1.3 // indirect
-	github.com/mattn/go-sqlite3 v1.14.52 // indirect
-	go.yaml.in/yaml/v3 v3.0.5 // indirect
+	github.com/mattn/go-sqlite3 v1.14.53 // indirect
+	go.yaml.in/yaml/v3 v3.0.6 // indirect
 )
