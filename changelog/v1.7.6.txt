@@ -1,0 +1,79 @@
+argus v1.7.6 — a lock let go before it called out
+=================================================
+
+Released: 2026-11-20
+Commit:   (see git log)
+Authors:  Antonio Giordano
+Thanks:   dajiaohuang, who found and fixed the deadlock below (#31)
+
+STATUS: PATCH — one behaviour change, and it only ever removes a hang. No
+API change: signatures are the same, and a directory-watch callback that
+never touched its own watcher sees nothing different. Everything else in
+this release is housekeeping that does not reach runtime.
+
+
+WHY THIS RELEASE EXISTS
+-----------------------
+
+A delete callback could deadlock the watcher that called it, and an outside
+contributor noticed, reproduced it, and sent the fix. That is the release.
+The rest is the drift that had collected around it since v1.7.5.
+
+
+FIXED
+-----
+
+1. A directory delete callback could not touch its own watcher.
+
+   processDeletedFiles held dw.mu for the whole pass, including the moment
+   it invoked the user callback. A callback that called Close() — or
+   Files(), or anything else that takes dw.mu — blocked forever waiting for
+   a lock its own goroutine already held. Stopping a watcher from inside the
+   notification it had just delivered was impossible, and nothing said so;
+   the program simply stopped.
+
+   The fix is the shape the rest of the file already used. loadAndNotify and
+   notifyMerged both collect their state under the lock and release it
+   before they call into application code; processDeletedFiles now does the
+   same. The deletions are gathered into a slice while dw.mu is held, the
+   lock is released, and only then are the callbacks dispatched. User code
+   runs with no argus lock held, exactly as it does on the add and merge
+   paths.
+
+   The fix arrived with a regression test that starts a watcher, deletes a
+   file, and has the delete callback call Close() on its own watcher from a
+   second goroutine, failing if that Close does not return. It deadlocks
+   against the old code and passes against the new. Both were contributed.
+
+
+ALSO
+----
+
+Dependencies moved one patch forward and the nested modules were brought
+back in line with them.
+
+  - github.com/mattn/go-sqlite3  1.14.52 -> 1.14.53  (#33)
+  - go.yaml.in/yaml/v3            3.0.5   -> 3.0.6    (#32)
+
+Those two bumps landed in the root module, but argus carries eleven nested
+modules — the CLI, the benchmarks, and nine examples — each with its own
+go.mod pinning the same libraries as indirect dependencies. They were left
+a patch behind, so `go mod tidy` wanted to edit every one of them, and the
+Submodules CI job, which builds and tests all eleven, went red on the first
+stale go.mod before it reached a line of code. Each module is now tidied to
+the same versions as the root. The job builds and tests the full set again,
+and the next dependency bump will be caught the same way instead of
+quietly rotting the eleven until someone runs the matrix by hand.
+
+
+QUALITY GATES
+-------------
+
+  gofmt -l .              PASS (clean)
+  go vet ./...            PASS
+  go test ./...           PASS
+  nested modules          PASS (built and tested, all eleven)
+  staticcheck / errcheck / gosec — as enforced by ci.yml
+
+The deadlock fix is covered by the contributed regression test, confirmed
+to fail before the change and pass after.
