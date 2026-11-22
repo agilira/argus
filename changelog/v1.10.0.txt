@@ -1,7 +1,7 @@
 argus v1.10.0 — the writer changes what it is told, and nothing else
 =====================================================================
 
-Released: (pending)
+Released: 2026-11-22
 Commit:   (see git log)
 Authors:  Antonio Giordano
 
