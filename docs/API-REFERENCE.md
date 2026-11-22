@@ -676,7 +676,18 @@ Creates a new ConfigWriter for atomic configuration file operations.
 **Parameters:**
 - `filePath string`: Path to the configuration file
 - `format ConfigFormat`: Configuration format (JSON, YAML, TOML, HCL, INI, Properties)
-- `initialConfig map[string]interface{}`: Initial configuration data (can be nil)
+- `initialConfig map[string]interface{}`: nil edits the file as it is (an
+  existing file is read; a file that does not parse is an error; none yet
+  starts empty). A non-nil map replaces the file's contents with it, keys
+  sorted: for a new file or a conversion.
+
+YAML is edited as its document: comments, key order, quoting and every
+entry not set are kept. A value with an anchor, a path through an alias
+or a merged (`<<`) mapping is refused: edit those by hand. TOML, HCL, INI
+and Properties are written from the values, keys sorted, and read back
+before writing: a value the format's parser would read otherwise (quotes,
+newlines, a list of maps or of lists, an empty group, a string read as a
+number or a boolean) is an error naming its key.
 
 **Returns:**
 - `*ConfigWriter`: New ConfigWriter instance
@@ -686,7 +697,7 @@ Creates a new ConfigWriter for atomic configuration file operations.
 
 **Example:**
 ```go
-writer, err := argus.NewConfigWriter("config.yaml", argus.FormatYAML, config)
+writer, err := argus.NewConfigWriter("config.yaml", argus.FormatYAML, nil)
 if err != nil {
     return err
 }
@@ -699,7 +710,7 @@ Creates a new ConfigWriter with optional audit logging for compliance requiremen
 **Parameters:**
 - `filePath string`: Path to configuration file
 - `format ConfigFormat`: Configuration format
-- `initialConfig map[string]interface{}`: Initial configuration (can be nil)
+- `initialConfig map[string]interface{}`: as in NewConfigWriter (nil edits the file)
 - `auditLogger *AuditLogger`: Optional audit logger (can be nil for performance)
 
 **Returns:**

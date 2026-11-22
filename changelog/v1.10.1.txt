@@ -1,0 +1,218 @@
+argus v1.10.1 — the writer's document is the one truth
+======================================================
+
+Released: 2026-11-22
+Commit:   (see git log)
+Authors:  Antonio Giordano
+
+STATUS: PATCH — no API change. Fixes of v1.10.0's writer, found by two
+audits after the release (items 12-20 by the second, of these fixes;
+items 21-28 by the third, 29-32 by the fourth, 33-36 by the fifth).
+
+
+FIXED
+-----
+
+1. A YAML value with an anchor could be replaced or deleted, and the file
+   written no longer parsed ("unknown anchor"): its aliases pointed at
+   nothing. Such a value is refused, with a message to edit it by hand;
+   so is a path through an alias, or through a mapping that merges another
+   (<<), whose keys are another entry's. Inside an anchored mapping a value
+   may change: its aliases follow.
+
+2. The values (GetConfig) and the YAML document were edited apart and
+   could differ: through an alias or a merged key, the file said one thing
+   and GetConfig another; a refused edit left the document half changed,
+   and the next write put that half in the file. The document is now the
+   one source of truth: each edit is made on a copy, read back with the
+   parser, and kept, values and document together, only if it reads back.
+
+3. INI and Properties keys are nested when a file is read: their parsers
+   give "db.host" flat, so GetValue("db.host") found nothing, and
+   SetValue("db.host") added a second db.host beside the first, the one
+   written chosen by chance. A key that is both a value and a group, or
+   given twice, is refused.
+
+4. TOML, HCL, INI and Properties are read back before they are written:
+   a value their parser would read otherwise is an error naming its key —
+   a list of maps (written "map[n:1]"), a nested list, a comma or a quote
+   inside a string, nil, an empty HCL block, a list or a leading space in
+   INI and Properties, a string such as "true" or "42" that they read as a
+   boolean or a number. The file is not written.
+
+5. WriteConfigAs ran under a read lock while yaml's encoder writes into the
+   document's nodes, and GetValue shared a buffer between readers: either,
+   twice at once, raced. WriteConfigAs takes the writer's lock; GetValue has
+   a buffer of its own.
+
+6. Reset after a failed reload kept the old YAML document, and a later
+   write put it back in the file over what GetConfig said. It is dropped
+   with the values.
+
+7. argus config set, delete, get and list edit the file through the
+   writer: they passed it the parsed values, so set and delete rewrote a
+   YAML file without its comments. A file that does not parse is an error,
+   not replaced with an empty one. The README's example and the API
+   reference say what nil and a map do.
+
+8. Deleting the first key of a YAML file kept the file's header comment,
+   which YAML hangs on that key.
+
+9. A replaced YAML string keeps its quoting; a file of "~" is an empty
+   configuration for the writer, as for the parser; a file that does not
+   parse gives the parser's error, which keeps the position and not the
+   text.
+
+10. An audit OutputFile ".DB" or ".Db" is a database as ".db" is (and
+    ".JSONL" is JSONL).
+
+11. A serialization error carries its reason ("serialization failed: TOML
+    cannot hold the value of ..."), not only "serialization failed".
+
+12. Deleting the last key of a group in INI, Properties or HCL left an
+    empty group, which those formats cannot hold, so nothing could be
+    written after (argus config delete d.properties db.host failed). The
+    group goes with its last key.
+
+13. YAML edits were read back whole at each SetValue: 5.8 ms a call on a
+    file of 500 keys. A document without anchors, aliases or merges is
+    edited in place, only the new value checked: a thousand edits of that
+    file take well under a second. A document with them keeps the copy
+    read back whole.
+
+14. A Go value of its own types ([]string, []int, map[string]string) is
+    held as the parsers give values ([]interface{}, map[string]interface{}),
+    so TOML, HCL, INI and Properties write it, and GetValue returns what
+    reading the file would. For YAML, a value is held as the file reads it
+    back: time.Duration(5*time.Second) is "5s", as in the file.
+
+15. Refusals say why: SetValue's error carries its reason (an anchor to
+    edit by hand, a path through a value), NewConfigWriter's the parser's
+    (with its position, never the text), and argus config set, delete and
+    the others print them, where they said only "failed to set value".
+
+16. DeleteValue of an override under a merge (svc: {<<: *b, x: 9}) said
+    true while the merged x came back in its place; it is refused (false),
+    as anchored values are. argus config delete tells such a key from one
+    not found ("edit the file by hand").
+
+17. A YAML file of comments only, or "# x" and "~", kept its comments on
+    the first SetValue no more: they stay.
+
+18. A round-trip refusal names the key lost (sec.emptymap), not its group.
+
+19. GetValue returns a copy of a map or a list: ranged over while a
+    SetValue changed the writer's own, it raced (JSON and the text
+    formats; it was so before v1.10.0).
+
+20. argus config set and list print a float as the file holds it (1.0,
+    where they printed 1).
+
+21. SetValue(".") (or "...", " . ": no key in it) crashed the writer of a
+    YAML file without anchors, and argus config set with it. It is an
+    error ("empty key path"); DeleteValue of it is false.
+
+22. A timestamp (or any value not a string whose text has ':' or ',') in
+    a flow collection ({t: 2020-01-01T00:00:00Z}, [2020-01-01...]) was
+    quoted by the YAML encoder at the next write: the file then read it as
+    a string, while GetConfig still said a time. Such a collection, and
+    every flow one around it, is written in block style. A property test
+    (random sequences of edits and writes, the file read back after each
+    write and compared with GetConfig) guards this: 4000 sequences pass.
+
+23. A YAML writer always has its document: a new file, a map given
+    (NewConfigWriter with a configuration, argus config init and convert),
+    a Reset after a failed reload. Held apart, its values were not the
+    file's: GetConfig said nil, 1.0, a struct, where the file said {}, 1, a
+    mapping; and a map holding a key "" made a file the writer then
+    refused. The values are what the document reads back as, and a map the
+    file could not hold is refused at once.
+
+24. A float stays a float in YAML: 1.0 was written 1, read back an integer
+    (argus config set x 1.0 printed 1.0 and wrote 1).
+
+25. A value holding itself (a map put inside itself) recursed without end
+    at SetValue, a crash recover cannot catch: it is an error, past 1000
+    levels of nesting.
+
+26. Go values are held as the parsers give them through every level: an
+    integer of any width as int (a uint64 above int's range stays), a
+    float32 as the float64 its text reads as, a pointer as what it points
+    to (nil as nil). time.Duration and other named types keep their type.
+
+27. A *yaml.Node given to SetValue with an anchor in it makes the document
+    "shared", so later edits go through the copy read back whole.
+
+28. "a: ~" can be filled: SetValue("a.b", 1) was refused although
+    GetValue("a") gave {}; and the YAML library's error at load gives the
+    position, never the text, as the parser's does.
+
+29. Values with their own encoding are written as they say: big.Int,
+    net.IP, time.Time, any yaml.Marshaler, json.Marshaler or
+    encoding.TextMarshaler (on the value or, given by value, its pointer),
+    and a *yaml.Node or yaml.Node at any depth. Each encoder uses its own:
+    a json.RawMessage is JSON's, and YAML writes its bytes. Taken apart by item 26 before this release,
+    big.Int became {}, an IP sixteen numbers, and a nested node crashed
+    the encoder.
+
+30. A key with a control character is refused at SetValue: written, the
+    file held a key its parser refuses, and it could not be reopened (so
+    in v1.10.0 too). The error does not echo the key.
+
+31. The configuration given to NewConfigWriter is held as SetValue holds
+    values (item 26): float32 and typed maps come back as set, and a map
+    holding itself is an error, where deepCopy recursed without end.
+
+32. argus config convert from JSON keeps whole numbers whole: JSON has one
+    number type, read as float64, and 8080 was written to YAML as 8080.0
+    (and to TOML, so in v1.10.0 too). So a JSON 1.0 is the integer 1 in
+    the file converted to; -0 stays -0.
+
+33. A yaml.Node given by value inside a map or a list, or in the initial
+    configuration, crashed the YAML encoder (a panic). It is written.
+
+34. Item 30 is every unprintable character, not only ASCII controls: a key
+    with a C1 control or a zero-width character made a JSON file that the
+    parser then refused. The keys of the initial configuration are checked
+    the same way, at every level.
+
+35. A value whose encoding is on its pointer, given by value (big.Int, a
+    struct with a pointer-receiver MarshalText), was written {}: it is
+    written through a pointer to a copy.
+
+36. argus config convert says why a conversion is refused (the key and
+    what the format cannot hold), where it said only "failed to write
+    output configuration".
+
+
+KNOWN
+-----
+
+The TOML, HCL, INI and Properties parsers are line-based (no escapes, no
+inline tables): what they cannot read is now refused by the writer instead
+of written wrong. INI drops an empty [section] at load, and HCL misreads
+"x {}" on one line; both are the parsers'. In YAML, a key with a dot in it
+cannot be addressed by dot notation, and SetValue(k, nil) reads back as an
+empty mapping (the parser's old normalisation of a null). For JSON,
+GetConfig holds values as given, not as the file reads them (numbers come
+back float64), and a writer of YAML given a configuration reads it back
+whole at construction: about 30 ms for 500 keys, 650 ms for 10 000 (the
+price of item 23; edits after are tens of microseconds).
+
+
+QUALITY GATES
+-------------
+
+  gofmt -l .                      PASS (clean)
+  go vet ./...                    PASS
+  CGO_ENABLED=0 go test ./...     PASS
+  go test -race (writer)          PASS
+  cmd/cli tests                   PASS
+  new and changed lines: 426 of 438 covered (the rest:
+  errors that cannot happen, of the YAML encoder on a cloned document and
+  of serializers that return none)
+  1000 YAML edits of a 500-key file: 0.18 s under -race (was 5.8 s)
+  property test: 8000 random sequences of edits and writes, GetConfig
+  equal to the file read back after every write (the fourth audit ran
+  120 000 more)
+  staticcheck / errcheck / gosec / govulncheck — make check PASS

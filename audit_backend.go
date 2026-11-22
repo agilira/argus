@@ -107,7 +107,7 @@ func createAuditBackend(config AuditConfig) (auditBackend, error) {
 	}
 
 	// Check if user explicitly requested JSONL format via .jsonl extension
-	if config.OutputFile != "" && filepath.Ext(config.OutputFile) == ".jsonl" {
+	if config.OutputFile != "" && strings.EqualFold(filepath.Ext(config.OutputFile), ".jsonl") {
 		return newJSONLBackend(config)
 	}
 
@@ -120,7 +120,7 @@ func createAuditBackend(config AuditConfig) (auditBackend, error) {
 	// A .db file asked for is a database, or nothing: falling back wrote
 	// JSON lines into it, without the hash chain the caller chose SQLite
 	// for, and told no one (22/11).
-	if filepath.Ext(config.OutputFile) == ".db" {
+	if strings.EqualFold(filepath.Ext(config.OutputFile), ".db") {
 		return nil, fmt.Errorf("audit database %s cannot be opened: %w", config.OutputFile, err)
 	}
 
@@ -369,7 +369,7 @@ func newSQLiteBackend(config AuditConfig) (*sqliteAuditBackend, error) {
 func setupDatabasePath(config AuditConfig) (string, error) {
 	// Determine database path - respect OutputFile if specified with .db extension
 	var dbPath string
-	if config.OutputFile != "" && filepath.Ext(config.OutputFile) == ".db" {
+	if config.OutputFile != "" && strings.EqualFold(filepath.Ext(config.OutputFile), ".db") {
 		// Use specified path for database files (useful for tests and custom setups)
 		dbPath = config.OutputFile
 	} else {

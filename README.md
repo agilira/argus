@@ -329,10 +329,10 @@ configuration files, and binding a parsed map onto variables.
 Atomic configuration file management with type-safe operations across all supported formats:
 
 ```go
-config := map[string]interface{}{}
-
-// Create writer with automatic format detection
-writer, err := argus.NewConfigWriter("config.yaml", argus.FormatYAML, config)
+// nil: edit the file as it is (none yet: start empty). A YAML file keeps
+// its comments, its order and every entry not set here. A map instead
+// replaces the file's contents with it (for a new file, or a conversion).
+writer, err := argus.NewConfigWriter("config.yaml", argus.FormatYAML, nil)
 if err != nil {
     return err
 }

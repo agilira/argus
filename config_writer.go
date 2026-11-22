@@ -27,6 +27,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"unicode"
 
 	"github.com/agilira/go-errors"
 	"go.yaml.in/yaml/v4"
@@ -60,6 +61,11 @@ type ConfigWriter struct {
 	// the writer does not change (comments, order, the rest) is written as
 	// it was; nil for the other formats and for a YAML file made anew.
 	doc *yaml.Node
+	// shared: the document has anchors, aliases or merges, so an edit is
+	// made on a copy and kept once the whole reads back; without them it is
+	// made in place, only the new value checked (5.8 ms a SetValue on a
+	// file of 500 keys, read back whole each time, against microseconds).
+	shared bool
 
 	// Optional audit integration
 	auditLogger *AuditLogger // Optional - can be nil for performance
@@ -89,7 +95,8 @@ func NewConfigWriter(filePath string, format ConfigFormat, initialConfig map[str
 // Parameters:
 //   - filePath: Path to the configuration file
 //   - format: Configuration format (JSON, YAML, TOML, etc.)
-//   - initialConfig: Initial configuration data (can be nil)
+//   - initialConfig: nil edits the file as it is (YAML keeps its comments
+//     and order); a map replaces the file's contents with it
 //   - auditLogger: Optional audit logger for compliance (can be nil for performance)
 //
 // Performance: 1,114 ns/op with no audit logger; an audit logger adds one
@@ -108,9 +115,34 @@ func NewConfigWriterWithAudit(filePath string, format ConfigFormat, initialConfi
 		auditLogger: auditLogger,           // Optional audit integration
 	}
 
-	// Initialize with provided configuration
+	// Initialize with provided configuration, held as SetValue holds values
+	// (a map holding itself crashed deepCopy; float32 and typed maps came
+	// back otherwise than set).
 	if initialConfig != nil {
-		writer.config = deepCopy(initialConfig)
+		held, err := normalizeGoValue(initialConfig, 0)
+		if err == nil {
+			err = printableKeys(allConfigKeys(held.(map[string]interface{})))
+		}
+		if err != nil {
+			return nil, errors.Wrap(err, ErrCodeInvalidConfig, "the configuration cannot be held: "+err.Error())
+		}
+		writer.config = held.(map[string]interface{})
+		if format == FormatYAML {
+			// A YAML writer always has its document, the values being what
+			// it reads back as: from a map, held apart, GetConfig said nil,
+			// 1.0 or a Go struct where the file said {}, 1, a mapping, and a
+			// key "" made a file the writer then refused (audit 22/11).
+			if err := writer.yamlFrom(writer.config); err != nil {
+				return nil, errors.Wrap(err, ErrCodeInvalidConfig, "the configuration cannot be written as YAML: "+err.Error())
+			}
+		}
+		if format == FormatINI || format == FormatProperties {
+			nested, err := nestDottedKeys(writer.config)
+			if err != nil {
+				return nil, errors.Wrap(err, ErrCodeInvalidConfig, "the configuration cannot be written as "+format.String())
+			}
+			writer.config = nested
+		}
 		// For new files, originalHash should be 0 so WriteConfig() always writes the first time
 		writer.originalHash = 0
 		return writer, nil
@@ -119,9 +151,12 @@ func NewConfigWriterWithAudit(filePath string, format ConfigFormat, initialConfi
 	// started empty replaced an existing file with only the keys it was
 	// then given, every other entry lost (22/11).
 	writer.config = make(map[string]interface{})
+	if format == FormatYAML {
+		_ = writer.yamlFrom(writer.config) // an empty document: cannot fail
+	}
 	if _, err := os.Stat(filePath); err == nil {
 		if err := writer.reloadFromFile(); err != nil {
-			return nil, errors.Wrap(err, ErrCodeInvalidConfig, "cannot read the configuration to edit")
+			return nil, errors.Wrap(err, ErrCodeInvalidConfig, "cannot read the configuration to edit: "+err.Error())
 		}
 	}
 	return writer, nil
@@ -130,9 +165,10 @@ func NewConfigWriterWithAudit(filePath string, format ConfigFormat, initialConfi
 // SetValue sets a configuration value using dot notation.
 // Supports nested keys like "database.connection.host".
 //
-// Performance: 115 ns/op, 32 B, 1 alloc for simple keys
-//
-//	149 ns/op, 48 B, 1 alloc for nested keys (map creation)
+// Performance: 115 ns/op, 32 B, 1 alloc for simple keys of JSON and the
+// text formats; 149 ns/op nested. YAML edits its document: tens of
+// microseconds, and for a document with anchors, aliases or merges a copy
+// read back whole (about 12 ms on a file of 500 keys).
 //
 // Examples:
 //
@@ -161,15 +197,10 @@ func (w *ConfigWriter) SetValue(key string, value interface{}) error {
 		oldConfig = deepCopy(w.config)
 	}
 
-	// The document first: a value it cannot hold leaves both unchanged.
-	if w.doc != nil {
-		if err := setYAMLPath(w.doc, w.keyBuffer, value); err != nil {
-			return errors.Wrap(err, ErrCodeInvalidConfig, "failed to set nested value")
-		}
-	}
-	// Apply change to config copy
-	if err := w.setNestedValue(w.config, w.keyBuffer, value); err != nil {
-		return errors.Wrap(err, ErrCodeInvalidConfig, "failed to set nested value")
+	if err := w.set(w.keyBuffer, value); err != nil {
+		// The reason, not only that it failed: an anchor to edit by hand, a
+		// path through a value. No value of the configuration is in it.
+		return errors.Wrap(err, ErrCodeInvalidConfig, "failed to set nested value: "+err.Error())
 	}
 
 	// Audit logging for configuration changes (optional, zero overhead when disabled)
@@ -178,6 +209,186 @@ func (w *ConfigWriter) SetValue(key string, value interface{}) error {
 	}
 
 	return nil
+}
+
+// printableKeys refuses a key with a character that is not printable (a
+// control character, C1, a zero-width one): the file would hold a key its
+// parser refuses, written then never reopened (audit 22/11). The key is not
+// echoed.
+func printableKeys(keys []string) error {
+	for _, key := range keys {
+		if strings.IndexFunc(key, func(r rune) bool { return r < 32 || !unicode.IsPrint(r) }) >= 0 {
+			return errors.New(ErrCodeConfigWriterError, "a key may hold only printable characters")
+		}
+	}
+	return nil
+}
+
+// allConfigKeys are every key of config, at every level.
+func allConfigKeys(config map[string]interface{}) []string {
+	var keys []string
+	for k, v := range config {
+		keys = append(keys, k)
+		if m, ok := v.(map[string]interface{}); ok {
+			keys = append(keys, allConfigKeys(m)...)
+		}
+	}
+	return keys
+}
+
+// set puts value at path: in the YAML document and the values together,
+// or in the values. A Go value of its own types ([]string,
+// map[string]int...) is held as the parsers give values, so every format
+// writes it and GetValue returns what reading the file would.
+func (w *ConfigWriter) set(path []string, value interface{}) error {
+	if len(path) == 0 { // ".", " . ": no key in it (audit 22/11: it crashed)
+		return errors.New(ErrCodeConfigWriterError, "empty key path")
+	}
+	if err := printableKeys(path); err != nil {
+		return err
+	}
+	value, err := normalizeGoValue(value, 0)
+	if err != nil {
+		return err
+	}
+	if w.doc == nil {
+		return w.setNestedValue(w.config, path, value)
+	}
+	if w.shared {
+		_, err := w.editYAML(func(doc *yaml.Node) (bool, error) { return true, setYAMLPath(doc, path, value) })
+		return err
+	}
+	v, err := yamlValueNode(value)
+	if err != nil {
+		return err
+	}
+	read, err := yamlValueOf(v)
+	if err != nil {
+		return err
+	}
+	if err := w.checkPath(path); err != nil {
+		return err
+	}
+	if err := setYAMLNode(w.doc, path, v); err != nil {
+		return err
+	}
+	if yamlShared(v) { // a *yaml.Node of the caller's with an anchor in it
+		w.shared = true
+	}
+	return w.setNestedValue(w.config, path, read)
+}
+
+// checkPath refuses, before anything changes, a path through a value.
+func (w *ConfigWriter) checkPath(path []string) error {
+	m := w.config
+	for _, key := range path[:len(path)-1] {
+		next, ok := m[key]
+		if !ok {
+			return nil
+		}
+		nm, isMap := next.(map[string]interface{})
+		if !isMap {
+			return errors.New(ErrCodeConfigWriterError, fmt.Sprintf("key '%s' is not a map, cannot set nested value", key))
+		}
+		m = nm
+	}
+	return nil
+}
+
+// delete removes the value at path; false when there is none, or when it
+// cannot go (an anchor, an alias), or would not be gone (a merged value
+// under the override deleted: reading the file would still give one).
+func (w *ConfigWriter) delete(path []string) bool {
+	switch {
+	case len(path) == 0:
+		return false
+	case w.doc == nil:
+		if !w.deleteNestedValue(w.config, path) {
+			return false
+		}
+		if w.format == FormatINI || w.format == FormatProperties || w.format == FormatHCL {
+			pruneEmpty(w.config, path) // they hold no empty group: the file would not be written
+		}
+		return true
+	case w.shared:
+		doc, config, changed, err := w.prepareYAML(func(doc *yaml.Node) (bool, error) { return deleteYAMLPath(doc, path) })
+		if err != nil || !changed || w.getNestedValue(config, path) != nil {
+			return false // refused, absent, or a merged value under the override would remain
+		}
+		w.doc, w.config = doc, config
+		return true
+	}
+	ok, err := deleteYAMLPath(w.doc, path)
+	if err != nil || !ok {
+		return false
+	}
+	return w.deleteNestedValue(w.config, path)
+}
+
+// pruneEmpty removes the groups along path a delete left empty.
+func pruneEmpty(config map[string]interface{}, path []string) {
+	for depth := len(path) - 1; depth > 0; depth-- {
+		parent := config
+		for _, key := range path[:depth-1] {
+			parent, _ = parent[key].(map[string]interface{})
+		}
+		group, _ := parent[path[depth-1]].(map[string]interface{})
+		if group == nil || len(group) > 0 {
+			return
+		}
+		delete(parent, path[depth-1])
+	}
+}
+
+// yamlFrom makes the document of config, and the values what it reads
+// back as.
+func (w *ConfigWriter) yamlFrom(config map[string]interface{}) error {
+	doc, err := yamlDocumentOf(config)
+	if err != nil {
+		return err
+	}
+	data, err := encodeYAMLDocument(doc)
+	if err != nil {
+		return err
+	}
+	back, err := ParseConfig(data, FormatYAML)
+	if err != nil {
+		return err
+	}
+	w.doc, w.config, w.shared = doc, back, yamlShared(doc)
+	return nil
+}
+
+// editYAML makes edit on a copy of the document and keeps it, with the
+// values it reads back as, only when it changed and reads back: the
+// document is the one source of truth, so what GetConfig says is what the
+// file holds (audit 22/11: edited apart, an alias or a merged key made them
+// differ, and a refused edit left the document half changed).
+func (w *ConfigWriter) editYAML(edit func(doc *yaml.Node) (bool, error)) (bool, error) {
+	doc, config, changed, err := w.prepareYAML(edit)
+	if err != nil || !changed {
+		return false, err
+	}
+	w.doc, w.config = doc, config
+	return true, nil
+}
+
+// prepareYAML is the document and values edit makes of a copy, not kept.
+func (w *ConfigWriter) prepareYAML(edit func(doc *yaml.Node) (bool, error)) (*yaml.Node, map[string]interface{}, bool, error) {
+	doc := cloneYAML(w.doc)
+	changed, err := edit(doc)
+	if err != nil || !changed {
+		return nil, nil, false, err
+	}
+	data, err := encodeYAMLDocument(doc)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	config, err := ParseConfig(data, FormatYAML)
+	if err != nil {
+		return nil, nil, false, errors.Wrap(err, ErrCodeInvalidConfig, "the edit would leave a file that does not read back")
+	}
+	return doc, config, true, nil
 }
 
 // WriteConfig atomically writes the current configuration to disk.
@@ -209,7 +420,7 @@ func (w *ConfigWriter) WriteConfig() error {
 	w.valueBuffer = w.valueBuffer[:0] // Reset without allocation
 	serialized, err := w.serializeConfig(w.config, w.valueBuffer)
 	if err != nil {
-		return errors.Wrap(err, ErrCodeSerializationError, "serialization failed")
+		return errors.Wrap(err, ErrCodeSerializationError, "serialization failed: "+err.Error())
 	}
 
 	// Atomic write operation
@@ -237,14 +448,16 @@ func (w *ConfigWriter) WriteConfigAs(filePath string) error {
 		return errors.New(ErrCodeConfigWriterError, "filePath cannot be empty")
 	}
 
-	w.mu.RLock()
-	defer w.mu.RUnlock()
+	// Exclusive: serializing writes into the shared buffer, and yaml's
+	// encoder into the document's nodes (audit 22/11: two at once raced).
+	w.mu.Lock()
+	defer w.mu.Unlock()
 
 	// Serialize current config
 	w.valueBuffer = w.valueBuffer[:0]
 	serialized, err := w.serializeConfig(w.config, w.valueBuffer)
 	if err != nil {
-		return errors.Wrap(err, ErrCodeSerializationError, "serialization failed")
+		return errors.Wrap(err, ErrCodeSerializationError, "serialization failed: "+err.Error())
 	}
 
 	// Write to target file atomically
@@ -272,10 +485,17 @@ func (w *ConfigWriter) GetValue(key string) interface{} {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
 
-	w.keyBuffer = w.keyBuffer[:0]
-	w.keyBuffer = parseDotNotation(key, w.keyBuffer)
-
-	return w.getNestedValue(w.config, w.keyBuffer)
+	// A buffer of its own: readers run together, and shared they raced.
+	// A map or a list is a copy: the writer's own, ranged over while a
+	// SetValue changed it, raced too (audit 22/11).
+	switch v := w.getNestedValue(w.config, parseDotNotation(key, make([]string, 0, 8))).(type) {
+	case map[string]interface{}:
+		return deepCopy(v)
+	case []interface{}:
+		return deepCopySlice(v)
+	default:
+		return v
+	}
 }
 
 // HasChanges returns true if the configuration has unsaved changes.
@@ -331,10 +551,7 @@ func (w *ConfigWriter) DeleteValue(key string) bool {
 	w.keyBuffer = parseDotNotation(key, w.keyBuffer)
 
 	// Delete from config
-	deleted := w.deleteNestedValue(w.config, w.keyBuffer)
-	if deleted && w.doc != nil {
-		deleteYAMLPath(w.doc, w.keyBuffer)
-	}
+	deleted := w.delete(w.keyBuffer)
 
 	// Audit logging for configuration changes (optional)
 	if deleted && w.auditLogger != nil {
@@ -379,8 +596,13 @@ func (w *ConfigWriter) Reset() error {
 
 	// Try to reload from original file
 	if err := w.reloadFromFile(); err != nil {
-		// If file doesn't exist or can't be read, reset to empty config
+		// If file doesn't exist or can't be read, reset to empty config,
+		// the document too: kept, it was written back (audit 22/11).
 		w.config = make(map[string]interface{})
+		w.doc = nil
+		if w.format == FormatYAML {
+			_ = w.yamlFrom(w.config) // an empty document: cannot fail
+		}
 		w.originalHash = hashConfig(w.config)
 
 		// Audit the reset operation (optional)
@@ -406,8 +628,11 @@ func (w *ConfigWriter) reloadFromFile() error {
 	if _, err := os.Stat(w.filePath); os.IsNotExist(err) {
 		// File doesn't exist, reset to empty config
 		w.config = make(map[string]interface{})
-		w.originalHash = hashConfig(w.config)
 		w.doc = nil
+		if w.format == FormatYAML {
+			_ = w.yamlFrom(w.config) // an empty document: cannot fail
+		}
+		w.originalHash = hashConfig(w.config)
 		return nil
 	}
 
@@ -417,18 +642,23 @@ func (w *ConfigWriter) reloadFromFile() error {
 		return fmt.Errorf("failed to read file: %w", err)
 	}
 
-	// The document first (YAML): its errors, then the values' checks.
+	// The parser first: its errors keep the position, not the text.
+	config, err := ParseConfig(data, w.format)
+	if err != nil {
+		return fmt.Errorf("failed to parse configuration: %w", err)
+	}
 	var doc *yaml.Node
 	if w.format == FormatYAML {
 		if doc, err = loadYAMLDocument(data); err != nil {
 			return fmt.Errorf("failed to parse configuration: %w", err)
 		}
 	}
-	config, err := ParseConfig(data, w.format)
-	if err != nil {
-		return fmt.Errorf("failed to parse configuration: %w", err)
+	w.doc, w.shared = doc, yamlShared(doc)
+	if w.format == FormatINI || w.format == FormatProperties {
+		if config, err = nestDottedKeys(config); err != nil {
+			return err
+		}
 	}
-	w.doc = doc
 
 	// Update internal state
 	w.config = config
@@ -700,22 +930,31 @@ func syncDir(dir string) error {
 // serializeConfig converts the configuration map to the original format.
 // Uses pre-allocated buffer to minimize allocations.
 func (w *ConfigWriter) serializeConfig(config map[string]interface{}, buffer []byte) ([]byte, error) {
+	var data []byte
+	var err error
 	switch w.format {
 	case FormatJSON:
 		return serializeJSON(config, buffer)
 	case FormatYAML:
 		return w.serializeYAML(config)
 	case FormatTOML:
-		return serializeTOML(config, buffer)
+		data, err = serializeTOML(config, buffer)
 	case FormatHCL:
-		return serializeHCL(config, buffer)
+		data, err = serializeHCL(config, buffer)
 	case FormatINI:
-		return serializeINI(config, buffer)
+		data, err = serializeINI(config, buffer)
 	case FormatProperties:
-		return serializeProperties(config, buffer)
+		data, err = serializeProperties(config, buffer)
 	default:
 		return nil, fmt.Errorf("unsupported format: %v", w.format)
 	}
+	if err != nil {
+		return nil, err
+	}
+	if err := verifyRoundTrip(data, w.format, config); err != nil {
+		return nil, err
+	}
+	return data, nil
 }
 
 // Helper functions for zero-allocation operations

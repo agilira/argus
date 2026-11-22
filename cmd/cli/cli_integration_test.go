@@ -17,6 +17,7 @@ package cli
 import (
 	"bytes"
 	"log"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -809,4 +810,75 @@ func TestCLI_PathSecurity(t *testing.T) {
 			}
 		}
 	})
+}
+
+// Audit 22/11: config set and delete passed a parsed map to the writer,
+// which rewrote the file: comments and order gone. They edit the file;
+// one that does not parse is an error, not replaced with an empty one.
+func TestCLI_ConfigSetKeepsTheFile(t *testing.T) {
+	fixture := NewCLITestFixture(t)
+	defer fixture.Cleanup()
+	path := fixture.CreateTempConfig("app.yaml", "# the team's settings\nname: billing  # never rename\nport: 8080\n")
+	if _, err := fixture.RunCLI("config", "set", path, "port", "9090"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.RunCLI("config", "delete", path, "name"); err != nil {
+		t.Fatal(err)
+	}
+	content := fixture.ReadConfigFile(path)
+	if !strings.Contains(content, "# the team's settings") || !strings.Contains(content, "port: 9090") || strings.Contains(content, "billing") {
+		t.Fatalf("%q", content)
+	}
+	broken := fixture.CreateTempConfig("broken.json", `{"keep": "me",`)
+	if _, err := fixture.RunCLI("config", "set", broken, "k", "v"); err == nil {
+		t.Fatal("a file that does not parse was replaced")
+	}
+	if got := fixture.ReadConfigFile(broken); got != `{"keep": "me",` {
+		t.Fatalf("the broken file changed: %q", got)
+	}
+}
+
+// Second audit of v1.10.1: a key the writer would not delete (an anchor)
+// was reported "not found" while get returned it; a float 1.0 was printed
+// as 1.
+func TestCLI_DeleteSaysWhyAndFloatsPrintAsWritten(t *testing.T) {
+	fixture := NewCLITestFixture(t)
+	defer fixture.Cleanup()
+	path := fixture.CreateTempConfig("a.yaml", "n: &n 2\nx: *n\n")
+	if _, err := fixture.RunCLI("config", "delete", path, "n"); err == nil || !strings.Contains(err.Error(), "edit the file by hand") {
+		t.Fatalf("%v", err)
+	}
+	if showValue(1.0) != "1.0" || showValue(2.5) != "2.5" || showValue(3) != "3" || showValue("x") != "x" {
+		t.Fatal("showValue")
+	}
+}
+
+// Fourth audit of v1.10.1: JSON numbers are float64, and convert wrote
+// 8080 to YAML as 8080.0. Whole numbers stay whole; 1.5 stays 1.5.
+func TestCLI_ConvertKeepsWholeNumbers(t *testing.T) {
+	fixture := NewCLITestFixture(t)
+	defer fixture.Cleanup()
+	in := fixture.CreateTempConfig("in.json", `{"port": 8080, "ratio": 1.5, "list": [1, 2]}`)
+	out := filepath.Join(filepath.Dir(in), "out.yaml")
+	if _, err := fixture.RunCLI("config", "convert", in, out); err != nil {
+		t.Fatal(err)
+	}
+	content := fixture.ReadConfigFile(out)
+	if !strings.Contains(content, "port: 8080\n") || !strings.Contains(content, "ratio: 1.5") || strings.Contains(content, ".0") {
+		t.Fatalf("%q", content)
+	}
+}
+
+// Fifth audit of v1.10.1: a conversion refused said only "failed to write
+// output configuration"; -0 became 0.
+func TestCLI_ConvertSaysWhy(t *testing.T) {
+	fixture := NewCLITestFixture(t)
+	defer fixture.Cleanup()
+	in := fixture.CreateTempConfig("in.json", `{"list": [1, 2]}`)
+	if _, err := fixture.RunCLI("config", "convert", in, filepath.Join(filepath.Dir(in), "out.ini")); err == nil || !strings.Contains(err.Error(), "list") {
+		t.Fatalf("%v", err)
+	}
+	if v := wholeNumbersAsInts(math.Copysign(0, -1)); v != 0.0 || !math.Signbit(v.(float64)) {
+		t.Fatalf("-0: %#v", v)
+	}
 }

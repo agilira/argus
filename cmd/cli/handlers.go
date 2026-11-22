@@ -11,7 +11,9 @@ package cli
 
 import (
 	"fmt"
+	"math"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -35,7 +37,7 @@ func (m *Manager) handleConfigGet(ctx *orpheus.Context) error {
 
 	// Detect format and load configuration
 	format := m.detectFormat(filePath, ctx.GetFlagString("format"))
-	config, err := m.loadConfig(filePath, format)
+	_, err := m.loadConfig(filePath, format) // for its messages: the writer reads it again
 	if err != nil {
 		// Provide more specific error message for common issues
 		if strings.Contains(err.Error(), "does not exist") {
@@ -45,9 +47,9 @@ func (m *Manager) handleConfigGet(ctx *orpheus.Context) error {
 	}
 
 	// Create writer for value access
-	writer, err := argus.NewConfigWriterWithAudit(filePath, format, config, m.auditLogger)
+	writer, err := argus.NewConfigWriterWithAudit(filePath, format, nil, m.auditLogger) // the file, as written
 	if err != nil {
-		return errors.Wrap(err, argus.ErrCodeConfigWriterError, "failed to create config writer")
+		return errors.Wrap(err, argus.ErrCodeConfigWriterError, "failed to create config writer: "+err.Error())
 	}
 
 	// Get value with zero allocations
@@ -77,18 +79,13 @@ func (m *Manager) handleConfigSet(ctx *orpheus.Context) error {
 		return errors.Wrap(err, argus.ErrCodeIOError, fmt.Sprintf("cannot write to file %s", filePath))
 	}
 
-	// Detect format and load configuration
+	// The writer reads the file itself (none: an empty one), so that it
+	// changes this value and keeps the rest as written: comments and order
+	// in YAML. A file that does not parse is an error, not replaced.
 	format := m.detectFormat(filePath, ctx.GetFlagString("format"))
-	config, err := m.loadConfig(filePath, format)
+	writer, err := argus.NewConfigWriterWithAudit(filePath, format, nil, m.auditLogger)
 	if err != nil {
-		// If file doesn't exist, create empty config
-		config = make(map[string]interface{})
-	}
-
-	// Create writer with audit integration
-	writer, err := argus.NewConfigWriterWithAudit(filePath, format, config, m.auditLogger)
-	if err != nil {
-		return errors.Wrap(err, argus.ErrCodeConfigWriterError, "failed to create config writer")
+		return errors.Wrap(err, argus.ErrCodeConfigWriterError, "failed to create config writer: "+err.Error())
 	}
 
 	// Parse value automatically (string, bool, int, float)
@@ -96,7 +93,7 @@ func (m *Manager) handleConfigSet(ctx *orpheus.Context) error {
 
 	// Set value with zero allocations
 	if err := writer.SetValue(key, parsedValue); err != nil {
-		return errors.Wrap(err, argus.ErrCodeInvalidConfig, "failed to set value")
+		return errors.Wrap(err, argus.ErrCodeInvalidConfig, "failed to set value: "+err.Error())
 	}
 
 	// Atomic write to disk
@@ -104,7 +101,7 @@ func (m *Manager) handleConfigSet(ctx *orpheus.Context) error {
 		return errors.Wrap(err, argus.ErrCodeIOError, "failed to write configuration")
 	}
 
-	fmt.Printf("Set %s = %v in %s\n", key, parsedValue, filePath)
+	fmt.Printf("Set %s = %s in %s\n", key, showValue(parsedValue), filePath)
 	return nil
 }
 
@@ -126,7 +123,7 @@ func (m *Manager) handleConfigDelete(ctx *orpheus.Context) error {
 
 	// Detect format and load configuration
 	format := m.detectFormat(filePath, ctx.GetFlagString("format"))
-	config, err := m.loadConfig(filePath, format)
+	_, err := m.loadConfig(filePath, format) // for its messages: the writer reads it again
 	if err != nil {
 		// Provide more specific error message for common issues
 		if strings.Contains(err.Error(), "does not exist") {
@@ -136,13 +133,16 @@ func (m *Manager) handleConfigDelete(ctx *orpheus.Context) error {
 	}
 
 	// Create writer with audit integration
-	writer, err := argus.NewConfigWriterWithAudit(filePath, format, config, m.auditLogger)
+	writer, err := argus.NewConfigWriterWithAudit(filePath, format, nil, m.auditLogger) // the file, as written
 	if err != nil {
-		return errors.Wrap(err, argus.ErrCodeConfigWriterError, "failed to create config writer")
+		return errors.Wrap(err, argus.ErrCodeConfigWriterError, "failed to create config writer: "+err.Error())
 	}
 
 	// Delete key with zero allocations
 	if !writer.DeleteValue(key) {
+		if writer.GetValue(key) != nil { // there, but the writer would not delete it
+			return errors.New(argus.ErrCodeInvalidConfig, fmt.Sprintf("key '%s' is an anchor, an alias or merged from another entry: edit the file by hand", key))
+		}
 		return errors.New(argus.ErrCodeInvalidConfig, fmt.Sprintf("key '%s' not found", key))
 	}
 
@@ -168,7 +168,7 @@ func (m *Manager) handleConfigList(ctx *orpheus.Context) error {
 
 	// Detect format and load configuration
 	format := m.detectFormat(filePath, ctx.GetFlagString("format"))
-	config, err := m.loadConfig(filePath, format)
+	_, err := m.loadConfig(filePath, format) // for its messages: the writer reads it again
 	if err != nil {
 		// Provide more specific error message for common issues
 		if strings.Contains(err.Error(), "does not exist") {
@@ -178,9 +178,9 @@ func (m *Manager) handleConfigList(ctx *orpheus.Context) error {
 	}
 
 	// Create writer for key listing
-	writer, err := argus.NewConfigWriterWithAudit(filePath, format, config, m.auditLogger)
+	writer, err := argus.NewConfigWriterWithAudit(filePath, format, nil, m.auditLogger) // the file, as written
 	if err != nil {
-		return errors.Wrap(err, argus.ErrCodeConfigWriterError, "failed to create config writer")
+		return errors.Wrap(err, argus.ErrCodeConfigWriterError, "failed to create config writer: "+err.Error())
 	}
 
 	// List keys with prefix filtering (zero allocations)
@@ -199,7 +199,7 @@ func (m *Manager) handleConfigList(ctx *orpheus.Context) error {
 	fmt.Printf("Configuration keys in %s:\n", filePath)
 	for _, key := range keys {
 		value := writer.GetValue(key)
-		fmt.Printf("  %s = %v\n", key, value)
+		fmt.Printf("  %s = %s\n", key, showValue(value))
 	}
 
 	return nil
@@ -223,16 +223,21 @@ func (m *Manager) handleConfigConvert(ctx *orpheus.Context) error {
 	if err != nil {
 		return errors.Wrap(err, argus.ErrCodeIOError, "failed to load input configuration")
 	}
+	if fromFormat == argus.FormatJSON {
+		// JSON has one number type, read as float64: 8080 was written to
+		// YAML and TOML as 8080.0 (audit 22/11). A whole number is an int.
+		config = wholeNumbersAsInts(config).(map[string]interface{})
+	}
 
 	// Create writer for output format using dummy path (we'll use WriteConfigAs)
 	writer, err := argus.NewConfigWriterWithAudit(inputPath, toFormat, config, m.auditLogger)
 	if err != nil {
-		return errors.Wrap(err, argus.ErrCodeConfigWriterError, "failed to create config writer")
+		return errors.Wrap(err, argus.ErrCodeConfigWriterError, "failed to create config writer: "+err.Error())
 	}
 
 	// Use WriteConfigAs to force write to output path (bypasses hash check)
 	if err := writer.WriteConfigAs(outputPath); err != nil {
-		return errors.Wrap(err, argus.ErrCodeIOError, "failed to write output configuration")
+		return errors.Wrap(err, argus.ErrCodeIOError, "failed to write output configuration: "+err.Error())
 	}
 
 	// Verify the file was actually created
@@ -302,7 +307,7 @@ func (m *Manager) handleConfigInit(ctx *orpheus.Context) error {
 	// Create writer and save
 	writer, err := argus.NewConfigWriterWithAudit(filePath, format, config, m.auditLogger)
 	if err != nil {
-		return errors.Wrap(err, argus.ErrCodeConfigWriterError, "failed to create config writer")
+		return errors.Wrap(err, argus.ErrCodeConfigWriterError, "failed to create config writer: "+err.Error())
 	}
 
 	if err := writer.WriteConfig(); err != nil {
@@ -477,4 +482,37 @@ func (m *Manager) handleCompletion(ctx *orpheus.Context) error {
 	}
 
 	return nil
+}
+
+// showValue prints a value as the file holds it: a float 1.0 as 1.0, not
+// as 1 (%v), which read like an integer.
+func showValue(v interface{}) string {
+	if f, ok := v.(float64); ok {
+		s := strconv.FormatFloat(f, 'g', -1, 64)
+		if !strings.ContainsAny(s, ".eEnN") {
+			s += ".0"
+		}
+		return s
+	}
+	return fmt.Sprintf("%v", v)
+}
+
+// wholeNumbersAsInts turns the float64 values that hold a whole number
+// (as JSON gives every number) into int, through maps and lists.
+func wholeNumbersAsInts(v interface{}) interface{} {
+	switch x := v.(type) {
+	case float64:
+		if x == math.Trunc(x) && math.Abs(x) < 1<<53 && !(x == 0 && math.Signbit(x)) { // -0 stays itself
+			return int(x)
+		}
+	case map[string]interface{}:
+		for k, item := range x {
+			x[k] = wholeNumbersAsInts(item)
+		}
+	case []interface{}:
+		for i, item := range x {
+			x[i] = wholeNumbersAsInts(item)
+		}
+	}
+	return v
 }

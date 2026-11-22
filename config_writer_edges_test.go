@@ -71,10 +71,11 @@ func TestYAMLDocumentRefusals(t *testing.T) {
 	if err := setYAMLPath(doc, []string{"b"}, func() {}); err == nil {
 		t.Error("a func set")
 	}
-	if err := setYAMLPath(doc, nil, 1); err == nil || deleteYAMLPath(doc, nil) || deleteYAMLPath(nil, []string{"a"}) {
+	del := func(d *yaml.Node, path ...string) bool { ok, _ := deleteYAMLPath(d, path); return ok }
+	if err := setYAMLPath(doc, nil, 1); err == nil || del(doc) || del(nil, "a") {
 		t.Error("an empty path taken")
 	}
-	if deleteYAMLPath(doc, []string{"a", "x"}) || deleteYAMLPath(doc, []string{"none"}) || deleteYAMLPath(doc, []string{"none", "x"}) {
+	if del(doc, "a", "x") || del(doc, "none") || del(doc, "none", "x") {
 		t.Error("deleted what is not there")
 	}
 }
@@ -90,9 +91,8 @@ func TestYAMLWriterRefusesWhatItCannotWrite(t *testing.T) {
 	if err := w.SetValue("f", func() {}); err == nil || w.GetValue("f") != nil {
 		t.Fatal("a func set, or left in the values")
 	}
-	fresh, _ := NewConfigWriter(filepath.Join(t.TempDir(), "new.yaml"), FormatYAML, map[string]interface{}{"f": func() {}})
-	if err := fresh.WriteConfig(); err == nil {
-		t.Fatal("a func written")
+	if _, err := NewConfigWriter(filepath.Join(t.TempDir(), "new.yaml"), FormatYAML, map[string]interface{}{"f": func() {}}); err == nil {
+		t.Fatal("a func taken") // refused at once: a YAML writer holds its document from the start
 	}
 	w.doc = &yaml.Node{Kind: yaml.Kind(99)}
 	w.config["changed"] = true
