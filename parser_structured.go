@@ -128,37 +128,9 @@ func errorEchoesInput(message string, data []byte) bool {
 // The decoder handles inline comments, anchors, tags, multiline scalars, and all
 // edge cases that the previous line-by-line parser could not cover.
 func parseYAML(data []byte) (map[string]interface{}, error) {
-	var raw map[string]interface{}
-	var doc yaml.Node
-	dec := yaml.NewDecoder(bytes.NewReader(data))
-	err := dec.Decode(&doc)
-	if err == nil {
-		err = checkYAMLKeys(&doc)
-	}
-	if err == nil {
-		err = doc.Decode(&raw)
-	}
-	if err == io.EOF {
-		err = nil // an empty document is an empty configuration
-	} else if err == nil {
-		// A second document, or anything after the first, was dropped in
-		// silence by yaml.Unmarshal: a configuration half read.
-		var more interface{}
-		if dec.Decode(&more) != io.EOF {
-			return nil, errors.New(ErrCodeInvalidConfig, "YAML holds more than one document: a configuration is one")
-		}
-	}
-	if errors.HasCode(err, ErrCodeInvalidConfig) {
-		return nil, err // checkYAMLKeys: no document text in it
-	}
+	raw, err := decodeYAML(data)
 	if err != nil {
-		// The decoder quotes the offending document text, which for a
-		// configuration file is the configuration itself. Formatting it into
-		// the message put that text wherever the error is logged. The position
-		// is kept because it is what an operator needs; the full decoder error
-		// stays reachable through errors.Unwrap for a debugger that has the
-		// file in front of it anyway.
-		return nil, errors.Wrap(err, ErrCodeInvalidConfig, yamlErrorSummary(err, data))
+		return nil, err
 	}
 	if raw == nil {
 		raw = make(map[string]interface{})
@@ -207,6 +179,42 @@ func checkYAMLKeys(n *yaml.Node) error {
 		}
 	}
 	return nil
+}
+
+// decodeYAML is data's one document, its keys checked first; errors keep
+// the position and not the document's text.
+func decodeYAML(data []byte) (map[string]interface{}, error) {
+	var raw map[string]interface{}
+	var doc yaml.Node
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	err := dec.Decode(&doc)
+	if err == nil {
+		err = checkYAMLKeys(&doc)
+	}
+	if err == nil {
+		err = doc.Decode(&raw)
+	}
+	switch {
+	case err == io.EOF:
+		return nil, nil // an empty document is an empty configuration
+	case errors.HasCode(err, ErrCodeInvalidConfig):
+		return nil, err // checkYAMLKeys: no document text in it
+	case err != nil:
+		// The decoder quotes the offending document text, which for a
+		// configuration file is the configuration itself. Formatting it into
+		// the message put that text wherever the error is logged. The position
+		// is kept because it is what an operator needs; the full decoder error
+		// stays reachable through errors.Unwrap for a debugger that has the
+		// file in front of it anyway.
+		return nil, errors.Wrap(err, ErrCodeInvalidConfig, yamlErrorSummary(err, data))
+	}
+	// A second document, or anything after the first, was dropped in
+	// silence by yaml.Unmarshal: a configuration half read.
+	var more interface{}
+	if dec.Decode(&more) != io.EOF {
+		return nil, errors.New(ErrCodeInvalidConfig, "YAML holds more than one document: a configuration is one")
+	}
+	return raw, nil
 }
 
 // validateYAMLKeys enforces the same key policy the INI and Properties parsers

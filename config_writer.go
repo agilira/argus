@@ -23,10 +23,13 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
 	"github.com/agilira/go-errors"
+	"go.yaml.in/yaml/v4"
 )
 
 // ConfigWriter provides zero-allocation configuration writing capabilities.
@@ -52,6 +55,11 @@ type ConfigWriter struct {
 	// Current state - copy-on-write semantics
 	config       map[string]interface{}
 	originalHash uint64 // Fast dirty detection
+
+	// doc is a YAML file's document, edited along with config so that what
+	// the writer does not change (comments, order, the rest) is written as
+	// it was; nil for the other formats and for a YAML file made anew.
+	doc *yaml.Node
 
 	// Optional audit integration
 	auditLogger *AuditLogger // Optional - can be nil for performance
@@ -105,10 +113,17 @@ func NewConfigWriterWithAudit(filePath string, format ConfigFormat, initialConfi
 		writer.config = deepCopy(initialConfig)
 		// For new files, originalHash should be 0 so WriteConfig() always writes the first time
 		writer.originalHash = 0
-	} else {
-		writer.config = make(map[string]interface{})
+		return writer, nil
 	}
-
+	// No configuration given: the file's, when there is one. A writer that
+	// started empty replaced an existing file with only the keys it was
+	// then given, every other entry lost (22/11).
+	writer.config = make(map[string]interface{})
+	if _, err := os.Stat(filePath); err == nil {
+		if err := writer.reloadFromFile(); err != nil {
+			return nil, errors.Wrap(err, ErrCodeInvalidConfig, "cannot read the configuration to edit")
+		}
+	}
 	return writer, nil
 }
 
@@ -146,6 +161,12 @@ func (w *ConfigWriter) SetValue(key string, value interface{}) error {
 		oldConfig = deepCopy(w.config)
 	}
 
+	// The document first: a value it cannot hold leaves both unchanged.
+	if w.doc != nil {
+		if err := setYAMLPath(w.doc, w.keyBuffer, value); err != nil {
+			return errors.Wrap(err, ErrCodeInvalidConfig, "failed to set nested value")
+		}
+	}
 	// Apply change to config copy
 	if err := w.setNestedValue(w.config, w.keyBuffer, value); err != nil {
 		return errors.Wrap(err, ErrCodeInvalidConfig, "failed to set nested value")
@@ -311,6 +332,9 @@ func (w *ConfigWriter) DeleteValue(key string) bool {
 
 	// Delete from config
 	deleted := w.deleteNestedValue(w.config, w.keyBuffer)
+	if deleted && w.doc != nil {
+		deleteYAMLPath(w.doc, w.keyBuffer)
+	}
 
 	// Audit logging for configuration changes (optional)
 	if deleted && w.auditLogger != nil {
@@ -330,6 +354,7 @@ func (w *ConfigWriter) ListKeys(prefix string) []string {
 
 	var keys []string
 	w.collectKeys(w.config, "", prefix, &keys)
+	sort.Strings(keys) // the same list each time: a map has no order
 	return keys
 }
 
@@ -382,6 +407,7 @@ func (w *ConfigWriter) reloadFromFile() error {
 		// File doesn't exist, reset to empty config
 		w.config = make(map[string]interface{})
 		w.originalHash = hashConfig(w.config)
+		w.doc = nil
 		return nil
 	}
 
@@ -391,11 +417,18 @@ func (w *ConfigWriter) reloadFromFile() error {
 		return fmt.Errorf("failed to read file: %w", err)
 	}
 
-	// Parse configuration using the same format
+	// The document first (YAML): its errors, then the values' checks.
+	var doc *yaml.Node
+	if w.format == FormatYAML {
+		if doc, err = loadYAMLDocument(data); err != nil {
+			return fmt.Errorf("failed to parse configuration: %w", err)
+		}
+	}
 	config, err := ParseConfig(data, w.format)
 	if err != nil {
 		return fmt.Errorf("failed to parse configuration: %w", err)
 	}
+	w.doc = doc
 
 	// Update internal state
 	w.config = config
@@ -435,6 +468,22 @@ func (w *ConfigWriter) setNestedValue(config map[string]interface{}, keyPath []s
 		return errors.New(ErrCodeConfigWriterError, "empty key path")
 	}
 
+	// Check the path first: a path refused half-way left the maps made
+	// before the refusal in the configuration (22/11).
+	probe := config
+	for _, key := range keyPath[:len(keyPath)-1] {
+		next, exists := probe[key]
+		if !exists {
+			break // the rest is made
+		}
+		nextMap, ok := next.(map[string]interface{})
+		if !ok {
+			return errors.New(ErrCodeConfigWriterError,
+				fmt.Sprintf("key '%s' is not a map, cannot set nested value", key))
+		}
+		probe = nextMap
+	}
+
 	current := config
 
 	// Navigate to parent of target key
@@ -448,14 +497,7 @@ func (w *ConfigWriter) setNestedValue(config map[string]interface{}, keyPath []s
 			current[key] = next
 		}
 
-		// Type assertion for nested maps
-		nextMap, ok := next.(map[string]interface{})
-		if !ok {
-			return errors.New(ErrCodeConfigWriterError,
-				fmt.Sprintf("key '%s' is not a map, cannot set nested value", key))
-		}
-
-		current = nextMap
+		current = next.(map[string]interface{}) // checked above
 	}
 
 	// Set final value
@@ -472,14 +514,15 @@ func (w *ConfigWriter) setNestedValue(config map[string]interface{}, keyPath []s
 func (w *ConfigWriter) getNestedValue(config map[string]interface{}, keyPath []string) interface{} {
 	current := config
 
-	for _, key := range keyPath {
+	for i, key := range keyPath {
 		value, exists := current[key]
 		if !exists {
 			return nil
 		}
 
-		// If this is the final key, return the value
-		if key == keyPath[len(keyPath)-1] {
+		// The final key's value. By position: compared by name, a.b.a ended
+		// at the first a (22/11).
+		if i == len(keyPath)-1 {
 			return value
 		}
 
@@ -661,7 +704,7 @@ func (w *ConfigWriter) serializeConfig(config map[string]interface{}, buffer []b
 	case FormatJSON:
 		return serializeJSON(config, buffer)
 	case FormatYAML:
-		return serializeYAML(config, buffer)
+		return w.serializeYAML(config)
 	case FormatTOML:
 		return serializeTOML(config, buffer)
 	case FormatHCL:
@@ -732,42 +775,39 @@ func hashConfig(config map[string]interface{}) uint64 {
 	return h.Sum64()
 }
 
-// hashValue recursively hashes a configuration value.
+// hashValue hashes a configuration value: each with its type, so 1 and
+// "1" differ, floats exact (%f made 1e-7 and 0 the same), and a map's keys
+// in order. They were not sorted, whatever the comment said: the same
+// configuration hashed differently from one call to the next, and
+// HasChanges and WriteConfig's skip of an unchanged file went by chance.
 func hashValue(h hash.Hash64, v interface{}) {
+	write := func(s string) { _, _ = h.Write([]byte(s)) } // #nosec G104 -- hash.Write never fails
+	if n, ok := formatNumber(v); ok {
+		write("n:" + n + ";")
+		return
+	}
 	switch val := v.(type) {
 	case nil:
-		_, _ = h.Write([]byte("nil")) // #nosec G104 -- hash.Write never fails
+		write("nil;")
 	case bool:
-		if val {
-			_, _ = h.Write([]byte("true")) // #nosec G104 -- hash.Write never fails
-		} else {
-			_, _ = h.Write([]byte("false")) // #nosec G104 -- hash.Write never fails
-		}
-	case int:
-		_, _ = h.Write([]byte(fmt.Sprintf("%d", val))) // #nosec G104 -- hash.Write never fails
-	case int64:
-		_, _ = h.Write([]byte(fmt.Sprintf("%d", val))) // #nosec G104 -- hash.Write never fails
-	case float64:
-		_, _ = h.Write([]byte(fmt.Sprintf("%f", val))) // #nosec G104 -- hash.Write never fails
+		write("b:" + strconv.FormatBool(val) + ";")
 	case string:
-		_, _ = h.Write([]byte(val)) // #nosec G104 -- hash.Write never fails
+		write("s:" + strconv.Itoa(len(val)) + ":" + val)
 	case map[string]interface{}:
-		// Sort keys for consistent hashing
-		keys := make([]string, 0, len(val))
-		for k := range val {
-			keys = append(keys, k)
-		}
-
-		for _, k := range keys {
-			_, _ = h.Write([]byte(k)) // #nosec G104 -- hash.Write never fails
+		write("m:" + strconv.Itoa(len(val)) + "{")
+		for _, k := range sortedConfigKeys(val) {
+			write(strconv.Itoa(len(k)) + ":" + k)
 			hashValue(h, val[k])
 		}
+		write("}")
 	case []interface{}:
+		write("l:" + strconv.Itoa(len(val)) + "[")
 		for _, item := range val {
 			hashValue(h, item)
 		}
+		write("]")
 	default:
-		_, _ = h.Write([]byte(fmt.Sprintf("%v", val))) // #nosec G104 -- hash.Write never fails
+		write(fmt.Sprintf("o:%T:%v;", val, val))
 	}
 }
 
@@ -795,359 +835,21 @@ func serializeJSON(config map[string]interface{}, buffer []byte) ([]byte, error)
 // For advanced YAML features, register a custom parser using RegisterParser().
 //
 // Performance: Zero allocations when buffer has sufficient capacity
-func serializeYAML(config map[string]interface{}, buffer []byte) ([]byte, error) {
-	var lines []string
-
-	// Convert to YAML-like format with proper indentation
-	yamlLines := serializeYAMLRecursive(config, 0)
-	lines = append(lines, yamlLines...)
-
-	data := []byte(strings.Join(lines, "\n"))
-
-	// Reuse buffer if it has sufficient capacity
-	if cap(buffer) >= len(data) {
-		buffer = buffer[:len(data)]
-		copy(buffer, data)
-		return buffer, nil
+// serializeYAML writes the document the writer edits, or, for a file it
+// makes or converts, the values with their keys sorted. Through the YAML
+// encoder: quoting, escapes and numbers exact (a hand-written writer put
+// 1234567.5 as 1.23457e+06 and left keys with : or # unquoted).
+func (w *ConfigWriter) serializeYAML(config map[string]interface{}) ([]byte, error) {
+	doc := w.doc
+	if doc == nil {
+		var err error
+		if doc, err = yamlDocumentOf(config); err != nil {
+			return nil, errors.Wrap(err, ErrCodeSerializationError, "YAML encode failed")
+		}
 	}
-
+	data, err := encodeYAMLDocument(doc)
+	if err != nil {
+		return nil, errors.Wrap(err, ErrCodeSerializationError, "YAML encode failed")
+	}
 	return data, nil
-}
-
-// serializeTOML converts configuration to TOML format using built-in serialization.
-// Provides basic TOML output compatible with most parsers without external dependencies.
-// For advanced TOML features, register a custom parser using RegisterParser().
-//
-// Performance: Zero allocations when buffer has sufficient capacity
-func serializeTOML(config map[string]interface{}, buffer []byte) ([]byte, error) {
-	var flatKeys []string
-	var sections []string
-
-	// First pass: collect flat keys and sections
-	for key, value := range config {
-		switch v := value.(type) {
-		case map[string]interface{}:
-			// TOML section
-			sections = append(sections, fmt.Sprintf("[%s]", key))
-			for subKey, subValue := range v {
-				sections = append(sections, fmt.Sprintf("%s = %s", subKey, formatTOMLValue(subValue)))
-			}
-			sections = append(sections, "") // Empty line between sections
-		default:
-			flatKeys = append(flatKeys, fmt.Sprintf("%s = %s", key, formatTOMLValue(v)))
-		}
-	}
-
-	// Combine flat keys first, then sections
-	result := append(flatKeys, sections...)
-	if len(flatKeys) > 0 && len(sections) > 0 {
-		// Add separator between flat keys and sections
-		result = append(flatKeys, append([]string{""}, sections...)...)
-	}
-
-	data := []byte(strings.Join(result, "\n"))
-
-	// Reuse buffer if it has sufficient capacity
-	if cap(buffer) >= len(data) {
-		buffer = buffer[:len(data)]
-		copy(buffer, data)
-		return buffer, nil
-	}
-
-	return data, nil
-}
-
-// serializeHCL converts configuration to HCL format using built-in serialization.
-// Provides basic HCL output compatible with most parsers without external dependencies.
-// For advanced HCL features, register a custom parser using RegisterParser().
-//
-// Performance: Zero allocations when buffer has sufficient capacity
-func serializeHCL(config map[string]interface{}, buffer []byte) ([]byte, error) {
-	var lines []string
-
-	// Convert to HCL format with proper braces and structure
-	for key, value := range config {
-		switch v := value.(type) {
-		case map[string]interface{}:
-			// HCL block
-			lines = append(lines, fmt.Sprintf("%s {", key))
-			for subKey, subValue := range v {
-				lines = append(lines, fmt.Sprintf("  %s = %s", subKey, formatHCLValue(subValue)))
-			}
-			lines = append(lines, "}")
-			lines = append(lines, "") // Empty line between blocks
-		default:
-			lines = append(lines, fmt.Sprintf("%s = %s", key, formatHCLValue(v)))
-		}
-	}
-
-	data := []byte(strings.Join(lines, "\n"))
-
-	// Reuse buffer if it has sufficient capacity
-	if cap(buffer) >= len(data) {
-		buffer = buffer[:len(data)]
-		copy(buffer, data)
-		return buffer, nil
-	}
-
-	return data, nil
-}
-
-// serializeINI converts configuration to INI format.
-// Supports flat key=value pairs and [section] groups for nested structures.
-func serializeINI(config map[string]interface{}, buffer []byte) ([]byte, error) {
-	var lines []string
-	var flatKeys []string
-
-	// First pass: collect flat keys and sections
-	for key, value := range config {
-		switch v := value.(type) {
-		case map[string]interface{}:
-			// Section header
-			lines = append(lines, fmt.Sprintf("[%s]", key))
-			for subKey, subValue := range v {
-				lines = append(lines, fmt.Sprintf("%s=%v", subKey, subValue))
-			}
-			lines = append(lines, "") // Empty line between sections
-		default:
-			flatKeys = append(flatKeys, fmt.Sprintf("%s=%v", key, v))
-		}
-	}
-
-	// Combine flat keys first, then sections
-	result := append(flatKeys, lines...)
-	data := []byte(strings.Join(result, "\n"))
-
-	// Reuse buffer if it has sufficient capacity
-	if cap(buffer) >= len(data) {
-		buffer = buffer[:len(data)]
-		copy(buffer, data)
-		return buffer, nil
-	}
-
-	return data, nil
-}
-
-// serializeProperties converts configuration to Java Properties format.
-// Flattens nested structures using dot notation (key.subkey=value).
-func serializeProperties(config map[string]interface{}, buffer []byte) ([]byte, error) {
-	var lines []string
-
-	// Flatten the configuration using dot notation
-	flattened := flattenConfig(config, "")
-
-	for key, value := range flattened {
-		lines = append(lines, fmt.Sprintf("%s=%v", key, value))
-	}
-
-	data := []byte(strings.Join(lines, "\n"))
-
-	// Reuse buffer if it has sufficient capacity
-	if cap(buffer) >= len(data) {
-		buffer = buffer[:len(data)]
-		copy(buffer, data)
-		return buffer, nil
-	}
-
-	return data, nil
-}
-
-// flattenConfig converts nested maps to flat key-value pairs using dot notation
-func flattenConfig(config map[string]interface{}, prefix string) map[string]interface{} {
-	result := make(map[string]interface{})
-
-	for key, value := range config {
-		fullKey := key
-		if prefix != "" {
-			fullKey = prefix + "." + key
-		}
-
-		switch v := value.(type) {
-		case map[string]interface{}:
-			// Recursively flatten nested maps
-			nested := flattenConfig(v, fullKey)
-			for nestedKey, nestedValue := range nested {
-				result[nestedKey] = nestedValue
-			}
-		default:
-			result[fullKey] = value
-		}
-	}
-
-	return result
-}
-
-// serializeYAMLRecursive converts a map to YAML format with proper indentation.
-// Provides recursive serialization for nested structures.
-//
-// Performance: Optimized for readability and compatibility
-func serializeYAMLRecursive(config map[string]interface{}, indentLevel int) []string {
-	var lines []string
-	indent := strings.Repeat("  ", indentLevel)
-
-	for key, value := range config {
-		switch v := value.(type) {
-		case map[string]interface{}:
-			lines = append(lines, fmt.Sprintf("%s%s:", indent, key))
-			nestedLines := serializeYAMLRecursive(v, indentLevel+1)
-			lines = append(lines, nestedLines...)
-		case []interface{}:
-			lines = append(lines, fmt.Sprintf("%s%s:", indent, key))
-			for _, item := range v {
-				lines = append(lines, fmt.Sprintf("%s  - %s", indent, formatYAMLValue(item)))
-			}
-		default:
-			lines = append(lines, fmt.Sprintf("%s%s: %s", indent, key, formatYAMLValue(v)))
-		}
-	}
-
-	return lines
-}
-
-// formatYAMLValue formats a value for YAML output with proper escaping.
-// Handles strings, numbers, booleans, and nil values according to YAML spec.
-// Supports proper quoting, multi-line strings, and special characters.
-func formatYAMLValue(value interface{}) string {
-	switch v := value.(type) {
-	case nil:
-		return "null"
-	case bool:
-		if v {
-			return "true"
-		}
-		return "false"
-	case string:
-		return formatYAMLString(v)
-	case int:
-		return fmt.Sprintf("%d", v)
-	case int64:
-		return fmt.Sprintf("%d", v)
-	case float32:
-		return fmt.Sprintf("%.6g", v)
-	case float64:
-		return fmt.Sprintf("%.6g", v)
-	case []interface{}:
-		// Handle inline arrays for complex nested structures
-		var items []string
-		for _, item := range v {
-			items = append(items, formatYAMLValue(item))
-		}
-		return fmt.Sprintf("[%s]", strings.Join(items, ", "))
-	case map[string]interface{}:
-		// Handle inline objects for simple cases
-		if len(v) <= 2 {
-			var pairs []string
-			for key, val := range v {
-				pairs = append(pairs, fmt.Sprintf("%s: %s", key, formatYAMLValue(val)))
-			}
-			return fmt.Sprintf("{%s}", strings.Join(pairs, ", "))
-		}
-		return fmt.Sprintf("%v", v) // Fallback for complex objects
-	default:
-		return fmt.Sprintf(`"%v"`, v)
-	}
-}
-
-// formatYAMLString formats a string for YAML output with proper quoting and escaping.
-// Handles special cases like empty strings, multi-line strings, and reserved words.
-func formatYAMLString(s string) string {
-	if s == "" {
-		return `""`
-	}
-
-	// Check for YAML reserved words that need quoting
-	reserved := []string{"true", "false", "null", "yes", "no", "on", "off"}
-	for _, word := range reserved {
-		if strings.EqualFold(s, word) {
-			return fmt.Sprintf(`"%s"`, s)
-		}
-	}
-
-	// Check for special characters that require quoting
-	needsQuoting := strings.ContainsAny(s, ": \t\n\r[]{}|>-#&*!%@`\"'\\")
-
-	// Check for numeric-looking strings
-	if !needsQuoting {
-		// Simple check for numbers
-		if _, err := fmt.Sscanf(s, "%f", new(float64)); err == nil && s != "0" {
-			needsQuoting = true
-		}
-	}
-
-	// Check if starts with special characters
-	if !needsQuoting && len(s) > 0 {
-		first := s[0]
-		if first == '-' || first == '?' || first == ':' || first == '[' || first == '{' || first == '!' {
-			needsQuoting = true
-		}
-	}
-
-	if needsQuoting {
-		// Escape internal quotes and backslashes
-		escaped := strings.ReplaceAll(s, `\`, `\\`)
-		escaped = strings.ReplaceAll(escaped, `"`, `\"`)
-		return fmt.Sprintf(`"%s"`, escaped)
-	}
-
-	return s
-}
-
-// formatTOMLValue formats a value for TOML output with proper escaping.
-// Handles strings, numbers, booleans, and arrays according to TOML spec.
-func formatTOMLValue(value interface{}) string {
-	switch v := value.(type) {
-	case nil:
-		return `""`
-	case bool:
-		if v {
-			return "true"
-		}
-		return "false"
-	case string:
-		// TOML strings must be quoted
-		return fmt.Sprintf(`"%s"`, strings.ReplaceAll(v, `"`, `\"`))
-	case int, int64:
-		return fmt.Sprintf("%d", v)
-	case float64:
-		return fmt.Sprintf("%g", v)
-	case []interface{}:
-		// TOML array
-		var items []string
-		for _, item := range v {
-			items = append(items, formatTOMLValue(item))
-		}
-		return fmt.Sprintf("[%s]", strings.Join(items, ", "))
-	default:
-		return fmt.Sprintf(`"%v"`, v)
-	}
-}
-
-// formatHCLValue formats a value for HCL output with proper escaping.
-// Handles strings, numbers, booleans, and complex types according to HCL spec.
-func formatHCLValue(value interface{}) string {
-	switch v := value.(type) {
-	case nil:
-		return "null"
-	case bool:
-		if v {
-			return "true"
-		}
-		return "false"
-	case string:
-		// HCL strings should be quoted unless they're simple identifiers
-		return fmt.Sprintf(`"%s"`, strings.ReplaceAll(v, `"`, `\"`))
-	case int, int64:
-		return fmt.Sprintf("%d", v)
-	case float64:
-		return fmt.Sprintf("%g", v)
-	case []interface{}:
-		// HCL list
-		var items []string
-		for _, item := range v {
-			items = append(items, formatHCLValue(item))
-		}
-		return fmt.Sprintf("[%s]", strings.Join(items, ", "))
-	default:
-		return fmt.Sprintf(`"%v"`, v)
-	}
 }

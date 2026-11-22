@@ -1,0 +1,89 @@
+argus v1.10.0 — the writer changes what it is told, and nothing else
+=====================================================================
+
+Released: (pending)
+Commit:   (see git log)
+Authors:  Antonio Giordano
+
+STATUS: MINOR — no API removed. Behaviour changes, each a fix, listed
+under CHANGED.
+
+
+CHANGED
+-------
+
+1. A YAML file is edited as its document. ConfigWriter on a YAML file
+   keeps everything it does not change: comments, the order of the keys,
+   quoting, long lines, the other entries. SetValue replaces a value in
+   place (its comments stay) or adds it at the end of its mapping;
+   DeleteValue removes it. Before, the file was rewritten from its values:
+   every comment lost, the keys in a new order at each write (Go maps have
+   none). A file the writer makes, or converts to YAML, is written with its
+   keys sorted. Output goes through the YAML encoder, two-space indent and
+   no line width (yaml v4 folds at 80 columns).
+
+2. NewConfigWriter with a nil configuration reads the file when it
+   exists. It started empty, so its first WriteConfig replaced the file
+   with only the keys set since: every other entry lost. A file that does
+   not parse is now an error, not an empty configuration.
+
+3. An OutputFile ending in .db is SQLite or an error. When SQLite could
+   not open it (a damaged file, a .jsonl renamed), the logger fell back to
+   JSONL and appended JSON lines into the .db, without the hash chain the
+   caller chose SQLite for, and said nothing. Found by ringil's audit.
+
+
+FIXED
+-----
+
+1. Numbers were written with %.6g in YAML: 1234567.5 became 1.23457e+06,
+   0.1234567 became 0.123457. Every format now writes them exactly; a
+   whole float keeps its ".0" in TOML and HCL, so it reads back a float.
+
+2. YAML keys were written bare: a key with ":" or "#" broke the file.
+   The encoder quotes what needs it.
+
+3. TOML and HCL wrote one level of nesting and printed deeper mappings as
+   Go's map syntax ("map[x:1]"). They nest: [a.b] tables in TOML, blocks
+   in HCL; INI writes [section.sub]. The text formats write their keys
+   sorted, so the same configuration is the same file.
+
+4. The change hash walked maps in random order ("sort keys", said the
+   comment, and they were not), so HasChanges and WriteConfig's skip of an
+   unchanged file went by chance; floats were hashed with %f (1e-7 and 0
+   the same) and values without their type (1 and "1" the same). The hash
+   now sorts keys, hashes floats exactly and each value with its type.
+
+5. GetValue compared each key of the path with the last by name: a.b.a
+   stopped at the first a. It goes by position.
+
+6. A SetValue refused half-way (a path through a value) left the maps it
+   had made before the refusal; a value the YAML document cannot hold (a
+   func) left the values changed. Both leave everything as it was.
+
+7. ListKeys returns its keys sorted.
+
+8. AuditLogger.Close returned at a failed final flush and left the
+   backend open, a handle Windows will not let anyone remove; it closes it
+   and reports both errors. Found by ringil's audit.
+
+
+KNOWN
+-----
+
+The TOML, HCL, INI and Properties parsers are line-based: they read no
+escapes in strings (a value with a quote, a backslash or a newline does
+not round-trip), no inline tables. The writers write what those parsers
+read back. A full parser for each is its own work.
+
+
+QUALITY GATES
+-------------
+
+  gofmt -l .                      PASS (clean)
+  go vet ./...                    PASS
+  CGO_ENABLED=0 go test ./...     PASS
+  cmd/cli tests                   PASS
+  new and changed lines: 295+ of 302 covered (the rest: errors of the YAML
+  dumper that cannot happen with fixed options and an in-memory buffer)
+  staticcheck / errcheck / gosec / govulncheck — make check PASS

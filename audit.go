@@ -20,6 +20,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	stderrors "errors"
 	"fmt"
 	"hash"
 	"os"
@@ -294,18 +295,19 @@ func (al *AuditLogger) Close() error {
 			al.flushTicker.Stop()
 		}
 
-		// Final flush to ensure all events are persisted
-		if flushErr := al.Flush(); flushErr != nil {
-			err = fmt.Errorf("failed to flush audit logger during close: %w", flushErr)
-			return
+		// Final flush to ensure all events are persisted. The backend is
+		// closed even when it fails: returning first left the database open,
+		// a handle Windows will not let anyone remove meanwhile (22/11).
+		var flushErr, closeErr error
+		if e := al.Flush(); e != nil {
+			flushErr = fmt.Errorf("failed to flush audit logger during close: %w", e)
 		}
-
-		// Close backend and release resources
 		if al.backend != nil {
-			if closeErr := al.backend.Close(); closeErr != nil {
-				err = fmt.Errorf("failed to close audit backend: %w", closeErr)
+			if e := al.backend.Close(); e != nil {
+				closeErr = fmt.Errorf("failed to close audit backend: %w", e)
 			}
 		}
+		err = stderrors.Join(flushErr, closeErr)
 	})
 
 	return err

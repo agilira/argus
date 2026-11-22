@@ -97,3 +97,46 @@ func TestAuditDSNWithoutAWorkingDirectory(t *testing.T) {
 		t.Fatal("opened under a removed directory")
 	}
 }
+
+// Audit 22/11: a .db that SQLite cannot open got JSON lines appended, with
+// no chain and no word. It is an error.
+func TestAuditDatabaseIsNeverJSONL(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.db")
+	if err := os.WriteFile(path, []byte("this is not a database, but a file of text long enough to be read"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewAuditLogger(AuditConfig{Enabled: true, OutputFile: path, MinLevel: AuditInfo}); err == nil {
+		t.Fatal("a file SQLite cannot open was accepted")
+	}
+	data, _ := os.ReadFile(path)
+	if strings.Contains(string(data), "{") {
+		t.Fatalf("JSON written into the database file: %q", data)
+	}
+}
+
+// Audit 22/11: Close returned at a failed flush and left the backend
+// open. It closes it, and reports both.
+func TestCloseClosesTheBackendWhenTheFlushFails(t *testing.T) {
+	l, err := NewAuditLogger(AuditConfig{Enabled: true, OutputFile: filepath.Join(t.TempDir(), "audit.db"), MinLevel: AuditInfo, BufferSize: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fb := &failingBackend{auditBackend: l.backend}
+	l.backend = fb
+	l.LogFileWatch("file_changed", "/x")
+	if err := l.Close(); err == nil || !fb.closed {
+		t.Fatalf("err %v closed %v", err, fb.closed)
+	}
+}
+
+type failingBackend struct {
+	auditBackend
+	closed bool
+}
+
+func (f *failingBackend) Write([]AuditEvent) error { return os.ErrPermission }
+
+func (f *failingBackend) Close() error {
+	f.closed = true
+	return f.auditBackend.Close()
+}

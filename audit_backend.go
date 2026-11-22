@@ -117,6 +117,13 @@ func createAuditBackend(config AuditConfig) (auditBackend, error) {
 		return backend, nil
 	}
 
+	// A .db file asked for is a database, or nothing: falling back wrote
+	// JSON lines into it, without the hash chain the caller chose SQLite
+	// for, and told no one (22/11).
+	if filepath.Ext(config.OutputFile) == ".db" {
+		return nil, fmt.Errorf("audit database %s cannot be opened: %w", config.OutputFile, err)
+	}
+
 	// Fall back to JSONL backend if SQLite fails
 	jsonlBackend, jsonlErr := newJSONLBackend(config)
 	if jsonlErr != nil {

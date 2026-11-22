@@ -1222,7 +1222,7 @@ func TestCreateAuditBackend_AllScenarios(t *testing.T) {
 		t.Errorf("Expected JSONL backend for .jsonl file, got %s", backendType)
 	}
 
-	// Test 2: Invalid paths should cause both SQLite and JSONL to fail (skip on Windows)
+	// Test 2: an impossible .db path fails, with no fallback (skip on Windows)
 	if runtime.GOOS == "windows" {
 		t.Skip("Skipping impossible path test on Windows: path semantics differ")
 	}
@@ -1235,9 +1235,9 @@ func TestCreateAuditBackend_AllScenarios(t *testing.T) {
 	if err == nil {
 		t.Error("Expected createAuditBackend to fail for impossible path")
 	}
-	// Error should mention both backends failed
-	if err != nil && !strings.Contains(err.Error(), "all audit backends failed") {
-		t.Errorf("Expected error to mention both backends failed, got: %v", err)
+	// A .db asked for is SQLite or nothing (22/11): the error says so.
+	if err != nil && !strings.Contains(err.Error(), "audit database") {
+		t.Errorf("Expected the database's error, got: %v", err)
 	}
 
 	// Test 3: Empty config should still work (uses defaults)
