@@ -54,8 +54,8 @@ host: localhost`
 		errorMsg := err.Error()
 		t.Logf("Character validation error: %s", errorMsg)
 
-		if !contains(errorMsg, "could not find expected ':'") {
-			t.Errorf("Error should mention invalid character, got: %s", errorMsg)
+		if !contains(errorMsg, "invalid YAML") || !contains(errorMsg, "line 4") {
+			t.Errorf("Error should name the line, got: %s", errorMsg)
 		}
 	})
 
@@ -115,7 +115,7 @@ host: localhost`
 		}
 
 		errorMsg := err.Error()
-		if !contains(errorMsg, "did not find expected key") {
+		if !contains(errorMsg, "key cannot be empty") || !contains(errorMsg, "line 3") {
 			t.Errorf("Error should mention empty key, got: %s", errorMsg)
 		}
 	})

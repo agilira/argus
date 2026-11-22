@@ -21,7 +21,7 @@ import (
 	"unicode"
 
 	"github.com/agilira/go-errors"
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 )
 
 // parseJSON parses JSON configuration with pooled map to reduce allocations.
@@ -74,10 +74,11 @@ func validateJSONKey(key string) error {
 	return nil
 }
 
-// yamlLinePattern extracts the "line N" reference yaml.v3 puts in its errors.
-var yamlLinePattern = regexp.MustCompile(`line (\d+)`)
+// yamlLinePattern extracts the line the decoder names in its errors: "line
+// N", or v4's "at LN.CM".
+var yamlLinePattern = regexp.MustCompile(`(?:line |\bL)(\d+)`)
 
-// yamlQuotedContent matches the spans in which yaml.v3 echoes document text,
+// yamlQuotedContent matches the spans in which the decoder echoes document text,
 // e.g. "cannot unmarshal !!int `secret-token` into ...".
 var yamlQuotedContent = regexp.MustCompile("`[^`]*`|\"[^\"]*\"")
 
@@ -122,14 +123,21 @@ func errorEchoesInput(message string, data []byte) bool {
 	return strings.Contains(message, probe)
 }
 
-// parseYAML parses YAML configuration using go.yaml.in/yaml/v3 for full YAML 1.2
+// parseYAML parses YAML configuration using go.yaml.in/yaml/v4 for full YAML 1.2
 // spec compliance. Returns map[string]interface{} for backward compatibility.
-// yaml.v3 handles inline comments, anchors, tags, multiline scalars, and all
+// The decoder handles inline comments, anchors, tags, multiline scalars, and all
 // edge cases that the previous line-by-line parser could not cover.
 func parseYAML(data []byte) (map[string]interface{}, error) {
 	var raw map[string]interface{}
+	var doc yaml.Node
 	dec := yaml.NewDecoder(bytes.NewReader(data))
-	err := dec.Decode(&raw)
+	err := dec.Decode(&doc)
+	if err == nil {
+		err = checkYAMLKeys(&doc)
+	}
+	if err == nil {
+		err = doc.Decode(&raw)
+	}
 	if err == io.EOF {
 		err = nil // an empty document is an empty configuration
 	} else if err == nil {
@@ -139,6 +147,9 @@ func parseYAML(data []byte) (map[string]interface{}, error) {
 		if dec.Decode(&more) != io.EOF {
 			return nil, errors.New(ErrCodeInvalidConfig, "YAML holds more than one document: a configuration is one")
 		}
+	}
+	if errors.HasCode(err, ErrCodeInvalidConfig) {
+		return nil, err // checkYAMLKeys: no document text in it
 	}
 	if err != nil {
 		// The decoder quotes the offending document text, which for a
@@ -152,7 +163,7 @@ func parseYAML(data []byte) (map[string]interface{}, error) {
 	if raw == nil {
 		raw = make(map[string]interface{})
 	}
-	// yaml.v3 decodes maps as map[string]interface{} by default when
+	// The decoder gives maps as map[string]interface{} when
 	// unmarshalling into interface{}, but nested maps come back as
 	// map[string]interface{} too. We normalize recursively to ensure
 	// consistent types throughout.
@@ -167,6 +178,35 @@ func parseYAML(data []byte) (map[string]interface{}, error) {
 	}
 
 	return result, nil
+}
+
+// checkYAMLKeys refuses, before decoding, the keys a decoded map cannot
+// hold: a null key (": x", "~: x", "null: x") was dropped from the result
+// in silence, so a line of the configuration vanished, and yaml v4 put a
+// nested one under a nil key, out of reach of the key policy below; a
+// sequence or a mapping as a key is not a name. Where: the line, never
+// the key.
+func checkYAMLKeys(n *yaml.Node) error {
+	if n.Kind == yaml.MappingNode {
+		for i := 0; i+1 < len(n.Content); i += 2 {
+			at, key := n.Content[i], n.Content[i] // the line is where the key is written, an alias's too
+			if key.Kind == yaml.AliasNode && key.Alias != nil {
+				key = key.Alias
+			}
+			switch {
+			case key.Kind != yaml.ScalarNode:
+				return errors.New(ErrCodeInvalidConfig, fmt.Sprintf("invalid YAML key at line %d: a key must be a name, not a list or a mapping", at.Line))
+			case key.ShortTag() == "!!null":
+				return errors.New(ErrCodeInvalidConfig, fmt.Sprintf("invalid YAML key at line %d: key cannot be empty", at.Line))
+			}
+		}
+	}
+	for _, child := range n.Content {
+		if err := checkYAMLKeys(child); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // validateYAMLKeys enforces the same key policy the INI and Properties parsers
@@ -204,9 +244,9 @@ func validateYAMLKeys(config map[string]interface{}) error {
 	return nil
 }
 
-// normalizeYAMLTypes recursively walks a yaml.v3 decoded structure and ensures
+// normalizeYAMLTypes recursively walks a decoded structure and ensures
 // all types are consistent with what argus consumers expect.
-// yaml.v3 decodes integers as int, floats as float64, booleans as bool,
+// The decoder gives integers as int, floats as float64, booleans as bool,
 // and strings as string -- which matches argus conventions perfectly.
 // Nil values for mapping keys are normalized to empty maps to preserve
 // backward compatibility with the previous parser.

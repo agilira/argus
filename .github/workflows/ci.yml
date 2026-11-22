@@ -75,6 +75,13 @@ jobs:
     - name: Test with Race Detection
       run: go test -race -timeout 5m -v ./...
 
+    # The race detector needs cgo; the library must not: the audit backend
+    # is pure Go, and a build without cgo must keep it.
+    - name: Test without cgo
+      env:
+        CGO_ENABLED: 0
+      run: go test -timeout 5m ./...
+
     - name: Test Coverage
       run: |
         go test -coverprofile=coverage.out ./...

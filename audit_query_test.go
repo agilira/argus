@@ -22,7 +22,7 @@ import (
 	"time"
 
 	"github.com/agilira/go-errors"
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -101,7 +101,7 @@ func dbPath(t *testing.T, al *AuditLogger) string {
 // rawDB opens a direct connection to the test DB (for tamper operations).
 func rawDB(t *testing.T, al *AuditLogger) *sql.DB {
 	t.Helper()
-	db, err := sql.Open("sqlite3", dbPath(t, al))
+	db, err := sql.Open("sqlite", dbPath(t, al))
 	if err != nil {
 		t.Fatalf("rawDB open: %v", err)
 	}

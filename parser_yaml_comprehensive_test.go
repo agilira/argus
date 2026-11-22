@@ -140,12 +140,12 @@ timeout: 30.5`
 			{
 				"invalid_characters",
 				"key: value\n[invalid bracket line",
-				"could not find expected ':'",
+				"line 2",
 			},
 			{
 				"empty_key",
 				": value_without_key",
-				"did not find expected key",
+				"key cannot be empty",
 			},
 		}
 

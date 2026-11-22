@@ -1,0 +1,79 @@
+argus v1.9.0 — pure Go: every build keeps its audit trail
+==========================================================
+
+Released: (pending)
+Commit:   (see git log)
+Authors:  Antonio Giordano
+
+STATUS: MINOR — no API change. Go 1.26 or later is required (the SQLite
+driver's minimum; it was 1.25.9).
+
+
+CHANGED
+-------
+
+1. The SQLite audit backend is pure Go (modernc.org/sqlite v1.61.1, in
+   place of github.com/mattn/go-sqlite3).
+
+   The cgo driver made every build without cgo — the published binaries,
+   and any program cross-compiled or built static — fall back to the JSONL
+   backend in silence, losing the hash chain that proves the trail was not
+   altered. A program embedding argus also carried two SQLite libraries
+   when it used the pure-Go one elsewhere (ringil: 85 MB with cgo, 37 MB
+   without). Now one driver, no cgo, the same audit everywhere.
+
+   Existing databases are read as they are: same file format, and the
+   timestamps were always stored as RFC 3339 text. Checked: a trail of 100
+   records written with the old driver verifies, continues and queries with
+   the new one. The writer settings are the same (WAL, busy timeout 5 s,
+   synchronous NORMAL, cache 1000, BEGIN IMMEDIATE). A flush of 100 records
+   takes 3.2 ms against 2.9 ms; it runs in the background.
+
+2. YAML is parsed with go.yaml.in/yaml/v4 v4.0.0 (was v3).
+
+   The decoder's messages changed wording in places ("did not find
+   expected key" for some inputs that said "could not find expected ':'");
+   they keep the line, and still never carry the document's text.
+
+
+FIXED
+-----
+
+1. A null YAML key made its line vanish.
+
+   "~: value" and "null: value" were dropped from the configuration in
+   silence (with v3 too); v4 also accepts ": value", and nested under a
+   mapping it put the entry under a nil key, out of reach of the key
+   policy. Keys are now checked before decoding: a null key, or a list or
+   mapping used as a key, is refused with its line ("invalid YAML key at
+   line N: key cannot be empty"), never with the key's text. Numbers and
+   booleans as keys still become their text, as before.
+
+2. An audit database path with #, ? or %XX in it (a Windows user name
+   may hold them) is opened as it is named. The pure-Go driver takes the
+   path as a URI, now built escaped and absolute (file:///C:/Users/...):
+   written raw, a # or ? cut the path (the trail went to another file,
+   readable by all, without WAL) and a %41 made the open fail, so the
+   backend fell back to JSONL. Found by the audit of this release, before
+   it shipped.
+
+3. An alias used as a null or non-scalar key is reported at the alias's
+   line, not the anchor's; the line is found in yaml v4's position format
+   ("at L2.C7") too.
+
+4. Release notes no longer warn that the binaries have no SQLite audit:
+   they do. The docs say Go 1.26 and yaml v4, and the audit example opens
+   the real unified database with the pure-Go driver.
+
+
+QUALITY GATES
+-------------
+
+  gofmt -l .                      PASS (clean)
+  go vet ./...                    PASS
+  CGO_ENABLED=0 go test ./...     PASS (new CI step: the library needs no cgo)
+  go test -race ./... (whole suite)  PASS
+  every local module (cmd/cli, examples, benchmarks): tidy, build, vet PASS
+  new and changed lines since v1.8.1: 49 of 49 covered (codecov/patch had
+  flagged v1.8.1's process-name fallback, 75%: now tested)
+  staticcheck / errcheck / gosec / govulncheck — make check PASS

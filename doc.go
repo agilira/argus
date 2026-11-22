@@ -15,7 +15,7 @@
 //     providers and documents into validated, atomically swapped revisions
 //     (see Setup, Settings and Document)
 //  2. **BoreasLite Ring Buffer**: MPSC event processing, 12.6ns per write (79M ops/sec)
-//  3. **Universal Format Parsers**: Support for JSON, YAML (1.2 spec via yaml.v3), TOML, HCL, INI, Properties
+//  3. **Universal Format Parsers**: Support for JSON, YAML (1.2 spec via go.yaml.in/yaml/v4), TOML, HCL, INI, Properties
 //  4. **Zero-Reflection Config Binding**: Type-safe binding with unsafe.Pointer optimization
 //  5. **Comprehensive Audit System**: Security and compliance logging with SQLite backend
 //  6. **Security Hardening Layer**: Multi-layer protection against path traversal and DoS attacks;
@@ -79,7 +79,7 @@
 //
 // Supported formats with zero configuration:
 //   - JSON (.json) - Native high-performance parsing
-//   - YAML (.yml, .yaml) - Full YAML 1.2 spec via yaml.v3 (anchors, aliases, multiline scalars, flow styles)
+//   - YAML (.yml, .yaml) - Full YAML 1.2 spec via go.yaml.in/yaml/v4 (anchors, aliases, multiline scalars, flow styles)
 //   - TOML (.toml) - Built-in parser + plugin support
 //   - HCL (.hcl, .tf) - HashiCorp configuration language
 //   - INI (.ini, .conf, .cfg) - Traditional configuration files

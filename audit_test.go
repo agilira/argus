@@ -323,3 +323,20 @@ func TestAuditNamesTheProcess(t *testing.T) {
 		t.Errorf("process name %q, want %q", got, want)
 	}
 }
+
+// A program without a name of its own (os.Args empty, or a bare path)
+// is recorded as argus, never as "" or ".".
+func TestAuditProcessWithoutAName(t *testing.T) {
+	saved := os.Args
+	defer func() { os.Args = saved }()
+	for _, args := range [][]string{nil, {""}, {"."}, {string(filepath.Separator)}} {
+		os.Args = args
+		if got := getProcessName(); got != "argus" {
+			t.Errorf("%q: %q", args, got)
+		}
+	}
+	os.Args = []string{filepath.Join("bin", "tool.exe")}
+	if got := getProcessName(); got != "tool" {
+		t.Errorf("tool.exe: %q", got)
+	}
+}

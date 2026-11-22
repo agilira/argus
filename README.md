@@ -55,7 +55,7 @@ See Argus in action - managing configurations across multiple formats with zero-
 
 ## Compatibility and Support
 
-Argus is designed for Go 1.25+ environments and follows Long-Term Support guidelines to ensure consistent performance across production deployments.
+Argus is designed for Go 1.26+ environments and follows Long-Term Support guidelines to ensure consistent performance across production deployments.
 
 ## Installation
 

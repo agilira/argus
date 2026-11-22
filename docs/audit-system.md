@@ -448,9 +448,12 @@ LIMIT 50;
 ```go
 // Access unified audit database programmatically
 func analyzeAuditTrail() error {
-    // Connect to unified audit database
-    auditDBPath := filepath.Join(os.Getenv("HOME"), ".local", "share", "argus", "audit.db")
-    db, err := sql.Open("sqlite3", auditDBPath)
+    // Connect to the unified audit database ($ARGUS_AUDIT_DIR, else
+    // $XDG_STATE_HOME/argus, else the user's config directory's argus/),
+    // read-only, with the pure-Go driver argus uses:
+    // import _ "modernc.org/sqlite"
+    auditDBPath := filepath.Join(os.Getenv("XDG_STATE_HOME"), "argus", "system-audit.db")
+    db, err := sql.Open("sqlite", "file:"+auditDBPath+"?mode=ro")
     if err != nil {
         return fmt.Errorf("failed to open audit database: %w", err)
     }

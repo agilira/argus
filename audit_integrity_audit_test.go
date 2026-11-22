@@ -50,7 +50,7 @@ func newTestAuditLogger(t *testing.T) (*AuditLogger, string) {
 // attacker with write access to the audit database.
 func tamper(t *testing.T, dbPath, column, value string) {
 	t.Helper()
-	db, err := sql.Open("sqlite3", dbPath)
+	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}

@@ -16,7 +16,7 @@ This tutorial demonstrates how to create a custom remote configuration provider 
 
 ## Prerequisites
 
-- Go 1.25 or later (the version Argus itself requires)
+- Go 1.26 or later (the version Argus itself requires)
 - Basic understanding of HTTP         case <-ticker.C:
             if currentConfig, err := h.Load(ctx, configURL); err == nil {
                 if !argus.ConfigEquals(lastConfig, currentConfig) {
@@ -526,7 +526,7 @@ Create a separate Go module for your provider:
 // go.mod
 module github.com/yourorg/argus-http-provider
 
-go 1.25
+go 1.26
 
 require github.com/agilira/argus v1.4.2
 ```

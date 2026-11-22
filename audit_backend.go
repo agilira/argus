@@ -21,14 +21,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
 	goerrors "github.com/agilira/go-errors"
-	_ "github.com/mattn/go-sqlite3" // SQLite driver registration
+	_ "modernc.org/sqlite" // SQLite in pure Go: no cgo, so every build has the audit trail
 )
 
 // auditBackend defines the interface for audit storage backends.
@@ -481,7 +483,11 @@ func secureAuditSidecars(dbPath string) error {
 // ═══════════════════════════════════════════════════════════════════════════════
 func openSQLiteDatabase(dbPath string) (*sql.DB, error) {
 	// Open SQLite database with optimized settings
-	db, err := sql.Open("sqlite3", fmt.Sprintf("%s?_journal_mode=WAL&_busy_timeout=5000&_synchronous=NORMAL&_cache_size=1000&_txlock=immediate", dbPath))
+	dsn, err := sqliteDSN(dbPath)
+	if err != nil {
+		return nil, err
+	}
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open audit database: %w", err)
 	}
@@ -495,6 +501,38 @@ func openSQLiteDatabase(dbPath string) (*sql.DB, error) {
 	}
 
 	return db, nil
+}
+
+// sqliteDSN is the database's address with the settings above, as the
+// pure-Go driver takes them: each pragma on every connection it opens, and
+// the transactions' lock taken at BEGIN.
+//
+// The path goes in as a URI, escaped: written raw after "file:", a # or ?
+// in it cut the path there (the trail went to another file, readable by
+// all, and the WAL pragma was lost), and a %41 was decoded or refused, so
+// the backend fell back to JSONL without its chain (audit 22/11). The URI
+// is SQLite's documented form: file:///home/u/a.db, file:///C:/Users/u/a.db.
+func sqliteDSN(dbPath string) (string, error) {
+	abs, err := filepath.Abs(dbPath)
+	if err != nil {
+		return "", fmt.Errorf("audit database path: %w", err)
+	}
+	q := url.Values{}
+	for _, p := range []string{"journal_mode(WAL)", "busy_timeout(5000)", "synchronous(NORMAL)", "cache_size(1000)"} {
+		q.Add("_pragma", p)
+	}
+	q.Set("_txlock", "immediate")
+	return fileURI(filepath.ToSlash(abs)) + "?" + q.Encode(), nil
+}
+
+// fileURI is an absolute path, written with /, as an escaped file: URI;
+// a Windows drive goes after the third slash (C:/Users/... is
+// file:///C:/Users/...).
+func fileURI(slashed string) string {
+	if !strings.HasPrefix(slashed, "/") {
+		slashed = "/" + slashed
+	}
+	return (&url.URL{Scheme: "file", Path: slashed}).String()
 }
 
 // verifyChainIntegrity walks the trail in insertion order and checks both

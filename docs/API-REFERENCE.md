@@ -1207,7 +1207,7 @@ const (
 JSON format (.json files) - Full production support with zero dependencies.
 
 ##### `FormatYAML`
-YAML format (.yml, .yaml files) - Full YAML 1.2 spec compliance via yaml.v3 (anchors, aliases, multiline scalars, flow styles, correct inline comment handling on all value types).
+YAML format (.yml, .yaml files) - Full YAML 1.2 spec compliance via go.yaml.in/yaml/v4 (anchors, aliases, multiline scalars, flow styles, correct inline comment handling on all value types).
 
 ##### `FormatTOML`
 TOML format (.toml files) - Built-in parser + plugin support for full specification compliance.
@@ -1227,7 +1227,7 @@ Unknown or unsupported format - returned by DetectFormat() when format cannot be
 ### Supported Formats
 
 - **JSON** (.json): Full production support
-- **YAML** (.yml, .yaml): Full YAML 1.2 spec compliance via yaml.v3
+- **YAML** (.yml, .yaml): Full YAML 1.2 spec compliance via go.yaml.in/yaml/v4
 - **TOML** (.toml): Built-in + plugin support  
 - **HCL** (.hcl, .tf): Built-in + plugin support
 - **INI** (.ini, .conf, .cfg): Built-in + plugin support

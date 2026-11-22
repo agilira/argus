@@ -40,11 +40,8 @@ jobs:
     # library — so the five published "CLI Binary" files were ar archives, not
     # executables, while the release notes told people to run ./argus.
     #
-    # CGO_ENABLED=0 because go-sqlite3 needs cgo and cross-compiling it would
-    # need a toolchain per target. The consequence is stated in the release
-    # notes rather than hidden: these binaries do config and watch operations
-    # fully, and degrade to no SQLite audit backend. `go install` produces a
-    # build with audit included.
+    # CGO_ENABLED=0: the SQLite driver is pure Go (modernc.org/sqlite), so
+    # every cross-compiled binary keeps the SQLite audit backend.
     - name: Build artifacts
       env:
         CGO_ENABLED: 0
@@ -119,9 +116,8 @@ jobs:
           **CLI Binary:**
           Download the appropriate binary for your platform from the attachments below.
 
-          The published binaries are built without cgo, so they handle every
-          config and watch operation but have no SQLite audit backend. For a
-          build with audit included:
+          The binaries are static (no cgo) and include the SQLite audit backend.
+          Or build it:
 
           ```bash
           go install github.com/agilira/argus/cmd/cli/argus@${{ github.ref_name }}

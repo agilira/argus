@@ -23,7 +23,7 @@ import (
 
 	"runtime"
 
-	_ "github.com/mattn/go-sqlite3" // SQLite driver for tests
+	_ "modernc.org/sqlite" // SQLite driver for tests
 )
 
 // Test helpers and utilities
@@ -89,7 +89,7 @@ func createTestAuditEvent(component, event string) AuditEvent {
 func verifyEventInDB(t *testing.T, dbPath string, event AuditEvent) {
 	t.Helper()
 
-	db, err := sql.Open("sqlite3", dbPath)
+	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		t.Fatalf("Failed to open database: %v", err)
 	}
@@ -300,7 +300,7 @@ func TestSQLiteBackend_SchemaVersioning(t *testing.T) {
 	}()
 
 	// Verify schema_info table was created and has correct version
-	db, err := sql.Open("sqlite3", dbPath)
+	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		t.Fatalf("Failed to open database: %v", err)
 	}
@@ -332,7 +332,7 @@ func TestSQLiteBackend_IndexesCreated(t *testing.T) {
 	}()
 
 	// Verify indexes were created
-	db, err := sql.Open("sqlite3", dbPath)
+	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		t.Fatalf("Failed to open database: %v", err)
 	}
@@ -586,7 +586,7 @@ func TestSQLiteBackend_ErrorRecovery_Security(t *testing.T) {
 	}
 
 	// Test 4: Verify database integrity
-	db, err := sql.Open("sqlite3", dbPath)
+	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		t.Fatalf("Failed to open database for verification: %v", err)
 	}
@@ -727,7 +727,7 @@ func TestSQLiteBackend_SchemaMigration_Security(t *testing.T) {
 	}()
 
 	// Step 2: Verify schema was properly migrated
-	testDB, err := sql.Open("sqlite3", dbPath)
+	testDB, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		t.Fatalf("Failed to open database for verification: %v", err)
 	}
@@ -1298,7 +1298,7 @@ func TestSQLiteBackend_SchemaErrors_Advanced(t *testing.T) {
 	}
 
 	// Create a database with corrupt schema version
-	db, err := sql.Open("sqlite3", tempFile.Name())
+	db, err := sql.Open("sqlite", tempFile.Name())
 	if err != nil {
 		t.Fatalf("Failed to open database: %v", err)
 	}
@@ -1371,7 +1371,7 @@ func TestSQLiteBackend_MigrationEdgeCases(t *testing.T) {
 	}
 
 	// Create a v1 database (complete schema but version 1)
-	db, err := sql.Open("sqlite3", tempFile.Name())
+	db, err := sql.Open("sqlite", tempFile.Name())
 	if err != nil {
 		t.Fatalf("Failed to open database: %v", err)
 	}
@@ -1973,7 +1973,7 @@ func TestSQLiteBackend_CloseAutomaticallyFlushes(t *testing.T) {
 	}
 
 	// Additional verification: manually query the database
-	db, err := sql.Open("sqlite3", tmpFile.Name()+"?cache=shared&mode=rwc")
+	db, err := sql.Open("sqlite", tmpFile.Name())
 	if err != nil {
 		t.Fatalf("Failed to open database for verification: %v", err)
 	}

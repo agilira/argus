@@ -42,7 +42,7 @@ func writeTrail(t *testing.T, al *AuditLogger, n int) {
 // for an attacker with write access to the file.
 func execOnTrail(t *testing.T, dbPath, statement string) {
 	t.Helper()
-	db, err := sql.Open("sqlite3", dbPath)
+	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
