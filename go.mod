@@ -3,7 +3,7 @@ module github.com/agilira/argus
 go 1.26.0
 
 require (
-	github.com/agilira/flash-flags v1.3.0
+	github.com/agilira/flash-flags v1.3.2
 	github.com/agilira/go-errors v1.1.3
 	github.com/agilira/go-timecache v1.0.4
 	go.yaml.in/yaml/v4 v4.0.0
