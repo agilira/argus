@@ -7,7 +7,6 @@ High-performance configuration management framework for Go applications with zer
 [![CI/CD Pipeline](https://github.com/agilira/argus/actions/workflows/ci.yml/badge.svg)](https://github.com/agilira/argus/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/agilira/argus/actions/workflows/codeql.yml/badge.svg)](https://github.com/agilira/argus/actions/workflows/codeql.yml)
 [![Security](https://img.shields.io/badge/security-gosec-brightgreen.svg)](https://github.com/agilira/argus/actions/workflows/ci.yml)
-[![Go Report Card](https://goreportcard.com/badge/github.com/agilira/argus?v=2)](https://goreportcard.com/report/github.com/agilira/argus)
 [![Test Coverage](https://img.shields.io/badge/coverage-88.7%25-brightgreen)](https://github.com/agilira/argus)
 [![CLI Coverage](https://img.shields.io/badge/cli_coverage-77.5%25-green)](https://github.com/agilira/argus)
 ![Xantos Powered](https://img.shields.io/badge/Xantos-Powered-8A2BE2)
@@ -18,15 +17,9 @@ High-performance configuration management framework for Go applications with zer
 
 <div align="center">
 
-See Argus in action - managing configurations across multiple formats with zero-allocation performance:
+A running program that follows its configuration: edits applied live, a broken file refused ([examples/live](examples/live)):
 
-<picture>
-  <source media="(max-width: 768px)" srcset="https://asciinema.org/a/ZuUskxFCGcotZJ61.svg" width="100%">
-  <source media="(max-width: 1024px)" srcset="https://asciinema.org/a/ZuUskxFCGcotZJ61.svg" width="90%">
-  <img src="https://asciinema.org/a/ZuUskxFCGcotZJ61.svg" alt="Argus CLI Demo" style="max-width: 100%; height: auto;" width="800">
-</picture>
-
-*[Click to view interactive demo](https://asciinema.org/a/ZuUskxFCGcotZJ61)*
+<img src="assets/demo.gif" alt="Argus demo: live reload of a YAML file, environment override, a broken file refused, prompts watched as documents" width="100%">
 
 </div>
 
