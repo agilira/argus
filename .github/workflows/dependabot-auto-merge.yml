@@ -8,7 +8,6 @@ on:
 # declared here; without this block the merge and comment steps below failed
 # with "Resource not accessible by integration".
 permissions:
-  actions: write
   contents: write
   pull-requests: write
 
@@ -68,11 +67,10 @@ jobs:
       # have, and failed with "Protected branch rules not configured".
       - name: Merge patch and minor updates
         if: steps.metadata.outputs.update-type == 'version-update:semver-patch' || steps.metadata.outputs.update-type == 'version-update:semver-minor'
-        run: |
-          gh pr merge --squash "${{ github.event.pull_request.number }}"
-          # The merge, made with GITHUB_TOKEN, fires no push event: without
-          # this, main would keep showing the CI result of the commit before.
-          gh workflow run ci.yml --ref main
+        # The merge, made with GITHUB_TOKEN, fires no push event, so CI does
+        # not run again on main: this job's tests stand in for it, to spare
+        # Actions minutes.
+        run: gh pr merge --squash "${{ github.event.pull_request.number }}"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

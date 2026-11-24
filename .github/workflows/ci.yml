@@ -5,8 +5,7 @@ on:
     branches: [ main, develop ]
   pull_request:
     branches: [ main ]
-  # A merge made by a workflow with GITHUB_TOKEN does not fire "push", so the
-  # Dependabot auto-merge job starts this run on main itself.
+  # Run by hand: a Dependabot merge made with GITHUB_TOKEN fires no push.
   workflow_dispatch:
 
 env:
