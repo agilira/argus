@@ -117,6 +117,10 @@ type fileState struct {
 
 // newFileState records what a scan saw of a file, keeping config as given.
 func newFileState(info os.FileInfo, config map[string]interface{}, version uint64) fileState {
+	// On Windows os.Stat leaves the file ID unloaded until os.SameFile is
+	// called, at which point it re-opens the path; resolving it here captures
+	// the identity of the file now on disk, before a later rename replaces it.
+	_ = os.SameFile(info, info)
 	return fileState{
 		modTime: info.ModTime(),
 		size:    info.Size(),

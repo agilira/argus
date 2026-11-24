@@ -7,8 +7,11 @@
 package argus
 
 import (
+	"io"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -336,6 +339,9 @@ func TestDirCloseWaitsForCallbacks(t *testing.T) {
 // With no ErrorHandler a stat error other than "not found" goes to stderr,
 // as Config.ErrorHandler documents, instead of vanishing.
 func TestStatErrorLoggedWithNilHandler(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("chmod 0000 does not block os.Stat on Windows")
+	}
 	if os.Geteuid() == 0 {
 		t.Skip("root ignores directory permissions")
 	}
@@ -401,6 +407,35 @@ func TestReportErrorUsesHandler(t *testing.T) {
 	w.reportError(os.ErrPermission, "config.json")
 	if gotPath != "config.json" {
 		t.Errorf("handler got path %q, want config.json", gotPath)
+	}
+}
+
+// With no ErrorHandler set, reportError writes the path and error to stderr.
+func TestReportErrorLogsToStderrWithNilHandler(t *testing.T) {
+	r, wr, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = r.Close() }()
+
+	orig := os.Stderr
+	os.Stderr = wr
+	defer func() { os.Stderr = orig }()
+
+	w := New(Config{DisableAudit: true})
+	defer func() { _ = w.Close() }()
+	w.reportError(os.ErrPermission, "config.json")
+
+	os.Stderr = orig
+	if err := wr.Close(); err != nil {
+		t.Fatal(err)
+	}
+	out, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out), "config.json") {
+		t.Errorf("stderr = %q, want message naming config.json", string(out))
 	}
 }
 

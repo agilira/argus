@@ -1164,6 +1164,11 @@ func (w *Watcher) statFresh(path string) (fileStat, error) {
 		exists:   err == nil,
 	}
 	if err == nil {
+		// On Windows os.Stat leaves the file ID unloaded until os.SameFile is
+		// called, at which point it re-opens the path; resolving it here
+		// captures the identity of the file now on disk, before a later rename
+		// replaces it.
+		_ = os.SameFile(info, info)
 		stat.info = info
 	}
 
