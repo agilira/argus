@@ -19,6 +19,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -84,6 +85,16 @@ type DirectoryWatcher struct {
 	closedCh       chan struct{}
 	individualMode bool
 
+	// loopDone is closed when the poll/merge loop returns; loopGID is that
+	// loop's goroutine. Close waits on loopDone so no callback runs after it
+	// returns, except when the loop itself calls Close from a callback.
+	loopDone chan struct{}
+	loopGID  atomic.Uint64
+
+	// loads counts successful loads, guarded by mu; each gives its file a new
+	// fileState.version.
+	loads uint64
+
 	// resolvedDir is dirPath with symlinks resolved, computed once. Entries
 	// found during a scan are required to resolve inside it; see
 	// isWithinWatchedTree.
@@ -93,7 +104,38 @@ type DirectoryWatcher struct {
 // fileState tracks known files and their modification times
 type fileState struct {
 	modTime time.Time
+	size    int64
+	info    os.FileInfo // for file identity (os.SameFile)
 	config  map[string]interface{}
+	// version identifies the load config came from: it moves on every
+	// successful load and only then. The merged-mode hash uses it, so a
+	// failed reload, which keeps the old config, announces nothing, while a
+	// new load announces itself even when the modTime did not change
+	// (cp -p, rsync -a, a rename over the file).
+	version uint64
+}
+
+// newFileState records what a scan saw of a file, keeping config as given.
+func newFileState(info os.FileInfo, config map[string]interface{}, version uint64) fileState {
+	return fileState{
+		modTime: info.ModTime(),
+		size:    info.Size(),
+		info:    info,
+		config:  config,
+		version: version,
+	}
+}
+
+// changedFrom reports whether info describes a different file than s.
+//
+// WHY size and identity too: an mtime-preserving write (cp -p, rsync -a,
+// tar, an atomic rename-over of such a copy) changes content without
+// changing mtime.
+func (s fileState) changedFrom(info os.FileInfo) bool {
+	if !info.ModTime().Equal(s.modTime) || info.Size() != s.size {
+		return true
+	}
+	return s.info != nil && !os.SameFile(s.info, info)
 }
 
 // =============================================================================
@@ -139,18 +181,33 @@ func WatchDirectoryMerged(
 	}
 
 	// Override the internal behavior to merge configs
-	go dw.mergeLoop(callback)
+	dw.startLoop(func() { dw.mergeLoop(callback) })
 
 	return dw, nil
 }
 
 // Close stops watching and releases resources
 func (dw *DirectoryWatcher) Close() error {
+	dw.markClosed()
+
+	// WHY wait: a scan already in progress kept delivering callbacks after
+	// Close returned. The wait happens outside dw.mu, which the scan takes,
+	// and is skipped when a callback on the loop goroutine is the caller.
+	// Every caller waits, not only the first: a second Close, concurrent
+	// with the first, returned while a callback was still running.
+	if goroutineID() != dw.loopGID.Load() {
+		<-dw.loopDone
+	}
+	return nil
+}
+
+// markClosed flips the watcher to closed and stops its loop's inputs, once.
+func (dw *DirectoryWatcher) markClosed() {
 	dw.mu.Lock()
 	defer dw.mu.Unlock()
 
 	if dw.closed {
-		return nil
+		return
 	}
 	dw.closed = true
 
@@ -163,7 +220,15 @@ func (dw *DirectoryWatcher) Close() error {
 	}
 
 	close(dw.closedCh)
-	return nil
+}
+
+// startLoop runs loop on its own goroutine, recording it for Close.
+func (dw *DirectoryWatcher) startLoop(loop func()) {
+	go func() {
+		dw.loopGID.Store(goroutineID())
+		defer close(dw.loopDone)
+		loop()
+	}()
 }
 
 // Files returns the list of currently watched files
@@ -259,6 +324,7 @@ func watchDirectoryInternal(
 		ctx:            ctx,
 		cancel:         cancel,
 		closedCh:       make(chan struct{}),
+		loopDone:       make(chan struct{}),
 		individualMode: individualMode,
 		resolvedDir:    resolvedDir,
 	}
@@ -277,7 +343,7 @@ func watchDirectoryInternal(
 	// racing one scan's processDeletedFiles against the other's loadAndNotify.
 	dw.scanTicker = time.NewTicker(options.PollInterval)
 	if individualMode {
-		go dw.pollLoop()
+		dw.startLoop(dw.pollLoop)
 	}
 
 	return dw, nil
@@ -395,7 +461,7 @@ func (dw *DirectoryWatcher) scan() error {
 		existing, exists := dw.files[path]
 		dw.mu.RUnlock()
 
-		if !exists || !info.ModTime().Equal(existing.modTime) {
+		if !exists || existing.changedFrom(info) {
 			if err := dw.loadAndNotify(path, info); err != nil {
 				dw.reportError(err, path)
 			}
@@ -420,24 +486,22 @@ func (dw *DirectoryWatcher) loadAndNotify(path string, info os.FileInfo) error {
 	// #nosec G304 -- Path is constrained to validated directory via filepath.Walk
 	data, err := os.ReadFile(path)
 	if err != nil {
-		dw.markSeen(path, info.ModTime())
+		dw.markSeen(path, info)
 		return err
 	}
 
 	format := DetectFormat(path)
 	config, err := ParseConfig(data, format)
 	if err != nil {
-		dw.markSeen(path, info.ModTime())
+		dw.markSeen(path, info)
 		return err
 	}
 
 	relPath, _ := filepath.Rel(dw.dirPath, path)
 
 	dw.mu.Lock()
-	dw.files[path] = fileState{
-		modTime: info.ModTime(),
-		config:  config,
-	}
+	dw.loads++
+	dw.files[path] = newFileState(info, config, dw.loads)
 	dw.mu.Unlock()
 
 	if dw.individualMode && dw.callback != nil {
@@ -460,9 +524,14 @@ func (dw *DirectoryWatcher) loadAndNotify(path string, info os.FileInfo) error {
 // forever, and the error is reported again each time. Recording the modtime
 // with no configuration means the file contributes nothing to the merged view
 // and is retried only once it changes.
-func (dw *DirectoryWatcher) markSeen(path string, modTime time.Time) {
+//
+// A file that loaded before keeps its last good configuration. WHY: a save
+// caught half-written fails to parse, and dropping the config there made
+// the merged view lose that file's keys until the next good write.
+func (dw *DirectoryWatcher) markSeen(path string, info os.FileInfo) {
 	dw.mu.Lock()
-	dw.files[path] = fileState{modTime: modTime}
+	prev := dw.files[path]
+	dw.files[path] = newFileState(info, prev.config, prev.version)
 	dw.mu.Unlock()
 }
 
@@ -558,7 +627,7 @@ func (dw *DirectoryWatcher) computeHash() string {
 
 	for _, path := range files {
 		state := dw.files[path]
-		fmt.Fprintf(&sb, "%s:%d;", path, state.modTime.UnixNano())
+		fmt.Fprintf(&sb, "%s:%d;", path, state.version)
 	}
 	return sb.String()
 }

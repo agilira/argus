@@ -13,7 +13,6 @@
 package argus
 
 import (
-	"os"
 	"time"
 )
 
@@ -131,13 +130,7 @@ func (s *Settings) sourceStates(view *snapshot) []SourceStatus {
 		states = append(states, SourceStatus{Source: SourceFile, Detail: dir, State: "loaded"})
 	}
 	for _, file := range sources.files {
-		state := "loaded"
-		if file.optional {
-			if _, err := os.Stat(file.path); err != nil {
-				state = "absent"
-			}
-		}
-		states = append(states, SourceStatus{Source: SourceFile, Detail: file.path, State: state})
+		states = append(states, SourceStatus{Source: SourceFile, Detail: file.path, State: declaredFileState(file, view)})
 	}
 	if sources.remote != "" {
 		state := "loaded"
@@ -171,6 +164,20 @@ func (s *Settings) sourceStates(view *snapshot) []SourceStatus {
 	}
 
 	return states
+}
+
+// declaredFileState is how the revision in force found a declared file. It is read
+// from the revision, not from the disk: a stat at Explain time described the
+// file as it is now, so an optional file created broken — refused, serving
+// none of it — was reported as loaded.
+func declaredFileState(file fileSource, view *snapshot) string {
+	absent := sourceIssue{Source: SourceFile, Detail: file.path + ": absent"}
+	for _, issue := range view.issues {
+		if issue == absent {
+			return "absent"
+		}
+	}
+	return "loaded"
 }
 
 // documentSummary counts the documents in a revision, by group.

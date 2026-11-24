@@ -398,35 +398,17 @@ func TestErrorHandlerIntegration(t *testing.T) {
 	}
 }
 
-func TestErrorHandlerPerformance(t *testing.T) {
-	// Test error handler performance
-	const iterations = 1000
-	start := time.Now()
-
-	for i := 0; i < iterations; i++ {
-		// Create error with go-errors using Argus error codes
+// BenchmarkErrorCreation measures creating an error and formatting it.
+//
+// WHY a benchmark and not a test: this was a test failing above 1µs per
+// error, so it failed on a loaded machine with nothing wrong in the code.
+// Speed is read with "go test -bench ErrorCreation"; a test asserts behaviour.
+func BenchmarkErrorCreation(b *testing.B) {
+	for i := 0; i < b.N; i++ {
 		err := errors.New(argus.ErrCodeInvalidConfig, "Performance test error")
-		if err == nil {
-			t.Fatalf("Failed to create error at iteration %d", i)
+		if !strings.Contains(err.Error(), "ARGUS_INVALID_CONFIG") {
+			b.Fatalf("error message %q lacks the code", err.Error())
 		}
-
-		// Test error message
-		errorMsg := err.Error()
-		if !strings.Contains(errorMsg, "ARGUS_INVALID_CONFIG") {
-			t.Fatalf("Error message incorrect at iteration %d", i)
-		}
-	}
-
-	duration := time.Since(start)
-	avgTime := duration / iterations
-
-	t.Logf("Error creation performance: %d iterations in %v", iterations, duration)
-	t.Logf("Average time per error: %v", avgTime)
-	t.Logf("Errors per second: %.0f", float64(iterations)/duration.Seconds())
-
-	// Error creation should be very fast (less than 1µs per operation)
-	if avgTime > 1*time.Microsecond {
-		t.Errorf("Error creation too slow: %v per operation (expected < 1µs)", avgTime)
 	}
 }
 

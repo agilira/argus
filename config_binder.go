@@ -12,6 +12,7 @@ package argus
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -315,38 +316,33 @@ func (cb *ConfigBinder) getValue(key string) (interface{}, bool) {
 // previous behaviour — made every key of a .properties or .ini file unreachable
 // and silently returned the caller's default instead.
 func lookupConfigValue(config map[string]interface{}, key string) (interface{}, bool) {
+	// Most layers are empty (no overrides, no defaults): answer before
+	// hashing the key or scanning it for dots.
+	if len(config) == 0 {
+		return nil, false
+	}
 	if val, exists := config[key]; exists {
 		return val, true
 	}
 
-	if !strings.Contains(key, ".") {
-		return nil, false
-	}
-
-	// Nested key - traverse the map
-	parts := strings.Split(key, ".")
+	// Walk the path one element at a time. WHY strings.Cut and not
+	// strings.Split: Split allocates the slice of parts on every lookup, and
+	// this runs on every Get of a dotted key, once per layer.
 	current := config
-
-	for i, part := range parts {
-		val, exists := current[part]
-		if !exists {
+	for {
+		part, rest, nested := strings.Cut(key, ".")
+		if !nested {
 			return nil, false
 		}
-
-		if i == len(parts)-1 {
-			// Last part - return the value
+		next, ok := current[part].(map[string]interface{})
+		if !ok {
+			return nil, false
+		}
+		if val, exists := next[rest]; exists {
 			return val, true
 		}
-
-		// Intermediate part - must be a map
-		if nestedMap, ok := val.(map[string]interface{}); ok {
-			current = nestedMap
-		} else {
-			return nil, false
-		}
+		current, key = next, rest
 	}
-
-	return nil, false
 }
 
 // Type conversion helpers with minimal allocations.
@@ -361,6 +357,10 @@ func convertToString(value interface{}) string {
 		return v
 	case []byte:
 		return string(v)
+	case nil:
+		// A null (JSON null, YAML ~) is no text at all; %v would spell it
+		// "<nil>" and hand that to the application as a real value.
+		return ""
 	default:
 		return fmt.Sprintf("%v", v)
 	}
@@ -371,14 +371,27 @@ func convertToInt(value interface{}) (int, error) {
 	case int:
 		return v, nil
 	case int64:
-		return int(v), nil
+		return int64ToInt(v)
 	case float64:
-		return int(v), nil
+		converted, err := floatToInt64(v)
+		if err != nil {
+			return 0, err
+		}
+		return int64ToInt(converted)
 	case string:
 		return strconv.Atoi(v)
 	default:
 		return 0, errors.New(ErrCodeInvalidConfig, fmt.Sprintf("cannot convert %T to int", value))
 	}
+}
+
+// int64ToInt narrows v, or fails when it does not fit: an int is 32 bits on
+// some platforms, where a plain conversion wraps.
+func int64ToInt(v int64) (int, error) {
+	if v < math.MinInt || v > math.MaxInt {
+		return 0, errors.New(ErrCodeInvalidConfig, fmt.Sprintf("%d does not fit in an int", v))
+	}
+	return int(v), nil
 }
 
 func convertToInt64(value interface{}) (int64, error) {
@@ -388,12 +401,26 @@ func convertToInt64(value interface{}) (int64, error) {
 	case int:
 		return int64(v), nil
 	case float64:
-		return int64(v), nil
+		return floatToInt64(v)
 	case string:
 		return strconv.ParseInt(v, 10, 64)
 	default:
 		return 0, errors.New(ErrCodeInvalidConfig, fmt.Sprintf("cannot convert %T to int64", value))
 	}
+}
+
+// floatToInt64 accepts a float only when it is a whole number in range.
+//
+// JSON has only one number type, so a port reaches us as float64. A plain
+// conversion turned 8080.9 into 8080 and 1e20 into MinInt64 without a word;
+// either is a value nobody wrote.
+func floatToInt64(v float64) (int64, error) {
+	// 2^63 is exact as a float64; MaxInt64 is not, and rounds up to it.
+	const limit = float64(1 << 63)
+	if v != math.Trunc(v) || v < -limit || v >= limit {
+		return 0, errors.New(ErrCodeInvalidConfig, fmt.Sprintf("%v is not a whole number in the int64 range", v))
+	}
+	return int64(v), nil
 }
 
 func convertToBool(value interface{}) (bool, error) {

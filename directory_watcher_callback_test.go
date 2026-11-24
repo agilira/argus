@@ -30,19 +30,12 @@ func TestWatchDirectory_DeleteCallbackCanCloseWatcher(t *testing.T) {
 			return
 		}
 
-		closed := make(chan struct{})
-		go func() {
-			_ = w.Close()
-			close(closed)
-		}()
-		select {
-		case <-closed:
-			closeReturned <- true
-		case <-time.After(500 * time.Millisecond):
-			// A callback must be able to stop its watcher without waiting for
-			// the callback itself to return and release an internal lock.
-			closeReturned <- false
-		}
+		// A callback must be able to stop its own watcher. Close is called
+		// on the callback's goroutine: Close waits for in-flight callbacks
+		// (none may run after it returns), so a callback that blocked on a
+		// Close running elsewhere would be waiting on itself.
+		_ = w.Close()
+		closeReturned <- true
 	})
 	if err != nil {
 		t.Fatalf("WatchDirectory: %v", err)
@@ -56,7 +49,7 @@ func TestWatchDirectory_DeleteCallbackCanCloseWatcher(t *testing.T) {
 	select {
 	case ok := <-closeReturned:
 		if !ok {
-			t.Fatal("Close blocked until the delete callback returned")
+			t.Fatal("Close from the delete callback did not complete")
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("delete callback was not delivered")

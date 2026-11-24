@@ -331,11 +331,44 @@ type RemoteConfig struct {
 // The cachedAt field stores raw nanoseconds (int64) instead of time.Time
 // to avoid allocation and enable direct integer comparison.
 // ═══════════════════════════════════════════════════════════════════════════════
+//
+// WHY info and not copies of its fields: change detection needs the file's
+// identity (os.SameFile), which only the os.FileInfo carries, and the
+// modification time and size come from it at no cost. One interface value is
+// smaller than a time.Time and an int64, and the cache hands fileStat out by
+// value on every hit.
 type fileStat struct {
-	modTime  time.Time // Last modification time from os.Stat()
-	size     int64     // File size in bytes
-	exists   bool      // Whether the file exists
-	cachedAt int64     // Use timecache nano timestamp for zero-allocation timing
+	info     os.FileInfo // os.Stat result; nil when the file does not exist
+	exists   bool        // Whether the file exists
+	cachedAt int64       // Use timecache nano timestamp for zero-allocation timing
+}
+
+// modTime is the file's modification time, zero when it does not exist.
+func (s fileStat) modTime() time.Time {
+	if s.info == nil {
+		return time.Time{}
+	}
+	return s.info.ModTime()
+}
+
+// size is the file's size in bytes, zero when it does not exist.
+func (s fileStat) size() int64 {
+	if s.info == nil {
+		return 0
+	}
+	return s.info.Size()
+}
+
+// changedFrom reports whether s describes a different file state than prev.
+//
+// WHY identity too: an atomic save (write a temp file, rename it over the
+// target) that keeps size and mtime, as cp -p, rsync -a or tar produce, is a
+// new file with new content that mtime and size alone cannot see.
+func (s fileStat) changedFrom(prev fileStat) bool {
+	if !s.modTime().Equal(prev.modTime()) || s.size() != prev.size() {
+		return true
+	}
+	return s.info != nil && prev.info != nil && !os.SameFile(s.info, prev.info)
 }
 
 // isExpired checks if the cached stat is expired using timecache for zero-allocation timing
@@ -428,6 +461,9 @@ type Watcher struct {
 	// lifecycleMu serialises Start, Stop and Close so the shutdown channels are
 	// closed exactly once, whatever order the calls arrive in.
 	lifecycleMu sync.Mutex
+	// processorStarted: RunProcessor was launched, so shutdown can wait for
+	// it to return.
+	processorStarted atomic.Bool
 
 	running   atomic.Bool
 	stopped   atomic.Bool // Tracks if explicitly stopped vs just not started
@@ -853,6 +889,7 @@ func (w *Watcher) Start() error {
 	}
 
 	// Start BoreasLite event processor in background
+	w.processorStarted.Store(true)
 	go w.eventRing.RunProcessor()
 
 	// Start main polling loop
@@ -883,19 +920,48 @@ func (w *Watcher) Stop() error {
 // lifecycle mutex makes Start, Stop and Close mutually exclusive, so the
 // channels below are closed exactly once.
 func (w *Watcher) shutdown(requireRunning bool) error {
+	released, err := w.release(requireRunning)
+	if err != nil {
+		return err
+	}
+
+	// WHY wait: without it Stop returned while queued callbacks were still
+	// being delivered, so a caller that released resources after Stop saw
+	// callbacks run afterwards. A callback that calls Stop itself is not
+	// waited on (see waitStopped).
+	//
+	// WHY outside lifecycleMu: a callback calling Stop or Close blocks on
+	// that mutex, so waiting for the consumer while holding it deadlocked.
+	// WHY every caller, not only the one that released: a second Close,
+	// concurrent with the first, returned while a callback was still running.
+	if w.processorStarted.Load() {
+		w.eventRing.waitStopped()
+	}
+
+	// CRITICAL FIX: Close audit logger to prevent resource leaks
+	if released && w.auditLogger != nil {
+		_ = w.auditLogger.Close()
+	}
+
+	return nil
+}
+
+// release stops the loops under lifecycleMu, once. It reports whether this
+// call was the one that released the watcher.
+func (w *Watcher) release(requireRunning bool) (bool, error) {
 	w.lifecycleMu.Lock()
 	defer w.lifecycleMu.Unlock()
 
 	if w.stopped.Load() {
 		if requireRunning {
-			return errors.New(ErrCodeWatcherStopped, "watcher is not running")
+			return false, errors.New(ErrCodeWatcherStopped, "watcher is not running")
 		}
-		return nil // already released; releasing again is a no-op
+		return false, nil // already released; releasing again is a no-op
 	}
 
 	wasRunning := w.running.CompareAndSwap(true, false)
 	if requireRunning && !wasRunning {
-		return errors.New(ErrCodeWatcherStopped, "watcher is not running")
+		return false, errors.New(ErrCodeWatcherStopped, "watcher is not running")
 	}
 
 	w.stopped.Store(true) // Mark as explicitly stopped
@@ -914,13 +980,7 @@ func (w *Watcher) shutdown(requireRunning bool) error {
 
 	// Stop BoreasLite event processor
 	w.eventRing.Stop()
-
-	// CRITICAL FIX: Close audit logger to prevent resource leaks
-	if w.auditLogger != nil {
-		_ = w.auditLogger.Close()
-	}
-
-	return nil
+	return true, nil
 }
 
 // IsRunning returns true if the watcher is currently running
@@ -1104,8 +1164,7 @@ func (w *Watcher) statFresh(path string) (fileStat, error) {
 		exists:   err == nil,
 	}
 	if err == nil {
-		stat.modTime = info.ModTime()
-		stat.size = info.Size()
+		stat.info = info
 	}
 
 	w.statCache.store(path, stat)
@@ -1132,8 +1191,8 @@ func (w *Watcher) checkFile(wf *watchedFile) {
 				w.eventRing.WriteFileChangeWithID(wf.id, wf.path, time.Time{}, 0, false, true, false)
 				wf.lastStat.exists = false
 			}
-		} else if w.config.ErrorHandler != nil {
-			w.config.ErrorHandler(errors.Wrap(err, ErrCodeFileNotFound, "failed to stat file").
+		} else {
+			w.reportError(errors.Wrap(err, ErrCodeFileNotFound, "failed to stat file").
 				WithContext("path", wf.path), wf.path)
 		}
 		return
@@ -1142,13 +1201,24 @@ func (w *Watcher) checkFile(wf *watchedFile) {
 	// File exists now
 	if !wf.lastStat.exists {
 		// File was created - send via BoreasLite
-		w.eventRing.WriteFileChangeWithID(wf.id, wf.path, currentStat.modTime, currentStat.size, true, false, false)
-	} else if currentStat.modTime != wf.lastStat.modTime || currentStat.size != wf.lastStat.size {
+		w.eventRing.WriteFileChangeWithID(wf.id, wf.path, currentStat.modTime(), currentStat.size(), true, false, false)
+	} else if currentStat.changedFrom(wf.lastStat) {
 		// File was modified - send via BoreasLite
-		w.eventRing.WriteFileChangeWithID(wf.id, wf.path, currentStat.modTime, currentStat.size, false, false, true)
+		w.eventRing.WriteFileChangeWithID(wf.id, wf.path, currentStat.modTime(), currentStat.size(), false, false, true)
 	}
 
 	wf.lastStat = currentStat
+}
+
+// reportError delivers a watch error to Config.ErrorHandler or, when none is
+// set, to stderr as Config documents. WHY: a nil handler used to drop the
+// error silently, so a file that became unreadable just stopped reporting.
+func (w *Watcher) reportError(err error, path string) {
+	if w.config.ErrorHandler != nil {
+		w.config.ErrorHandler(err, path)
+		return
+	}
+	fmt.Fprintf(os.Stderr, "argus: %s: %v\n", path, err)
 }
 
 // watchLoop is the main polling loop that checks all watched files

@@ -1,0 +1,159 @@
+argus v1.10.2 — what changed is what is delivered
+=================================================
+
+Released: 2026-11-24
+Commit:   (see git log)
+Authors:  Antonio Giordano
+
+STATUS: PATCH — no API change. Fixes from a review of the core (watcher,
+reload, resolution and binding): 18 defects, each proven by a test that
+failed before the fix. One behaviour change, item 13: a fractional or
+out-of-range number for an integer field is an error.
+
+
+FIXED — watcher
+---------------
+
+1. After one overflow of the event ring, no event was ever delivered again
+   and the consumer spun on a CPU. A write refused because the ring was
+   full had still taken a sequence number, and the consumer waited for
+   that slot forever. A slow callback and a burst of changes were enough.
+   The slot is now claimed only when there is room.
+
+2. Stop returned while queued callbacks were still running: a caller that
+   released resources after Stop saw callbacks run afterwards. Stop and
+   Close wait for the consumer to exit, without holding the lock a
+   callback calling Close needs, and a second Close concurrent with the
+   first waits too. A callback that calls Stop itself is not waited on.
+
+3. DirectoryWatcher.Close had the same defect: a scan in progress kept
+   firing callbacks after Close returned. Every Close waits for the loop.
+
+4. A file replaced by rename with the same size and modification time (cp
+   -p, rsync -a, tar) was not reported, although it is a new file with new
+   content. The file's identity (os.SameFile) is compared too.
+
+5. The directory watcher compared only the modification time: a change of
+   size was missed. It compares size and identity as well, and in merged
+   mode the change is announced: the merged configuration follows each
+   load of a file, not its modification time.
+
+6. In WatchDirectoryMerged a file that did not parse, a save caught half
+   written, replaced its last good configuration with nothing, and the
+   merged configuration was published without that file's keys. The last
+   good configuration is kept until the file parses again.
+
+7. With no ErrorHandler, an error other than "not found" (permission
+   denied) was dropped, and the file just stopped reporting. It goes to
+   stderr, as Config documents.
+
+8. AdaptStrategy wrote the batch size while the consumer read it (a data
+   race under Watch and Unwatch). It is atomic.
+
+
+FIXED — reload
+--------------
+
+9. A change to a key held by both the file and the remote was lost: the
+   change detection merged the layers with the remote on top, the reverse
+   of the precedence, so an edit of the file looked like no change. Each
+   layer is compared with itself.
+
+10. A reload cycle could start after Close returned. A closed Settings
+    starts no cycle.
+
+11. A remote that was the only source and failing was called at every
+    poll, not every RemoteInterval. The interval runs from every attempt,
+    failed or not.
+
+12. A remote outage spent a revision with no value changed, and no
+    OnReload or audit entry reported it. A change in the state of the
+    sources updates the revision in force: a revision is spent only when a
+    value or a document changes, and every revision is reported and
+    audited. Refusal.Cycles counts every poll that finds the refused file
+    unchanged, and Explain reports an optional file's state from the
+    revision in force, not from a stat made when Explain is called.
+
+
+FIXED — resolution and binding
+------------------------------
+
+13. Bind truncated 8080.9 to 8080 and turned 1e20 into the smallest int64,
+    silently. A number for an integer field must be whole and in range;
+    otherwise Bind fails and names the key. ConfigBinder shares the
+    conversion and fails the same way. GetInt keeps its contract: a value
+    it cannot convert reads as 0.
+
+14. A JSON null (or YAML ~) was read as the string "<nil>". It is "".
+
+15. Defaults and Overrides given as nested maps could not be read by a
+    dotted key ("server.port" under {"server": {"port": 9000}}). They are
+    looked up as a file is.
+
+16. A map, list or pointer field took a lower layer's nested map (a
+    default, a remote) over a higher layer's flat keys (servers.a in a
+    .properties file). Each layer's nested and flat forms are tried, in
+    order of precedence.
+
+17. "required" on a nested struct was ignored: Bind succeeded with the
+    whole section absent. A revision where neither the section nor any key
+    under it is supplied is refused. A required map, list or pointer is
+    satisfied by keys written flat (servers.a in a .properties file).
+
+18. In a "**" document pattern only the file name was matched after "**":
+    docs/**/en/*.md loaded docs/fr/b.md. Every element after "**" is
+    matched.
+
+
+PERFORMANCE
+-----------
+
+- Reading a dotted key no longer allocates: GetString("nested.key") takes
+  63 ns, 0 allocs (was 183 ns, 1 alloc). An empty layer (no overrides, no
+  defaults) is skipped before the key is hashed.
+- A cached stat takes 14.5 ns (was 29.4): the cached entry holds the
+  os.FileInfo alone, smaller than the fields it replaces.
+- Building a bound value per revision: ~1.2 us, 3 allocs (was ~1.3 us,
+  5 allocs, on the same machine).
+- Writing and processing one event: 25.9 ns, 0 allocs.
+
+
+CHANGED
+-------
+
+- README: a new demo recorded from examples/live (assets/demo.gif,
+  regenerated by assets/demo.sh); the asciinema image no longer loaded.
+  The Go Report Card badge is removed, the service no longer exists.
+- examples/error_handling: the test failing above 1 us per error, so on a
+  loaded machine, is a benchmark (BenchmarkErrorCreation).
+- CI: Dependabot bumps every module together (the submodules were left
+  needing go mod tidy and the Submodules job failed); the auto-merge job
+  tests every submodule and merges directly, without gh pr merge --auto,
+  which needs branch protection rules main does not have.
+
+
+KNOWN
+-----
+
+A Validate() of a bound type that calls Close deadlocks: it runs inside the
+reload cycle that Close waits for. A file rewritten in place keeping its
+inode, size and modification time is not seen; that needs ctime, which
+differs by platform.
+
+
+QUALITY GATES
+-------------
+
+  gofmt -l .                      PASS (clean)
+  go vet ./...                    PASS
+  go test -race .                 PASS
+  submodules build, vet, test     PASS
+  staticcheck / errcheck / gosec  PASS
+  govulncheck                     PASS on Go 1.27 (CI); a Go 1.26.0
+                                  toolchain is flagged for GO-2026-4601
+                                  (net/url, fixed in Go 1.26.1)
+  new and changed lines: 342 of 344 covered (the rest: an int64 that
+  does not fit in an int, which cannot happen on 64-bit platforms)
+  regression tests: watcher_regression_test.go,
+  settings_reload_regression_test.go, resolve_regression_test.go, each
+  run with -race -count=10

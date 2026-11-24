@@ -115,9 +115,7 @@ Time from `WriteFileChange` to the consumer callback, consumer deeply parked,
 The producer pays one atomic load to find out whether anyone is parked:
 
 ```
-BenchmarkBoreasLite_SingleEvent-8        24.4 ns/op    0 allocs/op
-BenchmarkBoreasLite_WriteFileEvent-8     12.6 ns/op    0 allocs/op
-BenchmarkBoreasLite_MPSC-8               16.3 ns/op    0 allocs/op
+BenchmarkBoreasLite_SingleEvent-8        25.9 ns/op    0 allocs/op
 ```
 
 ## Observability

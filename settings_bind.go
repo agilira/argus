@@ -46,8 +46,11 @@ type boundField struct {
 // bindPlan is everything Bind works out once, from the type alone.
 type bindPlan struct {
 	fields []boundField
-	keys   *keyTree // what T names, for Strict
-	strict bool
+	// sections are the nested structs tagged required: present when any
+	// layer supplies the section or one key under it.
+	sections []boundField
+	keys     *keyTree // what T names, for Strict
+	strict   bool
 }
 
 // Bound is a struct kept in step with the configuration.
@@ -159,14 +162,11 @@ func (b *Bound[T]) build(r reader) (*T, error) {
 	value := new(T)
 	target := reflect.ValueOf(value).Elem()
 
-	for _, field := range b.plan.fields {
-		if field.required && !r.has(field.key) {
-			return nil, errors.New(ErrCodeInvalidConfig,
-				"required configuration key "+field.key+" is missing, for field "+field.path)
-		}
-		if err := setBoundField(target.FieldByIndex(field.index), field, r); err != nil {
-			return nil, err
-		}
+	if err := b.plan.checkSections(r); err != nil {
+		return nil, err
+	}
+	if err := b.plan.fill(target, r); err != nil {
+		return nil, err
 	}
 	if b.plan.strict {
 		if err := b.plan.keys.check(r); err != nil {
@@ -180,6 +180,63 @@ func (b *Bound[T]) build(r reader) (*T, error) {
 	}
 
 	return value, nil
+}
+
+// fill writes every bound field of target from one revision.
+func (p *bindPlan) fill(target reflect.Value, r reader) error {
+	for _, field := range p.fields {
+		if field.required && !fieldPresent(r, field) {
+			return errors.New(ErrCodeInvalidConfig,
+				"required configuration key "+field.key+" is missing, for field "+field.path)
+		}
+		if err := setBoundField(target.FieldByIndex(field.index), field, r); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// fieldPresent: some layer supplies the field. A map, a list or a pointer is
+// decoded from its whole subtree, which a .properties or INI file holds
+// written flat (servers.a=...): r.has, which asks for the key itself, missed
+// it and refused a required field the file did supply.
+func fieldPresent(r reader, field boundField) bool {
+	if field.composed {
+		_, _, found := r.rawTree(field.key)
+		return found
+	}
+	return r.has(field.key)
+}
+
+// checkSections refuses a revision missing a required nested struct.
+func (p *bindPlan) checkSections(r reader) error {
+	for _, section := range p.sections {
+		if !p.sectionPresent(r, section.key) {
+			return errors.New(ErrCodeInvalidConfig,
+				"required configuration section "+section.key+" is missing, for field "+section.path)
+		}
+	}
+	return nil
+}
+
+// sectionPresent: some layer has the section itself, written nested or
+// flat, or one of the keys bound under it (the environment can only be
+// asked key by key).
+func (p *bindPlan) sectionPresent(r reader, key string) bool {
+	if r.has(key) {
+		return true
+	}
+	for _, layer := range []map[string]interface{}{r.view.file, r.view.remote} {
+		if flatSubtree(layer, r.key(key)) != nil {
+			return true
+		}
+	}
+	for _, field := range p.fields {
+		if strings.HasPrefix(field.key, key+".") && r.has(field.key) {
+			return true
+		}
+	}
+	return false
 }
 
 // prepare builds the value a candidate revision would produce. An error here
@@ -213,10 +270,11 @@ func (b *Bound[T]) discard() { b.pending = nil }
 // acceptable is what the required option answers. A key somebody supplies
 // badly is an error, which is the difference between this and the getters.
 func setBoundField(target reflect.Value, field boundField, r reader) error {
-	value, fromFlag, found := r.raw(field.key)
 	if field.composed {
+		value, fromFlag, found := r.rawTree(field.key)
 		return setComposed(target, field, r, value, fromFlag, found)
 	}
+	value, fromFlag, found := r.raw(field.key)
 	if !found {
 		return nil
 	}
@@ -246,11 +304,6 @@ func setComposed(target reflect.Value, field boundField, r reader, value interfa
 		return nil
 	}
 	if !found {
-		for _, layer := range []map[string]interface{}{r.view.file, r.view.remote} {
-			if tree := flatSubtree(layer, r.key(field.key)); tree != nil {
-				return decodeComposed(target, tree, field.key)
-			}
-		}
 		return nil
 	}
 	return decodeComposed(target, value, field.key)
@@ -407,6 +460,11 @@ func (p *bindPlan) walk(structType reflect.Type, keyPrefix string, index []int, 
 // add plans one field: a nested struct is walked, anything else is bound.
 func (p *bindPlan) add(f boundField) error {
 	if f.kind.Kind() == reflect.Struct && f.kind != durationType {
+		// A struct is walked, not bound, so its own required option has to
+		// be kept here or it is silently dropped.
+		if f.required {
+			p.sections = append(p.sections, f)
+		}
 		p.keys.branch(f.key)
 		return p.walk(f.kind, f.key, f.index, f.path)
 	}

@@ -110,6 +110,25 @@ func (s *swapState) apply(candidate *snapshot, validate func(*snapshot) error) (
 	return candidate.revision, nil
 }
 
+// restate replaces the source status of the revision in force — which sources
+// were unusable, and why the remote layer is stale — without spending a
+// revision.
+//
+// A remote that goes down while a local file still resolves every key changes
+// no value. Publishing that as a revision would spend one with nothing to
+// report or audit; keeping the old status would leave Explain saying a dead
+// remote is fine. The values, documents, revision and digest are carried over
+// untouched, so a reader sees the same configuration it saw before.
+func (s *swapState) restate(issues []sourceIssue, remoteErr string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	next := *s.current.Load()
+	next.issues = issues
+	next.remoteErr = remoteErr
+	s.current.Store(&next)
+}
+
 // stampDocuments gives every document the revision its content arrived in: the
 // new one when the content changed, the one it already had when it did not.
 //

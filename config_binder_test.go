@@ -237,7 +237,7 @@ func TestConfigBinder_TypeConversions(t *testing.T) {
 	// Configuration with various type representations
 	config := map[string]interface{}{
 		"string_int":   "42",
-		"float_to_int": 42.7,
+		"float_to_int": 42.0, // a whole float: JSON numbers arrive as float64
 		"int_to_bool":  1,
 		"zero_to_bool": 0,
 		"string_bool":  "true",
@@ -604,9 +604,15 @@ func TestConfigBinder_TypeConversionToInt(t *testing.T) {
 	}
 
 	// Test float64 to int conversion
-	result, err = cb.toInt(45.67)
+	result, err = cb.toInt(45.0)
 	if err != nil || result != 45 {
-		t.Errorf("toInt(45.67) failed: got %d, %v", result, err)
+		t.Errorf("toInt(45.0) failed: got %d, %v", result, err)
+	}
+
+	// A fractional float is not an integer: truncating it would silently
+	// bind a value nobody wrote.
+	if _, err = cb.toInt(45.67); err == nil {
+		t.Error("toInt(45.67) should fail")
 	}
 
 	// Test string to int conversion
@@ -651,9 +657,15 @@ func TestConfigBinder_TypeConversionToInt64(t *testing.T) {
 	}
 
 	// Test float64 to int64 conversion
-	result, err = cb.toInt64(45.67)
+	result, err = cb.toInt64(45.0)
 	if err != nil || result != 45 {
-		t.Errorf("toInt64(45.67) failed: got %d, %v", result, err)
+		t.Errorf("toInt64(45.0) failed: got %d, %v", result, err)
+	}
+
+	// A fractional float is not an integer: truncating it would silently
+	// bind a value nobody wrote.
+	if _, err = cb.toInt64(45.67); err == nil {
+		t.Error("toInt64(45.67) should fail")
 	}
 
 	// Test string to int64 conversion

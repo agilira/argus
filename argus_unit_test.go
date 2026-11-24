@@ -316,7 +316,7 @@ func TestConfigBinderToString(t *testing.T) {
 		{123.45, "123.45"},
 		{time.Second, "1s"},
 		{[]byte("bytes"), "bytes"},
-		{nil, "<nil>"},
+		{nil, ""}, // a null is no text, not "<nil>"
 	}
 
 	for _, test := range tests {
@@ -1217,9 +1217,10 @@ func TestSimpleCoverage(t *testing.T) {
 		t.Errorf("Expected 'true', got '%s'", result)
 	}
 
+	// A null is no text: "<nil>" used to reach the application as a value.
 	result = binder.toString(nil)
-	if result != "<nil>" {
-		t.Errorf("Expected '<nil>', got '%s'", result)
+	if result != "" {
+		t.Errorf("Expected '', got '%s'", result)
 	}
 
 	// Test BoreasLite basic functionality
@@ -2074,7 +2075,7 @@ func TestConfigBinderFinal2(t *testing.T) {
 	config := map[string]interface{}{
 		"int_val":     42,
 		"int_string":  "123",
-		"int_float":   45.67,
+		"int_float":   45.0,
 		"int_bool":    true,
 		"int_invalid": "not_a_number",
 	}
@@ -2119,7 +2120,7 @@ func TestConfigBinderFinal2(t *testing.T) {
 	config2 := map[string]interface{}{
 		"int64_val":     int64(9223372036854775807),
 		"int64_string":  "123456789",
-		"int64_float":   45.67,
+		"int64_float":   45.0,
 		"int64_bool":    true,
 		"int64_invalid": "not_a_number",
 	}

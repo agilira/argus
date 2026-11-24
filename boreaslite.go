@@ -131,8 +131,10 @@ type BoreasLite struct {
 	processor func(*FileChangeEvent)
 
 	// Optimization strategy configuration
-	strategy  OptimizationStrategy
-	batchSize int64 // Adaptive based on strategy
+	strategy OptimizationStrategy
+	// batchSize is atomic because AdaptStrategy rewrites it from Watch and
+	// Unwatch while the consumer goroutine reads it.
+	batchSize atomic.Int64
 
 	// Control
 	running atomic.Bool
@@ -145,6 +147,14 @@ type BoreasLite struct {
 	wake     chan struct{}
 	stopCh   chan struct{}
 	stopOnce sync.Once
+
+	// done is closed when RunProcessor returns, so an owner can wait until no
+	// processor call is in flight. consumerGID identifies the consumer
+	// goroutine, so a processor that triggers the wait does not wait on
+	// itself.
+	done        chan struct{}
+	doneOnce    sync.Once
+	consumerGID atomic.Uint64
 
 	// Ultra-simple stats (just counters)
 	processed atomic.Int64
@@ -190,10 +200,11 @@ func NewBoreasLite(capacity int64, strategy OptimizationStrategy, processor func
 		availableBuffer: make([]atomic.Int64, capacity),
 		processor:       processor,
 		strategy:        strategy,
-		batchSize:       batchSize,
 		wake:            make(chan struct{}, 1),
 		stopCh:          make(chan struct{}),
+		done:            make(chan struct{}),
 	}
+	b.batchSize.Store(batchSize)
 
 	// Initialize availability markers
 	for i := range b.availableBuffer {
@@ -226,7 +237,7 @@ func (b *BoreasLite) AdaptStrategy(fileCount int) {
 	}
 
 	// Update batch size atomically (safe to change at runtime)
-	b.batchSize = newBatchSize
+	b.batchSize.Store(newBatchSize)
 }
 
 // WriteFileEvent adds a file change event to the ring buffer
@@ -237,19 +248,14 @@ func (b *BoreasLite) AdaptStrategy(fileCount int) {
 //
 // Returns:
 //   - bool: true if written, false if ring is full/closed
-//
-// Performance: Target <8ns per operation
 func (b *BoreasLite) WriteFileEvent(event *FileChangeEvent) bool {
 	if !b.running.Load() {
 		b.dropped.Add(1)
 		return false
 	}
 
-	// MPSC: Claim sequence atomically
-	sequence := b.writerCursor.Add(1) - 1
-
-	// Check buffer full (file events should NEVER be dropped, but safety check)
-	if sequence >= b.readerCursor.Load()+b.capacity {
+	sequence, ok := b.claimSequence()
+	if !ok {
 		b.dropped.Add(1)
 		return false
 	}
@@ -270,6 +276,25 @@ func (b *BoreasLite) WriteFileEvent(event *FileChangeEvent) bool {
 	}
 
 	return true
+}
+
+// claimSequence reserves the next writer sequence, or reports the ring full.
+//
+// WHY a CAS loop and not Add-then-check: a sequence taken by Add and then
+// abandoned because the ring was full is never published, so the consumer
+// waits on that slot forever and no event is delivered again. The capacity
+// check must happen before the cursor moves.
+
+func (b *BoreasLite) claimSequence() (int64, bool) {
+	for {
+		sequence := b.writerCursor.Load()
+		if sequence >= b.readerCursor.Load()+b.capacity {
+			return 0, false
+		}
+		if b.writerCursor.CompareAndSwap(sequence, sequence+1) {
+			return sequence, true
+		}
+	}
 }
 
 // WriteFileChange is a convenience method for creating events from parameters.
@@ -390,7 +415,7 @@ func (b *BoreasLite) processSingleEventOptimized(current, writerPos, bufferOccup
 
 // processSmallBatchOptimized - Balanced performance for 3-20 files
 func (b *BoreasLite) processSmallBatchOptimized(current, writerPos, _ int64) int {
-	maxProcess := minInt64(b.batchSize, writerPos-current)
+	maxProcess := minInt64(b.batchSize.Load(), writerPos-current)
 	available := current - 1
 
 	// Find contiguous available events
@@ -423,9 +448,9 @@ func (b *BoreasLite) processSmallBatchOptimized(current, writerPos, _ int64) int
 // processLargeBatchOptimized - High throughput for 20+ files with Zephyros optimizations
 func (b *BoreasLite) processLargeBatchOptimized(current, writerPos, bufferOccupancy int64) int {
 	// Adaptive batching based on buffer pressure
-	adaptiveBatchSize := b.batchSize
+	adaptiveBatchSize := b.batchSize.Load()
 	if bufferOccupancy > b.capacity*3/4 {
-		adaptiveBatchSize = minInt64(b.batchSize*4, b.capacity/2)
+		adaptiveBatchSize = minInt64(adaptiveBatchSize*4, b.capacity/2)
 	}
 
 	maxProcess := minInt64(adaptiveBatchSize, writerPos-current)
@@ -590,6 +615,9 @@ func spinPolicyFor(strategy OptimizationStrategy) spinPolicy {
 // RunProcessor runs the consumer loop until Stop. It spins while events keep
 // arriving and parks when they stop; see spinPolicy for the phases.
 func (b *BoreasLite) RunProcessor() {
+	b.consumerGID.Store(goroutineID())
+	defer b.doneOnce.Do(func() { close(b.done) })
+
 	policy := spinPolicyFor(b.strategy)
 
 	timer := time.NewTimer(parkBackstop)
@@ -690,6 +718,33 @@ func (b *BoreasLite) hasWork() bool {
 func (b *BoreasLite) Stop() {
 	b.running.Store(false)
 	b.stopOnce.Do(func() { close(b.stopCh) })
+}
+
+// waitStopped blocks until a started RunProcessor has returned, so no
+// processor call is in flight or still to come. Called from the consumer
+// goroutine itself (a processor that stops its owner) it returns at once:
+// waiting there would deadlock, and the caller is the only call in flight.
+func (b *BoreasLite) waitStopped() {
+	if goroutineID() == b.consumerGID.Load() {
+		return
+	}
+	<-b.done
+}
+
+// goroutineID returns the current goroutine's id, parsed from the
+// "goroutine N [" header that runtime.Stack writes. Go exposes no other way
+// to recognise a re-entrant call from the goroutine that a shutdown waits on.
+func goroutineID() uint64 {
+	var buf [64]byte
+	n := runtime.Stack(buf[:], false)
+	var id uint64
+	for _, c := range buf[len("goroutine "):n] {
+		if c < '0' || c > '9' {
+			break
+		}
+		id = id*10 + uint64(c-'0')
+	}
+	return id
 }
 
 // Stats returns minimal statistics for monitoring ring buffer performance.

@@ -283,6 +283,48 @@ func sortedKeys(m map[string]interface{}) []string {
 	return keys
 }
 
+// rawTree is raw for a map, a list or a pointer: the same precedence, except
+// that the file and remote layers may hold the subtree written flat.
+//
+// The flat subtree used to be looked at only when no layer had the key at
+// all, so a nested map in defaults (or the remote) beat the flat keys of the
+// file above it. Each flat layer now takes its own place in the order.
+func (r reader) rawTree(key string) (interface{}, bool, bool) {
+	got := r.res.resolveIn(r.view, r.key(key))
+	if r.aboveFiles(got, key) || got.source == SourceFile {
+		return got.value, got.fromFlag, got.found
+	}
+	if tree := flatSubtree(r.view.file, r.key(key)); tree != nil {
+		return tree, false, true
+	}
+	if got.source == SourceRemote {
+		return got.value, false, true
+	}
+	if tree := flatSubtree(r.view.remote, r.key(key)); tree != nil {
+		return tree, false, true
+	}
+	return got.value, got.fromFlag, got.found
+}
+
+// aboveFiles: an override, the environment, or a flag the command line set.
+// A flag's declared default is SourceFlag too, but ranks below the remote.
+func (r reader) aboveFiles(got resolution, key string) bool {
+	switch got.source {
+	case SourceOverride, SourceEnv:
+		return true
+	case SourceFlag:
+		return r.flagSet(key)
+	default:
+		return false
+	}
+}
+
+// flagSet reports whether the command line set the flag for key, as against
+// a registered flag only supplying its declared default.
+func (r reader) flagSet(key string) bool {
+	return r.flags != nil && r.flags.Changed(r.key(key))
+}
+
 // flatSubtree rebuilds the subtree of key from a layer written flat, as
 // properties and INI files write it ("servers.a.host" for servers:
 // {a: {host: ...}}); nil when the layer has no such keys.

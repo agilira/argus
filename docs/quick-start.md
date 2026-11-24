@@ -569,7 +569,7 @@ Measured on an 8-core Linux box, Go 1.25:
 | 1000 files @ 1s | well under 1% of a core |
 | Idle watcher | nothing measurable above baseline |
 | Memory | ~17 KB per watcher + ~250 B per watched file |
-| Event pickup | 24.7 ns hot, ~7 us from idle |
+| Event pickup | 25.9 ns hot, ~7 us from idle |
 
 **Real-world impact:** a service handling 10,000 RPS shows no measurable
 change in per-request cost with a watcher running: 4.09 ns against 4.10 ns.

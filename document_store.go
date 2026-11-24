@@ -311,13 +311,16 @@ func trimDocumentExt(base string) string {
 }
 
 // splitRecursive recognises a pattern with a ** element, and returns the
-// directory to walk and the pattern the file names must match.
+// directory to walk and the slash-separated pattern that the path below the
+// ** must match.
 func splitRecursive(pattern string) (root, suffix string, recursive bool) {
 	parts := strings.Split(filepath.ToSlash(pattern), "/")
 	for i, part := range parts {
 		if part == "**" {
 			root = filepath.FromSlash(strings.Join(parts[:i], "/"))
-			suffix = filepath.Base(filepath.FromSlash(strings.Join(parts[i+1:], "/")))
+			// Every element after ** is kept: taking only the base name made
+			// docs/**/en/*.md load docs/fr/*.md as well.
+			suffix = strings.TrimSuffix(strings.Join(parts[i+1:], "/"), "/")
 			if root == "" {
 				// As in globRoot: an absolute pattern whose ** is the first
 				// element is rooted at /, and defaulting it to "." would walk
@@ -336,20 +339,21 @@ func splitRecursive(pattern string) (root, suffix string, recursive bool) {
 	return "", "", false
 }
 
-// walkRecursive lists the files under root whose base name matches suffix.
+// walkRecursive lists the files under root whose path below root matches
+// suffix, ** standing for any number of directories, none included.
 func walkRecursive(root, suffix string) ([]string, error) {
 	// The non-recursive branch of scan() goes through filepath.Glob, which
-	// reports ErrBadPattern. This one compares with filepath.Match and used to
-	// discard that error, so the same typo refused the load in one shape and
-	// returned no document in the other.
-	if _, err := filepath.Match(suffix, "probe"); err != nil {
-		return nil, errors.Wrap(err, ErrCodeInvalidDocument,
-			"invalid document pattern: "+suffix)
+	// reports ErrBadPattern. This one compares element by element with
+	// filepath.Match, so each element is parsed once up front: the same typo
+	// must refuse the load in both shapes.
+	pattern, err := parseElements(suffix)
+	if err != nil {
+		return nil, err
 	}
 
 	var matches []string
 
-	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+	err = filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
 			// An unreadable subdirectory is not a reason to lose the rest.
 			if entry != nil && entry.IsDir() {
@@ -360,8 +364,7 @@ func walkRecursive(root, suffix string) ([]string, error) {
 		if entry.IsDir() {
 			return nil
 		}
-		// Safe to drop: suffix parsed above.
-		if ok, _ := filepath.Match(suffix, entry.Name()); ok {
+		if matchesBelow(root, path, pattern) {
 			matches = append(matches, path)
 		}
 		return nil
@@ -373,6 +376,51 @@ func walkRecursive(root, suffix string) ([]string, error) {
 	sort.Strings(matches)
 
 	return matches, nil
+}
+
+// parseElements splits the pattern below a ** into the elements to match,
+// led by the ** itself, and refuses one filepath.Match cannot parse.
+func parseElements(suffix string) ([]string, error) {
+	pattern := append([]string{"**"}, strings.Split(suffix, "/")...)
+	for _, element := range pattern {
+		if _, err := filepath.Match(element, "probe"); err != nil {
+			return nil, errors.Wrap(err, ErrCodeInvalidDocument,
+				"invalid document pattern: "+suffix)
+		}
+	}
+	return pattern, nil
+}
+
+// matchesBelow reports whether path, taken relative to root, matches the
+// pattern elements.
+func matchesBelow(root, path string, pattern []string) bool {
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return false
+	}
+	return matchElements(pattern, strings.Split(filepath.ToSlash(rel), "/"))
+}
+
+// matchElements matches path elements against pattern elements, where **
+// matches zero or more whole elements and anything else is a filepath.Match
+// pattern for exactly one. Elements were checked by walkRecursive.
+func matchElements(pattern, path []string) bool {
+	if len(pattern) == 0 {
+		return len(path) == 0
+	}
+	if pattern[0] == "**" {
+		for i := 0; i <= len(path); i++ {
+			if matchElements(pattern[1:], path[i:]) {
+				return true
+			}
+		}
+		return false
+	}
+	if len(path) == 0 {
+		return false
+	}
+	ok, _ := filepath.Match(pattern[0], path[0])
+	return ok && matchElements(pattern[1:], path[1:])
 }
 
 // globRoot returns the directory part of a glob: everything up to the first

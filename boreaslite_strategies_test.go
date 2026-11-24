@@ -402,7 +402,7 @@ func TestBoreasLiteLightBatchSize(t *testing.T) {
 	boreas := NewBoreasLite(8, OptimizationLight, func(_ *FileChangeEvent) {})
 	defer boreas.Stop()
 
-	if boreas.batchSize != 1 {
-		t.Errorf("Light strategy should use batchSize=1, got %d", boreas.batchSize)
+	if boreas.batchSize.Load() != 1 {
+		t.Errorf("Light strategy should use batchSize=1, got %d", boreas.batchSize.Load())
 	}
 }

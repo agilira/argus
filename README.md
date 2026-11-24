@@ -189,7 +189,7 @@ cfg := bound.Value()   // *Config for the revision in force
 Every revision is a new value, so the struct an application already holds never
 changes underneath it. A revision that does not satisfy a bound type is
 refused, and the last good value keeps serving. `Value()` costs 0.5 ns;
-building one costs ~900 ns, once per revision.
+building one costs ~1.2 us, once per revision.
 
 Maps with string keys, lists and pointers bind too, of anything that binds,
 nested as deep as the file goes. `Strict()` refuses a key the type does not
@@ -239,10 +239,8 @@ Measured on an 8-core Linux box, Go 1.25, `go test -bench . -benchmem`:
 
 ```
 Format auto-detection:              2.9 ns/op    0 allocs
-Cached stat lookup:                28.4 ns/op    0 allocs
-Event write (ring buffer):         12.4 ns/op    0 allocs
-Event write + process:             24.7 ns/op    0 allocs
-  same work over Go channels:      42.8 ns/op    (3.4x)
+Cached stat lookup:                14.5 ns/op    0 allocs
+Event write + process:             25.9 ns/op    0 allocs
 Config binding, 15 fields:          685 ns/op    896 B, 1 alloc
 Uncached stat (os.Stat + cache):  1,400 ns/op    240 B, 2 allocs
 JSON parsing (small):             1,790 ns/op    616 B, 16 allocs
@@ -286,7 +284,7 @@ A watcher with nothing to do costs nothing on any of them: the event consumer
 spins only while events are arriving and blocks once they stop. What the
 strategies trade is batching against how long the consumer stays hot.
 
-Event pickup, measured: **24.7 ns** while events are still flowing, **~7 us**
+Event pickup, measured: **25.9 ns** while events are still flowing, **~7 us**
 (median; ~30 us worst case) for the first event after an idle period, which
 pays the wakeup.
 

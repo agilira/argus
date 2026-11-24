@@ -233,7 +233,10 @@ func (r *resolver) resolveIn(view *snapshot, key string) resolution {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	if override, ok := r.overrides[key]; ok {
+	// Overrides and defaults are written in Go and may be nested maps, just as
+	// a parsed file is; an exact-key lookup left "server.port" unreachable
+	// under {"server": {"port": ...}}. Same lookup as the file layer.
+	if override, ok := lookupConfigValue(r.overrides, key); ok {
 		return resolution{value: override, source: SourceOverride, found: true}
 	}
 
@@ -264,7 +267,7 @@ func (r *resolver) resolveIn(view *snapshot, key string) resolution {
 		return resolution{source: SourceFlag, fromFlag: true, found: true}
 	}
 
-	if fallback, ok := r.defaults[key]; ok {
+	if fallback, ok := lookupConfigValue(r.defaults, key); ok {
 		return resolution{value: fallback, source: SourceDefault, found: true}
 	}
 

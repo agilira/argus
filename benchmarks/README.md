@@ -8,52 +8,11 @@ All benchmarks were executed on an 8-core Linux box, Go 1.25.
 
 ### Single Event Processing (Optimized Path)
 ```
-BenchmarkBoreasLite_SingleEvent-8    48439191    24.40 ns/op    40.98 Mops/sec    0 B/op    0 allocs/op
+BenchmarkBoreasLite_SingleEvent-8    49122489    24.90 ns/op    40.17 Mops/sec    0 B/op    0 allocs/op
 ```
-- **Latency**: 24.40 nanoseconds to write and process one event
-- **Throughput**: 40.98 million operations per second
+- **Latency**: 24.90 nanoseconds to write and process one event
+- **Throughput**: 40.17 million operations per second
 - **Memory**: Zero allocations in hot path
-
-### Write Operations
-```
-BenchmarkBoreasLite_WriteFileEvent-8    98511256    12.59 ns/op    79.40 Mops/sec    0 B/op    0 allocs/op
-```
-- **Latency**: 12.59 nanoseconds per write
-- **Throughput**: 79.40 million operations per second
-- **Memory**: Zero allocations
-
-### Multi-Producer Single Consumer (MPSC)
-```
-BenchmarkBoreasLite_MPSC-8    72480540    16.32 ns/op    61.28 Mops/sec    0 B/op    0 allocs/op
-```
-- **Latency**: 16.32 nanoseconds per operation under concurrent load
-- **Throughput**: 61.28 million operations per second
-- **Scalability**: Performance maintained across multiple producers
-
-### Comparison with Go Channels
-
-#### BoreasLite
-```
-BenchmarkBoreasLite_vsChannels/BoreasLite-8    95362186    12.72 ns/op    78.60 Mops/sec    0 B/op    0 allocs/op
-```
-
-#### Go Channels
-```
-BenchmarkBoreasLite_vsChannels/GoChannels-8    29178723    40.74 ns/op    24.55 Mops/sec    0 B/op    0 allocs/op
-```
-
-#### Performance Delta
-- **BoreasLite**: 78.60 million ops/sec
-- **Go Channels**: 24.55 million ops/sec
-- **Improvement**: 3.2x the throughput of a buffered Go channel
-
-### High Throughput Sustained Load
-```
-BenchmarkBoreasLite_HighThroughput-8    19571341    61.41 ns/op    16.28 Mops/sec    0 B/op    0 allocs/op
-```
-- **Sustained throughput**: 16.28 million operations per second
-- **Buffer size**: 8192 events
-- **Strategy**: Large batch optimization
 
 ## Technical Implementation
 
@@ -69,7 +28,7 @@ BenchmarkBoreasLite_HighThroughput-8    19571341    61.41 ns/op    16.28 Mops/se
 3. **LargeBatch**: batch of 16 with 4x unrolling, for 20+ files
 4. **Light**: batch of 1, no spinning at all, for files that change rarely
 
-Every strategy writes and processes an event in ~24 ns while events are
+Every strategy writes and processes an event in ~25 ns while events are
 flowing, and parks when they stop; the first event after an idle period pays a
 ~7 us wakeup.
 

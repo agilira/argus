@@ -70,7 +70,7 @@ graph TB
 
         FM[File Monitor<br/>Polling Engine<br/>Stat Cache<br/>1.4us CPU per file per cycle]
 
-        BL[BoreasLite MPSC<br/>Ring Buffer<br/>4 Optimization Strategies<br/>24.7ns per event]
+        BL[BoreasLite MPSC<br/>Ring Buffer<br/>4 Optimization Strategies<br/>25.9ns per event]
 
         EP[Event Processor<br/>Batch Optimization<br/>Callback Routing]
     end
@@ -213,7 +213,7 @@ The detailed architecture diagram above fully illustrates the data flow through 
 
 1. **Multi-Source Input**: Configurations from local files, Kubernetes ConfigMaps, HashiCorp Vault, and Redis
 2. **Optimized Processing**: Automatic format detection (2.9ns) → Universal parsing → Polling-based monitoring (1.4us of CPU per file per cycle)
-3. **Event Processing**: BoreasLite ring buffer (24.7ns per event) with 4 adaptive optimization strategies
+3. **Event Processing**: BoreasLite ring buffer (25.9ns per event) with 4 adaptive optimization strategies
 4. **Integrated Security**: Audit system with tamper detection (~5us per event) and SOX/GDPR/PCI-DSS compliance
 5. **Type Safety**: Zero-reflection binding with unsafe.Pointer optimization
 6. **Performance**: Lock-free operations, zero-allocations, intelligent caching

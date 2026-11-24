@@ -154,6 +154,12 @@ type reloader struct {
 	refusal atomic.Pointer[Refusal]
 
 	closeOnce sync.Once
+
+	// closed is set under mu by close. A backend may already be holding a tick
+	// when it is told to stop — pollBackend's goroutine can even pick the
+	// ticker over its done channel — so the cycle itself must refuse to run
+	// once Close has returned, rather than trusting every backend to drain.
+	closed bool
 }
 
 // cycleOutcome is what one cycle did, decided under the lock and acted on
@@ -202,19 +208,21 @@ func (r *reloader) close() error {
 
 		// The backend has stopped handing out ticks; this waits for the cycle
 		// that was already running, so that no revision is being published
-		// when Close returns.
-		r.awaitCycle()
+		// when Close returns, and marks the reloader closed so that a tick
+		// the backend had already handed out does nothing.
+		r.markClosed()
 	})
 
 	return err
 }
 
-// awaitCycle returns once no cycle is running. Taking the lock and giving it
-// back is the whole of it: the cycle holds that lock from the first stat to
-// the last swap.
-func (r *reloader) awaitCycle() {
+// markClosed returns once no cycle is running, and makes sure none will run.
+// The cycle holds the lock from the first stat to the last swap, so taking it
+// is what waits for the one in flight.
+func (r *reloader) markClosed() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.closed = true
 }
 
 // pause holds the cycle still while fn runs.
@@ -247,8 +255,10 @@ func (r *reloader) notify(outcome cycleOutcome) {
 		if outcome.report && r.onError != nil {
 			r.onError(outcome.err)
 		}
-	case outcome.published && r.onReload != nil &&
-		(len(outcome.change.Keys) > 0 || len(outcome.change.Documents) > 0):
+	case outcome.published && r.onReload != nil:
+		// Every published revision is reported, and therefore audited: a
+		// cycle that changed nothing never publishes, so there is no empty
+		// revision left to filter out here.
 		r.onReload(outcome.change)
 	}
 }
@@ -261,11 +271,15 @@ func (r *reloader) attempt(initial bool) cycleOutcome {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	if r.closed {
+		return cycleOutcome{}
+	}
 	if initial {
 		// The first load always builds, and remembers what it saw: without
 		// this the first tick after Start rebuilds everything for nothing.
 		r.lastPrint = r.sources.fingerprint()
 	} else if !r.worthBuilding() {
+		r.stillRefused()
 		return cycleOutcome{}
 	}
 
@@ -284,8 +298,13 @@ func (r *reloader) attempt(initial bool) cycleOutcome {
 	// Kubernetes remounted a ConfigMap by swapping the ..data symlink, which
 	// moves every timestamp underneath it. Publishing that would advance the
 	// revision of an application whose configuration is exactly what it was.
-	if !initial && len(change.Keys) == 0 && len(change.Documents) == 0 &&
-		sameIssues(previous.issues, candidate.issues) {
+	// A remote that went down or came back with the same values is the same
+	// case: its status is restated on the revision in force, no revision is
+	// spent.
+	if !initial && len(change.Keys) == 0 && len(change.Documents) == 0 {
+		if !sameIssues(previous.issues, candidate.issues) {
+			r.res.restate(candidate.issues, candidate.remoteErr)
+		}
 		r.succeed()
 		return cycleOutcome{}
 	}
@@ -351,12 +370,17 @@ func (r *reloader) buildCandidate(initial bool) (*snapshot, error) {
 
 	fetchRemote := initial || r.remoteDue()
 
+	// The remote clock starts on the attempt, not on its success: a sole
+	// remote that is down fails the build, and a clock that only moved on
+	// success would call the network again at every poll instead of when the
+	// remote interval falls due.
+	if fetchRemote {
+		r.lastRemote = r.now()
+	}
+
 	candidate, _, err := r.sources.build(ctx, r.res.view(), fetchRemote)
 	if err != nil {
 		return nil, err
-	}
-	if fetchRemote {
-		r.lastRemote = r.now()
 	}
 
 	return candidate, nil
@@ -388,6 +412,20 @@ func (r *reloader) fail(err error) cycleOutcome {
 	return cycleOutcome{err: err, report: true}
 }
 
+// stillRefused counts a poll at which the refused candidate is still what is
+// on disk. Nothing moved, so nothing is rebuilt; but a file broken since 14:02
+// has been failing for every one of those cycles, and a count stuck at one
+// would read as "failed once".
+func (r *reloader) stillRefused() {
+	previous := r.refusal.Load()
+	if previous == nil {
+		return
+	}
+	next := *previous
+	next.Cycles++
+	r.refusal.Store(&next)
+}
+
 // succeed records a cycle that came to an end without an error. The state says
 // what is true now, so a refusal that has been overtaken is gone.
 func (r *reloader) succeed() {
@@ -413,29 +451,44 @@ func sameIssues(previous, candidate []sourceIssue) bool {
 // changedKeys names the keys whose value differs between two revisions, in
 // dotted form, so that an application watching "server.port" is told about
 // "server.port" rather than about "server".
+//
+// Each layer is compared with itself. Flattening the file and the remote into
+// one map let the remote overwrite the file, the reverse of the precedence a
+// read uses, so an edit to a file key that the remote also names was seen as
+// no change and never published.
 func changedKeys(previous, candidate *snapshot) []string {
-	before := make(map[string]interface{})
-	flattenInto(before, "", previous.file)
-	flattenInto(before, "", previous.remote)
-
-	after := make(map[string]interface{})
-	flattenInto(after, "", candidate.file)
-	flattenInto(after, "", candidate.remote)
+	seen := make(map[string]struct{})
+	layerChanges(seen, previous.file, candidate.file)
+	layerChanges(seen, previous.remote, candidate.remote)
 
 	var changed []string
-	for key, value := range after {
-		if old, ok := before[key]; !ok || !reflect.DeepEqual(old, value) {
-			changed = append(changed, key)
-		}
-	}
-	for key := range before {
-		if _, ok := after[key]; !ok {
-			changed = append(changed, key)
-		}
+	for key := range seen {
+		changed = append(changed, key)
 	}
 	sort.Strings(changed)
 
 	return changed
+}
+
+// layerChanges adds to changed every dotted key whose value differs between
+// two versions of one layer.
+func layerChanges(changed map[string]struct{}, previous, candidate map[string]interface{}) {
+	before := make(map[string]interface{})
+	flattenInto(before, "", previous)
+
+	after := make(map[string]interface{})
+	flattenInto(after, "", candidate)
+
+	for key, value := range after {
+		if old, ok := before[key]; !ok || !reflect.DeepEqual(old, value) {
+			changed[key] = struct{}{}
+		}
+	}
+	for key := range before {
+		if _, ok := after[key]; !ok {
+			changed[key] = struct{}{}
+		}
+	}
 }
 
 // flattenInto walks nested maps into dotted keys.

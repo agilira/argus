@@ -194,7 +194,7 @@ is bound, a revision that does not satisfy it is refused: the error handler is
 told and the last good value keeps serving.
 
 The field plan is worked out once, from the type. Reading is an atomic load
-(0.5 ns); building a value costs about 900 ns, once per revision.
+(0.5 ns); building a value costs about 1.2 us, once per revision.
 
 ### Change and Explain
 
@@ -1055,7 +1055,7 @@ Automatically selects the best strategy based on file count:
 - 4-20 files: SmallBatch strategy  
 - 21+ files: LargeBatch strategy
 
-All strategies write and process an event in 24.7 ns while events are flowing,
+All strategies write and process an event in 25.9 ns while events are flowing,
 and pick up the first event after an idle period in ~7 us (median). What they
 trade is batch size against how long the consumer stays hot before it parks.
 
