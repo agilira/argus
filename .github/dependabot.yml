@@ -5,8 +5,17 @@ version: 2
 updates:
   # Enable version updates for Go modules
   - package-ecosystem: "gomod"
-    # Look for go.mod in the root directory
-    directory: "/"
+    # Every module in the repository. cmd/cli, the examples and the
+    # benchmarks are separate modules that point at the library with
+    # "replace ../..": a bump of the root go.mod alone leaves them asking
+    # for "go mod tidy", and the Submodules job fails. Listed together, a
+    # grouped update changes all of them in one pull request.
+    directories:
+      - "/"
+      - "/cmd/cli"
+      - "/benchmarks"
+      - "/overhead-benchmarks"
+      - "/examples/*"
     # Check for updates daily
     schedule:
       interval: "daily"
@@ -24,6 +33,11 @@ updates:
         patterns:
           - "github.com/stretchr/testify"
           - "github.com/go-test/*"
+      # Everything else, so that no dependency is bumped one directory at a
+      # time. A dependency belongs to the first group that matches it.
+      others:
+        patterns:
+          - "*"
     # Auto-merge minor and patch updates for trusted dependencies
     open-pull-requests-limit: 5
     reviewers:

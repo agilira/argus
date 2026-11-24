@@ -50,9 +50,24 @@ jobs:
           go mod download
           go test -v ./...
 
-      - name: Enable auto-merge for patch and minor updates
+      # The same check as the Submodules job in ci.yml: this job merges, so it
+      # must not merge a bump that leaves a submodule unbuildable.
+      - name: Build and test every submodule
+        run: |
+          set -euo pipefail
+          for mod in $(find . -mindepth 2 -name go.mod | sort); do
+            dir=$(dirname "$mod")
+            echo "::group::$dir"
+            (cd "$dir" && go build ./... && go vet ./... && go test -count=1 -timeout 5m ./...)
+            echo "::endgroup::"
+          done
+
+      # Merged here, once the tests above have passed. "gh pr merge --auto"
+      # needs branch protection rules on main, which this repository does not
+      # have, and failed with "Protected branch rules not configured".
+      - name: Merge patch and minor updates
         if: steps.metadata.outputs.update-type == 'version-update:semver-patch' || steps.metadata.outputs.update-type == 'version-update:semver-minor'
-        run: gh pr merge --auto --squash "${{ github.event.pull_request.number }}"
+        run: gh pr merge --squash "${{ github.event.pull_request.number }}"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
