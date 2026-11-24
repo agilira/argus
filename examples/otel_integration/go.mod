@@ -11,7 +11,7 @@ require (
 )
 
 require (
-	github.com/agilira/flash-flags v1.3.0 // indirect
+	github.com/agilira/flash-flags v1.3.2 // indirect
 	github.com/agilira/go-errors v1.1.3 // indirect
 	github.com/agilira/go-timecache v1.0.4 // indirect
 	github.com/dustin/go-humanize v1.1.0 // indirect
