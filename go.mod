@@ -7,7 +7,7 @@ require (
 	github.com/agilira/go-errors v1.1.3
 	github.com/agilira/go-timecache v1.0.4
 	go.yaml.in/yaml/v4 v4.0.0
-	modernc.org/sqlite v1.62.0
+	modernc.org/sqlite v1.63.0
 )
 
 require (
