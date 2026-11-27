@@ -8,7 +8,7 @@ require github.com/agilira/argus v1.3.3
 
 require (
 	github.com/agilira/go-errors v1.1.3
-	github.com/agilira/orpheus v1.8.0
+	github.com/agilira/orpheus v1.9.0
 )
 
 require (
@@ -26,7 +26,7 @@ require (
 
 // Transitive dependencies resolved from argus and orpheus.
 require (
-	github.com/agilira/flash-flags v1.3.2 // indirect
+	github.com/agilira/flash-flags v1.3.4 // indirect
 	github.com/agilira/go-timecache v1.0.4 // indirect
 	golang.org/x/sys v0.50.0 // indirect
 	golang.org/x/term v0.48.0 // indirect
